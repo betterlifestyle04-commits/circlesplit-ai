@@ -163,3 +163,22 @@ def test_mocked_ai_proposal_is_review_only(client, monkeypatch):
     assert body["expenses"]==[{"title":"Court","amount":"19.95"}]
     assert body["strategy"]=="weighted"
     assert initial(client)["total_cents"]==original
+
+
+def test_deletion_reallocates_and_payment_locks(client):
+    e=initial(client);eid=e["id"]
+    expense_id=e["expenses"][0]["id"]
+    p=e["people"][0]["id"]
+    assert client.delete(f"/api/events/{eid}/expenses/{expense_id}").status_code==200
+    current=initial(client)
+    assert current["total_cents"]==6000
+    assert sum(x["share_cents"] for x in current["people"])==6000
+    assert client.delete(f"/api/events/{eid}/people/{p}").status_code==200
+    current=initial(client)
+    assert len(current["people"])==19
+    assert sum(x["share_cents"] for x in current["people"])==6000
+    pid=current["people"][0]["id"]
+    client.post(f"/api/events/{eid}/people/{pid}/approve")
+    client.post(f"/api/events/{eid}/people/{pid}/simulate")
+    assert client.delete(f"/api/events/{eid}/expenses/{current['expenses'][0]['id']}").status_code==409
+    assert client.delete(f"/api/events/{eid}/people/{current['people'][1]['id']}").status_code==409
