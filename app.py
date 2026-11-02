@@ -190,6 +190,18 @@ def add_expense(eid: int, data: ExpenseInput):
         recalculate(c,eid,event["strategy"])
     return {"ok": True}
 
+
+@app.delete("/api/events/{eid}/expenses/{expense_id}")
+def delete_expense(eid: int, expense_id: int):
+    with db() as c:
+        event = require_event(c,eid)
+        require_editable(c,eid)
+        cur = c.execute("DELETE FROM expenses WHERE id=? AND event_id=?",(expense_id,eid))
+        if cur.rowcount != 1:
+            raise HTTPException(404,"Expense not found")
+        recalculate(c,eid,event["strategy"])
+    return {"ok":True}
+
 class PersonInput(BaseModel):
     name: str = Field(min_length=2, max_length=60)
     weight: int = Field(default=1, ge=1, le=10)
@@ -203,6 +215,18 @@ def add_person(eid: int, data: PersonInput):
                   (eid,data.name,data.weight))
         recalculate(c,eid,event["strategy"])
     return {"ok": True}
+
+
+@app.delete("/api/events/{eid}/people/{pid}")
+def delete_person(eid: int, pid: int):
+    with db() as c:
+        event = require_event(c,eid)
+        require_editable(c,eid)
+        cur = c.execute("DELETE FROM people WHERE id=? AND event_id=?",(pid,eid))
+        if cur.rowcount != 1:
+            raise HTTPException(404,"Participant not found")
+        recalculate(c,eid,event["strategy"])
+    return {"ok":True}
 
 class AllocationInput(BaseModel):
     strategy: Literal["equal", "weighted"]
