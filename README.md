@@ -49,6 +49,26 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Verified provider smoke test (November 2–3, 2026)
+
+The deployed, password-protected organizer workspace completed the following **sandbox-only** test journey:
+
+- **Gemini**: a real HTTP 200 from `/api/ai/parse` returned three editable expense items (court $180, equipment $25, refreshments $30) and a narrative rationale. Human approval is required to add them to a budget.
+- **PayPal**: an $11.00 USD fictional participant contribution produced a sandbox Orders v2 order, a buyer approval return to `/workspace?payment=return`, a successful HTTP 200 capture, and HTTP 200 verified-webhook deliveries. The ledger displayed `VERIFIED CAPTURE` rather than `ORDER CREATED` or `SIMULATED`.
+
+The tests verify one specific happy path and do not establish production readiness, universal reliability, or real-money processing. Do not publish sandbox buyer credentials, secret API values, or the shared judge-workspace password in the repository or video.
+
+**Judge walkthrough:**
+
+1. Open the no-login public site and demonstrate event creation and deterministic split allocation using fictional data.
+2. Open `/workspace` with credentials provided *privately* in the Devpost testing-instructions field.
+3. In AI assistant, submit `Court rental $180, equipment $25, refreshments $30 for twenty people`; review the structured output and only apply to an editable test event.
+4. Create a fresh $11.00 test contribution in a new fictional event, approve it, and select PayPal test; approve in the PayPal sandbox buyer account (no real payment methods).
+5. If the redirect does not complete, use Activity → Check PayPal to resume the **existing** order. Verify that Activity shows `VERIFIED CAPTURE` and the Overview confirmed sandbox total increases.
+6. Check the PayPal sandbox app's webhook logs separately. Never treat a created order or webhook simulator as evidence of a captured payment.
+
+**Important**: Free Render SQLite storage is ephemeral; previous captures and events can vanish on a deploy or restart. The deployed example is not intended for real users. The public guest page never invokes real PayPal/Gemini APIs.
+
 ## Public website and protected organizer workspace
 
 - **Public website:** https://circlesplit-ai-demo.onrender.com/ — no login, interactive fictional events and exact-cent splits, entirely **browser-local** (localStorage). Simulated contributions never contact PayPal; the public AI panel is informational and does not contact Gemini. No public action changes the organizer SQLite database.
