@@ -1,4 +1,7 @@
 """CircleSplit AI API. LOCAL-ONLY TRUSTED ORGANIZER MVP; no production authentication."""
+import base64
+import binascii
+import hmac
 import json
 import os
 import sqlite3
@@ -10,7 +13,7 @@ from typing import Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -21,6 +24,33 @@ ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv("CIRCLESPLIT_DB") or str(ROOT / "circlesplit.sqlite3"))
 app = FastAPI(title="CircleSplit AI", version="0.2.0")
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
+
+@app.middleware("http")
+async def demo_access_control(request: Request, call_next):
+    """Only for an explicitly configured hosted judge demo; NOT user accounts."""
+    if os.getenv("CIRCLESPLIT_HOSTED") == "1":
+        # PayPal must reach the webhook without Basic credentials; it verifies a
+        # cryptographic signature before any payment state change.
+        if request.url.path not in ("/health", "/api/paypal/webhook"):
+            user = os.getenv("DEMO_USERNAME", "judge")
+            password = os.getenv("DEMO_PASSWORD", "")
+            if len(password) < 12:
+                return JSONResponse(status_code=503,
+                    content={"detail": "Hosted demo requires DEMO_PASSWORD (12+ characters)"})
+            value = request.headers.get("authorization", "")
+            scheme, _, token = value.partition(" ")
+            try:
+                decoded = base64.b64decode(token, validate=True).decode("utf-8")
+                received_user, received_password = decoded.split(":", 1)
+            except (ValueError, UnicodeError, binascii.Error):
+                received_user = received_password = ""
+            if (scheme.lower() != "basic"
+                or not hmac.compare_digest(received_user, user)
+                or not hmac.compare_digest(received_password, password)):
+                return Response("Judge demo credentials required", status_code=401,
+                    headers={"WWW-Authenticate": 'Basic realm="CircleSplit AI Judges"'})
+    return await call_next(request)
+
 
 def now():
     return datetime.now(timezone.utc).isoformat()
