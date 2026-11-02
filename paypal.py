@@ -71,6 +71,25 @@ async def order(amount, event_id, person_id, return_url, request_id):
 async def capture(order_id, idempotency_key):
     return await api("POST", "/v2/checkout/orders/" + order_id + "/capture", {}, idempotency_key)
 
+async def details(order_id):
+    # Order IDs are looked up in our database before calling this function.
+    return await api("GET", "/v2/checkout/orders/" + order_id)
+
+def approval_link(details):
+    # Never redirect to an arbitrary URL taken from remote JSON.
+    for entry in details.get("links", []):
+        if entry.get("rel") not in ("payer-action", "approve"):
+            continue
+        url = entry.get("href")
+        if not isinstance(url, str):
+            continue
+        parsed = urlparse(url)
+        if parsed.scheme == "https" and parsed.hostname in (
+            "www.sandbox.paypal.com", "sandbox.paypal.com"
+        ):
+            return url
+    return None
+
 def completed_capture(response, amount):
     captures = [c for unit in response.get("purchase_units", [])
                 for c in unit.get("payments", {}).get("captures", [])]
