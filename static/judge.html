@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#102a36"><meta name="description" content="CircleSplit AI judge walkthrough for the PayPal AI Hackathon">
+<title>Judge walkthrough — CircleSplit AI</title>
+<style>
+:root{--ink:#102d3b;--muted:#58727f;--teal:#087f73;--bg:#f5f8f8;--line:#dce9e7;--navy:#0c2934}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+header{background:var(--navy);color:#fff;padding:19px max(24px,calc((100vw - 1100px)/2));display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:15px}
+header a{color:#80e6c8;text-decoration:none;font-weight:750}main{max-width:1100px;padding:47px 20px 70px;margin:auto}
+h1{font-size:clamp(34px,5vw,55px);letter-spacing:-1.5px;line-height:1.09;margin:13px 0 18px}
+h2{font-size:22px;letter-spacing:-.5px;margin:8px 0 15px}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:1.7px;font-weight:850;color:var(--teal)}
+.lead{font-size:17px;color:var(--muted);max-width:760px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:white;border:1px solid var(--line);padding:25px;border-radius:17px}
+.actions{display:flex;flex-wrap:wrap;gap:11px;margin:22px 0}.btn{display:inline-flex;padding:12px 18px;background:white;border:1px solid var(--line);border-radius:11px;color:var(--ink);font-size:13px;font-weight:800;text-decoration:none}
+.btn.primary{background:var(--teal);border-color:var(--teal);color:white}
+.warn{background:#fff7e8;color:#74511b;border:1px solid #f1dfb9;border-radius:12px;padding:15px 18px;margin:26px 0}
+.chip{display:inline-block;background:#e5f6f0;color:#06705d;font-size:11px;font-weight:800;padding:5px 10px;border-radius:50px}
+ol{padding-left:22px}li{margin:10px 0}.small{font-size:13px;color:var(--muted)}
+.example{font-family:ui-monospace,Consolas,monospace;background:#f3f7f7;border:1px solid var(--line);border-radius:10px;padding:13px;word-break:break-word}
+footer{margin-top:36px;font-size:12px;color:#78929b}
+@media(max-width:750px){.grid{grid-template-columns:1fr}.card{padding:20px}main{padding:30px 15px}}
+</style></head><body>
+<header><strong>◉ CircleSplit AI</strong><nav><a href="/">Public demo</a> &nbsp; · &nbsp; <a href="https://github.com/betterlifestyle04-commits/circlesplit-ai" rel="noopener" target="_blank">Source code</a></nav></header>
+<main><span class="eyebrow">PayPal AI Hackathon 2026</span><h1>Judge walkthrough</h1>
+<p class="lead">A reproducible evaluation of AI-assisted event budgeting, exact-cent cost splitting, explicit human approval, and verified PayPal sandbox captures. No real funds are involved.</p>
+<div class="actions"><a class="btn primary" href="/">Explore public demo</a><a class="btn" href="/workspace">Open protected integration workspace</a></div>
+<div class="warn"><strong>Two intentionally separate experiences.</strong> The public homepage uses fictional data in your browser and simulated contributions only. The protected integration workspace calls real Gemini and PayPal sandbox APIs; access credentials are provided privately in Devpost testing instructions. This avoids exposing AI usage and payment APIs to anonymous visitors.</div>
+<div class="grid">
+<section class="card"><span class="chip">Open to everyone</span><h2>1 · Explore the public experience</h2>
+<ol><li>Open the <a href="/">public CircleSplit demo</a> and select Event planner.</li>
+<li>Choose Friday Community Volleyball: $220 for 20 friends.</li>
+<li>Verify equal splitting yields $11.00 each and weighted splitting adjusts allocations without losing cents.</li>
+<li>Create a $10 event with three fictional participants and confirm shares add up to exactly $10.</li>
+<li>Open Contributions, approve a share and select Simulate; it must be labelled SIMULATED and must not charge anyone.</li></ol>
+<p class="small">Reset demo restores local fictional data. This experience never contacts Gemini or PayPal.</p></section>
+<section class="card"><span class="chip">Separate judge login</span><h2>2 · Run the AI copilot</h2>
+<ol><li>Sign into the <a href="/workspace">protected workspace</a> with judge credentials supplied privately in Devpost.</li>
+<li>Open AI assistant and paste the sample note.</li>
+<li>Click Analyze expenses. A real Gemini response should extract $180, $25 and $30, totalling $235, and provide a rationale.</li>
+<li>Verify that every proposal remains editable and does not change an event until it is explicitly approved.</li></ol>
+<div class="example">Our court costs $180, equipment $25 and refreshments $30. Twenty friends will attend.</div></section>
+<section class="card"><span class="chip">PayPal sandbox only</span><h2>3 · Verify one captured payment</h2>
+<ol><li>Create a new fictional $11 event with one participant in the protected workspace.</li>
+<li>Approve the participant's assigned share, then select PayPal test.</li>
+<li>Use a PayPal sandbox PERSONAL buyer account from the developer dashboard. Confirm checkout uses the sandbox PayPal hostname; never use real cards or live credentials.</li>
+<li>Approve checkout and return to CircleSplit. Activity should display VERIFIED CAPTURE, not just ORDER CREATED.</li>
+<li>If interrupted, use Activity → Check PayPal to resume the existing order. Never create repeated orders for the same participant.</li></ol></section>
+<section class="card"><span class="chip">Evidence and limitations</span><h2>4 · Inspect the implementation</h2>
+<p>On November 2–3, 2026, the hosted integration workspace returned a real Gemini response and recorded one $11.00 USD PayPal sandbox capture, with HTTP 200 capture and webhook requests.</p>
+<p class="small" style="margin-top:15px">This is a hackathon MVP. Public demonstration data is fictional; the protected workspace uses shared test records and Render Free's ephemeral SQLite. Data may reset after deployment. No production payments, real identity verification, escrow, or payout splitting are claimed.</p>
+<p style="margin-top:16px"><a href="https://github.com/betterlifestyle04-commits/circlesplit-ai" target="_blank" rel="noopener">Review source code, MIT license and automated tests →</a></p></section>
+</div><footer>CircleSplit AI · Public simulation and controlled live sandbox testing · No real funds</footer></main></body></html>
