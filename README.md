@@ -49,6 +49,17 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Judging access and walkthrough
+
+- Public no-login guest demo: https://circlesplit-ai-demo.onrender.com/ — interactive **browser-local simulation** only.
+- Public judge walkthrough: https://circlesplit-ai-demo.onrender.com/judge — clear step-by-step Gemini and PayPal sandbox testing route.
+- Protected live integration workspace: https://circlesplit-ai-demo.onrender.com/workspace — this calls real Gemini and PayPal **sandbox** APIs and is protected by HTTP Basic auth.
+- [Judge handoff document](docs/JUDGE_HANDOFF.md) and [2:45 video script](docs/VIDEO_DEMO_SCRIPT.md) document the exact evaluation steps without exposing credentials.
+- Optional separate judge account uses JUDGE_USERNAME and JUDGE_PASSWORD (18+ characters), enabled with JUDGE_ACCESS_ENABLED=1 and auto-expiring through JUDGE_ACCESS_EXPIRES_AT. Owner credentials remain independent. **Set passwords in Render only; never commit them to GitHub.**
+- The protected /api/judge-readiness endpoint shows only whether provider credentials are present and how many captures/webhooks are recorded in the **current ephemeral database**. This does not assert live availability or persist evidence across redeployments.
+- Devpost's testing-instructions field must include the separate judge login, not the repository or publicly visible project description. Check the visibility of that field before posting credentials. Never disclose PayPal live buyer or API secrets.
+- The separate judge login **does not create isolated per-judge data**: testers should only use fictional event and participant names. This is a controlled sandbox proof of concept, not production authentication.
+
 ## Verified provider smoke test (November 2–3, 2026)
 
 The deployed, password-protected organizer workspace completed the following **sandbox-only** test journey:
