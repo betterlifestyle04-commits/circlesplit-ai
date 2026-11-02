@@ -385,7 +385,7 @@ async def create_order(eid: int, pid: int, request: Request):
     return {"order_id":response["id"],"approval_url":response["approval_url"],
             "mode":"PAYPAL_SANDBOX"}
 
-@app.post("/api/paypal/orders/status/{order_id}")
+@app.post("/api/paypal/order-status/{order_id}")
 async def check_existing_order(order_id: str):
     """Owner-initiated reconciliation. Never creates a second payment order."""
     if len(order_id) < 5 or len(order_id) > 50 or not order_id.replace("-", "").isalnum():
