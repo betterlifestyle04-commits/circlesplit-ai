@@ -126,3 +126,14 @@ def test_mocked_capture_and_webhook_replay(client,monkeypatch):
                "supplementary_data":{"related_ids":{"order_id":"TEST-ORDER-456"}}}}
     assert client.post("/api/paypal/webhook",json=event).status_code==200
     assert client.post("/api/paypal/webhook",json=event).json()["duplicate"] is True
+
+
+def test_hosted_demo_fails_closed_and_accepts_explicit_credentials(client,monkeypatch):
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.delenv("DEMO_PASSWORD",raising=False)
+    assert client.get("/api/state").status_code == 503
+    monkeypatch.setenv("DEMO_PASSWORD","a-long-random-demo-password")
+    assert client.get("/api/state").status_code == 401
+    assert client.get("/api/state",auth=("wrong","a-long-random-demo-password")).status_code == 401
+    assert client.get("/api/state",auth=("judge","a-long-random-demo-password")).status_code == 200
+    assert client.get("/health").status_code == 200
