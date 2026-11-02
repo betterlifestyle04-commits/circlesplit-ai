@@ -33,7 +33,7 @@ async def demo_access_control(request: Request, call_next):
         # cryptographic signature before any payment state change.
         # The public demo is a standalone, browser-local experience. All
         # organizer data and mutation/payment/AI routes still require Basic auth.
-        public_page = request.url.path in ("/", "/favicon.ico") and request.method in ("GET", "HEAD")
+        public_page = request.url.path in ("/", "/judge", "/favicon.ico") and request.method in ("GET", "HEAD")
         if not public_page and request.url.path not in ("/health", "/api/paypal/webhook"):
             user = os.getenv("DEMO_USERNAME", "judge")
             password = os.getenv("DEMO_PASSWORD", "")
@@ -47,11 +47,27 @@ async def demo_access_control(request: Request, call_next):
                 received_user, received_password = decoded.split(":", 1)
             except (ValueError, UnicodeError, binascii.Error):
                 received_user = received_password = ""
-            if (scheme.lower() != "basic"
-                or not hmac.compare_digest(received_user, user)
-                or not hmac.compare_digest(received_password, password)):
-                return Response("Judge demo credentials required", status_code=401,
-                    headers={"WWW-Authenticate": 'Basic realm="CircleSplit AI Judges"'})
+            owner_ok = (scheme.lower() == "basic"
+                and hmac.compare_digest(received_user, user)
+                and hmac.compare_digest(received_password, password))
+            judge_ok = False
+            if os.getenv("JUDGE_ACCESS_ENABLED") == "1":
+                judge_name = os.getenv("JUDGE_USERNAME", "")
+                judge_pass = os.getenv("JUDGE_PASSWORD", "")
+                expiry = os.getenv("JUDGE_ACCESS_EXPIRES_AT", "")
+                try:
+                    expires = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+                    still_valid = expires.tzinfo is not None and datetime.now(timezone.utc) < expires
+                except ValueError:
+                    still_valid = False
+                if still_valid and judge_name and len(judge_pass) >= 18:
+                    judge_ok = (scheme.lower() == "basic"
+                        and hmac.compare_digest(received_user, judge_name)
+                        and hmac.compare_digest(received_password, judge_pass))
+            if not owner_ok and not judge_ok:
+                return Response("Protected testing workspace credentials required", status_code=401,
+                    headers={"WWW-Authenticate": 'Basic realm="CircleSplit AI Testing"'})
+            request.state.viewer_role = "owner" if owner_ok else "judge"
     return await call_next(request)
 
 
@@ -158,6 +174,10 @@ def index():
 def organizer_workspace():
     return FileResponse(ROOT / "static" / "index.html")
 
+@app.get("/judge")
+def judge_guide():
+    return FileResponse(ROOT / "static" / "judge.html")
+
 @app.api_route("/favicon.ico", methods=["GET", "HEAD"])
 def favicon():
     # Avoid browser Basic-auth prompts caused by automatic favicon requests.
@@ -166,6 +186,25 @@ def favicon():
 @app.get("/health")
 def health():
     return {"status": "ok", "mode": "sandbox-only", "version": "0.2.0"}
+
+@app.get("/api/judge-readiness")
+def judge_readiness():
+    # Protected summary of configured integrations and this ephemeral database.
+    with db() as c:
+        captures = c.execute(
+            "SELECT COUNT(*) FROM payments WHERE status='completed' AND capture_id IS NOT NULL"
+        ).fetchone()[0]
+        webhook_events = c.execute("SELECT COUNT(*) FROM webhook_events").fetchone()[0]
+    return {
+        "mode":"sandbox-only",
+        "ai_key_present":bool(os.getenv("GEMINI_API_KEY")),
+        "paypal_key_pair_present":paypal.configured(),
+        "webhook_id_present":bool(os.getenv("PAYPAL_WEBHOOK_ID")),
+        "current_store_verified_captures":captures,
+        "current_store_webhook_events":webhook_events,
+        "storage":"ephemeral-sqlite",
+        "note":"Credentials present != live provider verification; counts reset on deploy.",
+    }
 
 @app.get("/api/state")
 def state():
