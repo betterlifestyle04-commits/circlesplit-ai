@@ -385,6 +385,51 @@ async def create_order(eid: int, pid: int, request: Request):
     return {"order_id":response["id"],"approval_url":response["approval_url"],
             "mode":"PAYPAL_SANDBOX"}
 
+@app.post("/api/paypal/orders/status/{order_id}")
+async def check_existing_order(order_id: str):
+    """Owner-initiated reconciliation. Never creates a second payment order."""
+    if len(order_id) < 5 or len(order_id) > 50 or not order_id.replace("-", "").isalnum():
+        raise HTTPException(422, "Invalid order ID")
+    with db() as c:
+        row = c.execute("SELECT * FROM payments WHERE order_id=?", (order_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Unknown sandbox order")
+        record = dict(row)
+    if record["status"] == "completed":
+        return {"status":"COMPLETED","action":"done","verified":True}
+    if record["status"] != "created":
+        raise HTTPException(409, "Order not ready for status verification")
+    details = await paypal.details(order_id)
+    if details.get("id") != order_id or details.get("intent") != "CAPTURE":
+        raise HTTPException(409, "PayPal order reference or intent mismatch")
+    units = details.get("purchase_units")
+    if not isinstance(units, list) or len(units) != 1:
+        raise HTTPException(409, "PayPal order does not have exactly one purchase unit")
+    unit = units[0]
+    amount = unit.get("amount") or {}
+    if (amount.get("currency_code") != "USD"
+        or not paypal.same_amount(amount.get("value"),record["amount_cents"])):
+        raise HTTPException(409, "Sandbox order amount or currency mismatch")
+    if unit.get("custom_id") not in (None, f'{record["event_id"]}:{record["person_id"]}'):
+        raise HTTPException(409, "Sandbox order participant mismatch")
+    status = details.get("status")
+    if status == "COMPLETED":
+        verified = paypal.completed_capture(details,record["amount_cents"])
+        if not verified:
+            raise HTTPException(409, "PayPal reports completion but no matching capture was found")
+        with db() as c:
+            c.execute("UPDATE payments SET status='completed',capture_id=? WHERE id=? AND status!='completed'",
+                      (verified["id"],record["id"]))
+            c.execute("UPDATE people SET status='sandbox_paid' WHERE id=?", (record["person_id"],))
+        return {"status":"COMPLETED","action":"done","verified":True}
+    if status == "APPROVED":
+        return {"status":status,"action":"capture","verified":False}
+    if status in ("CREATED","PAYER_ACTION_REQUIRED"):
+        approval_url = paypal.approval_link(details)
+        return {"status":status,"action":"approve" if approval_url else "pending",
+                "approval_url":approval_url,"verified":False}
+    return {"status":str(status or "UNKNOWN")[:40],"action":"pending","verified":False}
+
 class CaptureInput(BaseModel):
     order_id: str = Field(min_length=5,max_length=50)
 
