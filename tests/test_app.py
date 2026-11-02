@@ -222,3 +222,60 @@ def test_paypal_approval_returns_to_protected_workspace(client, monkeypatch):
     r = client.post(f"/api/paypal/orders/{eid}/{pid}")
     assert r.status_code == 200
     assert captured == ["https://circlesplit-ai-demo.onrender.com/workspace?payment=return"]
+
+
+@pytest.mark.parametrize("provider_status,expected", [
+    (400, "Gemini HTTP 400: Invalid request"),
+    (403, "Gemini HTTP 403: API key"),
+    (404, "Gemini HTTP 404: Model not available"),
+    (429, "Gemini HTTP 429: Quota"),
+    (503, "Gemini HTTP 503: Google service"),
+])
+def test_gemini_error_codes_are_actionable_without_leaking_provider_details(
+    client, monkeypatch, provider_status, expected
+):
+    import app as api_module
+    import httpx
+    monkeypatch.setenv("GEMINI_API_KEY", "non-secret-fixture-key")
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    outbound = []
+    class BadResponse:
+        def raise_for_status(self):
+            request = httpx.Request("POST", "https://generativelanguage.googleapis.com/v1beta/models/test:generateContent")
+            response = httpx.Response(
+                provider_status,
+                request=request,
+                json={"error": {"message": "DO NOT LEAK PRIVATE PROVIDER DIAGNOSTICS"}},
+            )
+            raise httpx.HTTPStatusError("Provider failure", request=request, response=response)
+    class FakeClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, **kwargs):
+            outbound.append(url)
+            return BadResponse()
+    monkeypatch.setattr(api_module.httpx, "AsyncClient", FakeClient)
+    response = client.post("/api/ai/parse", json={"note":"Rental 160 USD, snacks 30 USD"})
+    assert response.status_code == 502
+    assert expected in response.json()["detail"]
+    assert "PRIVATE PROVIDER" not in response.text
+    assert outbound and "/models/gemini-3.5-flash-lite:generateContent" in outbound[0]
+
+
+def test_gemini_invalid_json_is_reported_distinctly(client, monkeypatch):
+    import app as api_module
+    monkeypatch.setenv("GEMINI_API_KEY", "non-secret-fixture-key")
+    class BadResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"candidates":[{"content":{"parts":[{"text":"not-json"}]}}]}
+    class FakeClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, *args, **kwargs): return BadResponse()
+    monkeypatch.setattr(api_module.httpx, "AsyncClient", FakeClient)
+    response = client.post("/api/ai/parse", json={"note":"Rental 160 USD, snacks 30 USD"})
+    assert response.status_code == 502
+    assert "invalid or incomplete structured JSON" in response.json()["detail"]
