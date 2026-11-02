@@ -194,6 +194,8 @@ def test_public_demo_is_open_but_organizer_actions_stay_protected(client, monkey
     assert "Public interactive demo" in page.text
     assert "No PayPal orders or AI API requests" in page.text
     assert "localStorage" in page.text
+    assert client.get("/favicon.ico").status_code == 204
+    assert client.head("/favicon.ico").status_code == 204
     assert client.get("/workspace").status_code == 401
     assert client.get("/api/state").status_code == 401
     assert client.get("/api/transactions").status_code == 401
