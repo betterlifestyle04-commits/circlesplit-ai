@@ -1,0 +1,19 @@
+# Render Blueprint — optional hosted judge demo.
+# No charges or live payments. Configure secrets in Render, not GitHub.
+services:
+  - type: web
+    name: circlesplit-ai-demo
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /health
+    envVars:
+      - key: CIRCLESPLIT_HOSTED
+        value: "1"
+      - key: DEMO_USERNAME
+        value: judge
+      - key: DEMO_PASSWORD
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.12.7
