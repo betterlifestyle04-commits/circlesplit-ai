@@ -1,0 +1,41 @@
+# CircleSplit AI — Judge handoff
+
+## Public entry points
+- Public interactive guest experience: https://circlesplit-ai-demo.onrender.com/
+- Public judge guide: https://circlesplit-ai-demo.onrender.com/judge
+- Protected live Gemini and PayPal sandbox workspace: https://circlesplit-ai-demo.onrender.com/workspace
+- Source code and automated tests: https://github.com/betterlifestyle04-commits/circlesplit-ai
+
+The public homepage is a browser-local simulation. Only the protected workspace connects to the actual Gemini model and PayPal SANDBOX.
+
+## Testing steps to copy to PRIVATE Devpost testing-instructions field
+**Never put judge passwords in this public file, the project description or the YouTube video.**
+
+Use the following instructions in the private judge-testing field after entering separate judge credentials:
+
+CircleSplit has a public interactive simulation (no login) and a separate protected integration workspace. Start at https://circlesplit-ai-demo.onrender.com/judge. Then sign into https://circlesplit-ai-demo.onrender.com/workspace using the judge username/password provided separately in this private field.
+
+AI: Open AI assistant and submit: "Our court costs $180, equipment $25 and refreshments $30. Twenty friends will attend." Gemini should extract three editable amounts totalling $235 USD with a rationale. The organizer must explicitly approve each proposal before applying it.
+
+PayPal: Make a fresh fictional event costing $11.00 USD with one participant. Approve the share; select PayPal test. Use a *PayPal SANDBOX personal buyer account* obtained from PayPal Developer Dashboard (never a live PayPal account or real card). Complete checkout; on return, CircleSplit should show VERIFIED CAPTURE under Activity. If the flow is interrupted, use Activity → Check PayPal to resume or reconcile the *existing order*, not create duplicates.
+
+The test environment is sandbox only. The protected integration workspace uses shared fictional data and temporary SQLite storage; it may reset after deployment. If judges prefer not to use a sandbox buyer account, the under-3-minute YouTube video documents our confirmed capture and the repository contains the integration and tests.
+
+## Secrets and credential handling
+- The judge workspace password must be supplied to judges **privately**, e.g. in Devpost's optional "Testing instructions or credentials" submission field, not in public repositories.
+- PayPal sandbox buyer credentials are different from CircleSplit judge credentials; never expose live financial or private personal-account credentials.
+- Store API keys in Render secret environment variables only.
+- Judge access expires via JUDGE_ACCESS_EXPIRES_AT; owner access remains independent.
+- The initial $11 sandbox capture was verified on November 3, 2026; it is not a real payment or revenue, and temporary transaction records may disappear on redeploy.
+
+## Before submission
+- Verify the public /judge page works without a password.
+- Verify the separate judge login in an incognito window.
+- Run the Gemini extraction once.
+- Complete a PayPal sandbox checkout once, confirm VERIFIED CAPTURE and successful webhook response.
+- Record a **public YouTube demo video under 3 minutes** (no visible credentials or buyer details).
+- Confirm the public repository includes the MIT license and setup instructions.
+- Complete required Devpost submission questions truthfully.
+- Paste judge credentials only in the private testing-instructions field during submission.
+
+**Do not commit secrets to GitHub.**
