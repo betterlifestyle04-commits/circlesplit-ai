@@ -109,7 +109,7 @@ function render(){
  el("kpi-events").textContent=events.length;el("kpi-budget").textContent=money(budget);el("kpi-real").textContent=money(paid);el("kpi-people").textContent=people;
  el("event-summary").innerHTML=events.length?events.map(function(x){return '<div class="row between" style="padding:15px 0;border-bottom:1px solid #edf0f1"><div><div class="event-name">'+safe(x.name)+'</div><div class="muted small">'+safe(x.date)+' • '+x.people.length+' members</div></div><div style="text-align:right"><b>'+money(x.total_cents)+'</b><div class="small muted">'+x.approved+' approved</div></div></div>'}).join(""):'<div class="empty">No events yet.</div>';
  let select=el("event-select");select.innerHTML=events.map(function(x){return '<option value="'+x.id+'">'+safe(x.name)+'</option>'}).join("");if(e)select.value=e.id;
- el("ai-indicator").textContent=state.ai_configured?"Gemini configured":"AI not connected";
+ el("ai-indicator").textContent=state.ai_configured?"AI key set · verify with test":"AI not connected";
  if(!e){el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
  el("event-detail").innerHTML='<div class="detail-head"><div><div class="muted small">'+safe(e.date)+'</div><h3 style="margin:4px 0">'+safe(e.name)+'</h3><div class="muted small">'+safe(e.note)+'</div></div><div style="text-align:right"><div class="muted small">Total planned budget</div><div style="font-size:27px;font-weight:850">'+money(e.total_cents)+'</div></div></div>';
  el("equal").classList.toggle("active",e.strategy==="equal");el("weighted").classList.toggle("active",e.strategy==="weighted");
