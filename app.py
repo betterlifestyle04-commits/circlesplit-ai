@@ -158,7 +158,7 @@ def index():
 def organizer_workspace():
     return FileResponse(ROOT / "static" / "index.html")
 
-@app.get("/favicon.ico")
+@app.api_route("/favicon.ico", methods=["GET", "HEAD"])
 def favicon():
     # Avoid browser Basic-auth prompts caused by automatic favicon requests.
     return Response(status_code=204)
