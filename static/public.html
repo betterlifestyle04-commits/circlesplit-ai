@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b202c">
+<meta name="description" content="CircleSplit AI — an interactive public demo for fair group budgets and contributions.">
+<title>CircleSplit AI — Plan together. Split fairly.</title>
+<style>
+:root{--bg:#f6f8f9;--ink:#102e3a;--muted:#647984;--line:#dfe9ea;--teal:#087e72;--lime:#b9f3de;--navy:#0b2431;--card:#fff;--amber:#a86d1c}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}button,input,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}a{color:inherit}p{margin:0}h1,h2,h3{letter-spacing:-.7px;margin:0}
+.shell{display:grid;grid-template-columns:244px minmax(0,1fr);min-height:100vh}
+aside{background:var(--navy);color:#b1c8d0;padding:26px 15px;display:flex;flex-direction:column;gap:34px}
+.brand{display:flex;align-items:center;gap:10px;color:#fff;font-size:21px;font-weight:800;padding:2px 12px}
+.mark{background:#3de0b6;color:#113e37;border-radius:11px;padding:4px 11px;font-weight:900;font-size:24px}
+nav{display:grid;gap:7px}
+nav button{background:transparent;border:0;color:#b1c8d0;padding:12px 15px;border-radius:10px;text-align:left;font-weight:650}
+nav button.active,nav button:hover{background:#1c4051;color:#fff}
+.navfoot{margin-top:auto;background:#153947;border:1px solid #305263;border-radius:13px;padding:16px;font-size:12px;line-height:1.7}
+.navfoot b{display:block;color:#6df4c8;margin-bottom:6px}
+main{min-width:0}
+.top{display:flex;justify-content:space-between;align-items:center;background:#fff;border-bottom:1px solid var(--line);padding:18px 34px;gap:14px}
+.top span{color:var(--muted);font-size:13px}.mode{font-size:11px!important;color:#8b570f!important;background:#fff5dc;border:1px solid #f0dcb3;border-radius:30px;padding:7px 11px;font-weight:800;white-space:nowrap}
+.content{max-width:1330px;margin:auto;padding:34px 38px 70px}
+.panel{display:none}.panel.active{display:block}
+.hero{background:linear-gradient(115deg,#0b2632,#174b4b);color:white;padding:37px 40px;border-radius:22px;display:grid;grid-template-columns:1fr 230px;gap:20px;align-items:center;overflow:hidden}
+.eyebrow{text-transform:uppercase;font-weight:800;letter-spacing:1.7px;font-size:11px;color:#17816b}
+.hero .eyebrow{color:#70e0c2}
+.hero h1{font-size:clamp(31px,4vw,48px);line-height:1.09;margin:10px 0 14px;max-width:620px}
+.hero p{color:#c3d8d9;max-width:560px}
+.orb{width:200px;height:200px;border-radius:50%;background:radial-gradient(circle at 35% 32%,#86f3ce,#117b7f 58%,#0e3a4a 72%);box-shadow:0 0 0 30px #b0ffee0e,0 0 0 63px #b0ffee09;justify-self:center}
+.btn{border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px 14px;font-size:13px;font-weight:800;color:var(--ink)}
+.btn:hover{border-color:#55c9ae}.btn.primary{background:var(--teal);color:white;border-color:var(--teal)}.btn.dark{background:#173c48;color:white;border-color:#173c48}.btn.sm{padding:7px 11px;font-size:12px}
+.buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+.note{background:#fffaf0;border:1px solid #f1e3b9;border-radius:12px;padding:13px 17px;color:#765420;font-size:12px;margin:17px 0}
+.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px;margin:20px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:0 15px 42px #10283809;min-width:0}
+.card label,.klabel{color:var(--muted);font-size:12px;font-weight:650}
+.kvalue{font-size:27px;font-weight:900;margin-top:5px;letter-spacing:-.7px}
+.grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(290px,1fr);gap:17px}
+.sectionhead{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:4px 0 19px}
+.sectionhead h2{font-size:25px}.sectionhead p{color:var(--muted);font-size:13px;margin-top:4px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.item{padding:13px 0;border-bottom:1px solid #eef2f2}.item:last-child{border-bottom:0}
+.muted{color:var(--muted)}.small{font-size:12px}.strong{font-weight:800}
+input,select{border:1px solid #d2e0e2;border-radius:9px;background:#fff;padding:10px 12px;color:var(--ink);min-width:0;width:100%}
+input:focus,select:focus{outline:2px solid #5cceb1;outline-offset:1px}
+form{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}form>*{flex:1}form button{flex:0 0 auto}
+.fieldset{display:grid;gap:13px;margin-top:15px}
+.pill{border-radius:50px;padding:4px 9px;font-size:10px;font-weight:850;background:#e4f5ef;color:#0a7764;white-space:nowrap}
+.pill.gray{background:#eef1f3;color:#677980}.pill.amber{background:#fff2d9;color:#915c10}
+table{width:100%;border-collapse:collapse;text-align:left}th{color:#788e97;text-transform:uppercase;font-size:10px;letter-spacing:.7px}td,th{padding:12px 8px;border-bottom:1px solid #eef1f1}td:last-child,th:last-child{text-align:right}
+.tablewrap{width:100%;overflow:auto}.mini{font-size:12px}
+.alert{background:#eaf8f3;border:1px solid #cae9db;padding:12px 15px;border-radius:11px;color:#155e55;margin-top:15px;font-size:13px;display:none}
+.alert.show{display:block}
+.progress{height:10px;background:#e6eeee;border-radius:99px;overflow:hidden;margin:15px 0}.progress>div{height:100%;background:#25a98a;transition:width .2s}
+.empty{padding:26px 12px;color:var(--muted);text-align:center;font-size:13px}
+.footer{margin-top:28px;color:#8296a1;font-size:12px}
+ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
+@media(max-width:1040px){.cards{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.hero{grid-template-columns:1fr}.orb{display:none}}
+@media(max-width:700px){.shell{display:block}aside{padding:14px;gap:12px}.brand{font-size:18px}.mark{font-size:18px}nav{display:flex;overflow:auto;white-space:nowrap}.navfoot{display:none}.top{padding:12px 17px}.content{padding:20px 14px 50px}.hero{padding:25px 22px}.hero h1{font-size:32px}.cards{gap:9px}.card{padding:17px}.kvalue{font-size:23px}td,th{padding:10px 5px}.mini{font-size:11px}}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside>
+ <div class="brand"><span class="mark">◉</span>CircleSplit AI</div>
+ <nav aria-label="Main navigation">
+ <button data-view="overview" class="active">▦ &nbsp; Overview</button>
+ <button data-view="events">◫ &nbsp; Event planner</button>
+ <button data-view="contributions">⇄ &nbsp; Contributions</button>
+ <button data-view="integration">✦ &nbsp; AI + PayPal</button>
+ </nav>
+ <div class="navfoot"><b>◉ Public interactive demo</b>Everything here runs in your browser using fictional data. No accounts, no charges, and no access to the organizer's records.</div>
+</aside>
+<main>
+ <div class="top"><span>CircleSplit / <b id="pageTitle">Overview</b></span><span class="mode">● PUBLIC DEMO · NO REAL PAYMENTS</span></div>
+ <div class="content">
+ <section id="overview" class="panel active">
+  <div class="hero">
+    <div><div class="eyebrow">The future of group spending</div><h1>Make money the easy part of getting together.</h1><p>Plan events, divide expenses fairly and track contributions — all in one clear space.</p><div class="buttons"><button class="btn primary" data-go="events">Explore event planner</button><button class="btn dark" data-go="integration">See AI + PayPal workflow</button></div></div>
+    <div class="orb" aria-hidden="true"></div>
+  </div>
+  <div class="note"><b>Demo mode:</b> This publicly accessible version uses fictional data saved only in your browser. Approvals and payments are simulations. No PayPal orders or AI API requests are made from this page.</div>
+  <div class="cards">
+   <div class="card"><div class="klabel">Events planned</div><div class="kvalue" id="kEvents">0</div></div>
+   <div class="card"><div class="klabel">Total shared budget</div><div class="kvalue" id="kBudget">$0.00</div></div>
+   <div class="card"><div class="klabel">Participants</div><div class="kvalue" id="kPeople">0</div></div>
+   <div class="card"><div class="klabel">Simulated contributions</div><div class="kvalue" id="kPaid">$0.00</div></div>
+  </div>
+  <div class="grid"><div class="card"><div class="row"><h3>Upcoming group events</h3><button class="btn sm" data-go="events">Manage events</button></div><div id="eventSummary"></div></div>
+  <div class="card"><div class="eyebrow">How it works</div><h3 style="margin:10px 0">Clear budgets. Fair shares.</h3>
+  <ol><li>Create a group event and enter expenses.</li><li>Add participants and choose equal or weighted splitting.</li><li>Approve shares and simulate a contribution.</li><li>Inspect the flow intended for PayPal sandbox checkout.</li></ol>
+  <button class="btn primary" data-go="contributions">Try contributions</button></div></div>
+ </section>
+ <section id="events" class="panel">
+ <div class="sectionhead"><div><div class="eyebrow">Group planning</div><h2>Create, split, simplify.</h2><p>Amounts are allocated in integer cents with exact totals.</p></div><button class="btn sm" id="reset">Reset demo</button></div>
+ <div class="grid">
+ <div class="card"><div class="row"><h3>Selected event</h3><select aria-label="Select event" id="eventSelect" style="max-width:220px"></select></div><div id="eventDetails" style="margin-top:15px"></div>
+ <div class="row" style="margin-top:16px"><button class="btn sm" id="equal">Equal split</button><button class="btn sm" id="weighted">Weighted split</button></div>
+ <div style="margin-top:22px"><h3>Budget items</h3><div id="expenses"></div>
+ <form id="addExpense"><input aria-label="Expense title" id="expenseTitle" placeholder="Expense name" minlength="2" maxlength="120" required><input aria-label="Expense amount in USD" id="expenseAmount" placeholder="USD amount" inputmode="decimal" style="max-width:135px" required><button class="btn primary" type="submit">Add expense</button></form></div></div>
+ <div class="card"><h3>Create a new event</h3><form id="addEvent" class="fieldset"><input id="eventName" placeholder="e.g. Board game night" minlength="3" maxlength="90" required><input id="eventDate" type="date" required><button class="btn primary" type="submit">Create event</button></form>
+ <h3 style="margin-top:27px">Participants</h3><div id="people"></div>
+ <form id="addPerson"><input id="personName" placeholder="Name" minlength="2" maxlength="60" required><input id="personWeight" type="number" min="1" max="10" value="1" aria-label="Attendance weight" style="max-width:85px"><button class="btn primary" type="submit">Add</button></form>
+ <p class="small muted" style="margin-top:11px">Weight 2 means twice the allocation weight of 1 when using weighted splitting.</p></div>
+ </div>
+ </section>
+ <section id="contributions" class="panel">
+  <div class="sectionhead"><div><div class="eyebrow">Transparent contributions</div><h2>Track every contribution.</h2><p>Each participant must approve their share before a simulated payment.</p></div></div>
+  <div class="note"><b>Simulation only:</b> the buttons below do not contact PayPal or charge anyone. Real sandbox integration is restricted to the organizer testing workspace.</div>
+  <div class="card"><div class="row"><h3 id="contribTitle">Contributions</h3><button class="btn sm" data-go="events">Edit event</button></div><div id="funding"></div><div class="tablewrap"><table><thead><tr><th>Participant</th><th>Share</th><th>Consent</th><th>Status</th><th>Action</th></tr></thead><tbody id="contribRows"></tbody></table></div></div>
+ </section>
+ <section id="integration" class="panel">
+ <div class="sectionhead"><div><div class="eyebrow">Behind the product</div><h2>AI planning meets verified payments.</h2><p>The implemented integrations live in a separately protected organizer workspace.</p></div></div>
+ <div class="grid">
+ <div class="card"><div class="eyebrow">AI expense copilot</div><h3 style="margin:9px 0">Plan from natural language</h3><p class="muted">The backend supports optional Gemini JSON expense extraction, validation, and explicit human review before changes are applied.</p><div class="note">Public demo does not call Gemini. Any proposals shown here are illustrative, not AI-generated.</div>
+ <div class="item"><div class="strong">Example planning note</div><p class="small muted">“Court $160, equipment $25, refreshments $35. Twenty friends.”</p></div>
+ <div class="item"><div class="strong">Illustrative budget</div><p class="small muted">Court $160.00 · Equipment $25.00 · Refreshments $35.00</p></div>
+ </div>
+ <div class="card"><div class="eyebrow">PayPal sandbox</div><h3 style="margin:9px 0">A payment you can trace</h3><p class="muted">The backend includes sandbox Orders v2 creation, capture checks, idempotency and webhook signature verification.</p><ol><li>Participant approves an exact-cent share.</li><li>Organizer creates a sandbox PayPal order.</li><li>Sandbox buyer approves payment.</li><li>Server verifies capture amount and status.</li><li>Verified contribution appears in the ledger.</li></ol>
+ <div class="note">Public payments are disabled to prevent unauthorized orders and API abuse. Sandbox integrations have not been independently verified end to end.</div>
+ <a class="btn" href="/workspace">Organizer workspace (protected)</a></div></div>
+ </section>
+ <div id="message" class="alert" role="status" aria-live="polite"></div>
+ <div class="footer">CircleSplit AI · PayPal AI Hackathon prototype · Demo values are fictional · All browser changes are local · <a href="https://github.com/betterlifestyle04-commits/circlesplit-ai" target="_blank" rel="noopener noreferrer">Open source</a></div>
+ </div>
+</main></div>
+<script>
+"use strict";
+const STORAGE="circlesplit-public-demo-v1";
+let model;
+let chosen=1;
+const $=id=>document.getElementById(id);
+const usd=n=>"$"+(n/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const escapeHtml=s=>String(s??"").replace(/[&<>"']/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
+function sample(){
+ const names=["Alex","Taylor","Sam","Jordan","Morgan","Riley","Casey","Jamie","Avery","Robin","Quinn","Skyler","Cameron","Finley","Drew","Elliot","Parker","Harper","Rowan","Sage"];
+ return {next:100,events:[{id:1,name:"Friday Community Volleyball",date:"2026-11-06",strategy:"equal",expenses:[{id:2,title:"Court rental",cents:16000},{id:3,title:"Equipment",cents:2500},{id:4,title:"Refreshments",cents:3500}],people:names.map((name,i)=>({id:10+i,name,weight:i<4?2:1,share_cents:1100,approved:false,status:"unpaid"}))}]};
+}
+function restore(){try{let m=JSON.parse(localStorage.getItem(STORAGE));if(m&&Array.isArray(m.events)&&Number.isSafeInteger(m.next)){model=m;return}}catch(e){}model=sample()}
+function save(){try{localStorage.setItem(STORAGE,JSON.stringify(model))}catch(e){}}
+function message(s){$("message").textContent=s;$("message").classList.add("show")}
+function event(){return model.events.find(e=>e.id===chosen)||model.events[0]}
+function locked(e){return e.people.some(p=>p.status!=="unpaid")}
+function total(e){return e.expenses.reduce((s,x)=>s+x.cents,0)}
+function paid(e){return e.people.filter(p=>p.status==="demo_paid").reduce((s,p)=>s+p.share_cents,0)}
+function allocate(e){
+ const t=total(e),p=[...e.people].sort((a,b)=>a.id-b.id);
+ if(!p.length)return;
+ const weights=p.map(x=>e.strategy==="weighted"?x.weight:1);
+ const weightTotal=weights.reduce((a,b)=>a+b,0);
+ const shares=weights.map(w=>Math.floor(t*w/weightTotal));
+ let remain=t-shares.reduce((a,b)=>a+b,0);
+ const order=weights.map((w,i)=>({i,rem:(t*w)%weightTotal,id:p[i].id})).sort((a,b)=>b.rem-a.rem||a.id-b.id);
+ for(let i=0;i<remain;i++)shares[order[i].i]++;
+ p.forEach((x,i)=>{x.share_cents=shares[i];x.approved=false});
+}
+function render(){
+ const e=event(),all=model.events;
+ $("kEvents").textContent=all.length;
+ $("kBudget").textContent=usd(all.reduce((s,x)=>s+total(x),0));
+ $("kPeople").textContent=all.reduce((s,x)=>s+x.people.length,0);
+ $("kPaid").textContent=usd(all.reduce((s,x)=>s+paid(x),0));
+ $("eventSummary").innerHTML=all.map(x=>'<div class="row item"><div><div class="strong">'+escapeHtml(x.name)+'</div><div class="muted small">'+escapeHtml(x.date)+' · '+x.people.length+' members</div></div><b>'+usd(total(x))+'</b></div>').join("")||'<div class="empty">No events yet</div>';
+ $("eventSelect").innerHTML=all.map(x=>'<option value="'+x.id+'">'+escapeHtml(x.name)+'</option>').join("");
+ if(!e){$("eventDetails").textContent="Create your first event";$("expenses").innerHTML="";$("people").innerHTML="";$("contribRows").innerHTML="";return}
+ $("eventSelect").value=e.id;
+ $("eventDetails").innerHTML='<div class="row"><div><div class="strong">'+escapeHtml(e.name)+'</div><div class="muted small">'+escapeHtml(e.date)+'</div></div><div class="kvalue">'+usd(total(e))+'</div></div><p class="small muted" style="margin-top:6px">Allocation: '+(e.strategy==="weighted"?"Attendance weighted":"Equal")+' · '+e.people.length+' participants</p>';
+ $("equal").disabled=locked(e);$("weighted").disabled=locked(e);
+ $("equal").style.borderColor=e.strategy==="equal"?"#087e72":"#dfe9ea";
+ $("weighted").style.borderColor=e.strategy==="weighted"?"#087e72":"#dfe9ea";
+ $("expenses").innerHTML=e.expenses.map(x=>'<div class="row item"><span>'+escapeHtml(x.title)+'</span><div><b>'+usd(x.cents)+'</b> <button class="btn sm" data-delete-expense="'+x.id+'" '+(locked(e)?"disabled":"")+' aria-label="Remove expense">×</button></div></div>').join("")||'<div class="empty">No expenses yet</div>';
+ $("people").innerHTML=e.people.map(x=>'<div class="row item"><span>'+escapeHtml(x.name)+' <span class="muted small">weight '+x.weight+'</span></span><div><b>'+usd(x.share_cents)+'</b> <button class="btn sm" data-delete-person="'+x.id+'" '+(locked(e)?"disabled":"")+' aria-label="Remove participant">×</button></div></div>').join("")||'<div class="empty">No participants</div>';
+ $("contribTitle").textContent=e.name;
+ let pct=total(e)?Math.round(paid(e)/total(e)*100):0;
+ $("funding").innerHTML='<div class="row" style="margin-top:18px"><b>'+usd(paid(e))+' of '+usd(total(e))+'</b><span class="muted small">'+pct+'% simulated</span></div><div class="progress"><div style="width:'+pct+'%"></div></div>';
+ $("contribRows").innerHTML=e.people.map(x=>'<tr class="mini"><td>'+escapeHtml(x.name)+'</td><td>'+usd(x.share_cents)+'</td><td>'+(x.approved?"Yes":"Pending")+'</td><td><span class="pill '+(x.status==="demo_paid"?"amber":"gray")+'">'+(x.status==="demo_paid"?"SIMULATED":"Unpaid")+'</span></td><td>'+(x.status!=="unpaid"?"—":x.approved?'<button class="btn sm" data-simulate="'+x.id+'">Simulate</button>':'<button class="btn sm" data-approve="'+x.id+'">Approve</button>')+'</td></tr>').join("")||'<tr><td colspan="5">Add participants first</td></tr>';
+}
+function change(fn){const e=event();try{fn(e);save();render()}catch(err){message(err.message)}}
+function amount(str){if(!/^\d{1,7}(\.\d{1,2})?$/.test(str))throw Error("Use a positive USD amount with up to 2 decimals");const [a,b=""]=str.split(".");const n=Number(a)*100+Number(b.padEnd(2,"0"));if(n<=0||n>10000000)throw Error("Amount outside demo limits");return n}
+document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.addEventListener("click",()=>{
+ const v=b.dataset.view||b.dataset.go;
+ document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("active",p.id===v));
+ document.querySelectorAll("nav button").forEach(n=>n.classList.toggle("active",n.dataset.view===v));
+ $("pageTitle").textContent=({overview:"Overview",events:"Event planner",contributions:"Contributions",integration:"AI + PayPal"})[v];
+ window.scrollTo({top:0,behavior:"smooth"});render();
+}));
+$("eventSelect").addEventListener("change",e=>{chosen=Number(e.target.value);render()});
+$("reset").addEventListener("click",()=>{if(confirm("Reset fictional public demo data in this browser?")){model=sample();chosen=1;save();render();message("Demo restored.")}});
+$("addEvent").addEventListener("submit",e=>{e.preventDefault();change(()=>{const name=$("eventName").value.trim();if(name.length<3)throw Error("Enter a longer event name");const id=++model.next;model.events.unshift({id,name,date:$("eventDate").value,strategy:"equal",expenses:[],people:[]});chosen=id;$("addEvent").reset();$("eventDate").value=new Date().toISOString().slice(0,10)})});
+$("addExpense").addEventListener("submit",e=>{e.preventDefault();change(x=>{if(locked(x))throw Error("Cannot edit after recording a contribution");const title=$("expenseTitle").value.trim();if(title.length<2)throw Error("Enter an expense title");x.expenses.push({id:++model.next,title,cents:amount($("expenseAmount").value.trim())});allocate(x);$("addExpense").reset()})});
+$("addPerson").addEventListener("submit",e=>{e.preventDefault();change(x=>{if(locked(x))throw Error("Cannot edit after recording a contribution");const name=$("personName").value.trim(),weight=Number($("personWeight").value);if(name.length<2||!Number.isInteger(weight)||weight<1||weight>10)throw Error("Invalid participant or weight");x.people.push({id:++model.next,name,weight,share_cents:0,approved:false,status:"unpaid"});allocate(x);$("addPerson").reset();$("personWeight").value="1"})});
+$("equal").addEventListener("click",()=>change(x=>{if(locked(x))throw Error("Cannot edit after contribution");x.strategy="equal";allocate(x)}));
+$("weighted").addEventListener("click",()=>change(x=>{if(locked(x))throw Error("Cannot edit after contribution");x.strategy="weighted";allocate(x)}));
+document.addEventListener("click",e=>{const b=e.target.closest("[data-delete-expense],[data-delete-person],[data-approve],[data-simulate]");if(!b)return;
+change(x=>{
+ if(b.dataset.deleteExpense){if(locked(x))throw Error("Budget locked");x.expenses=x.expenses.filter(y=>y.id!==Number(b.dataset.deleteExpense));allocate(x)}
+ if(b.dataset.deletePerson){if(locked(x))throw Error("Budget locked");x.people=x.people.filter(y=>y.id!==Number(b.dataset.deletePerson));allocate(x)}
+ if(b.dataset.approve){const p=x.people.find(y=>y.id===Number(b.dataset.approve));if(!p||p.share_cents<1||p.status!=="unpaid")throw Error("Approval unavailable");p.approved=true;message("Share approved in this browser. No real identity verification.")}
+ if(b.dataset.simulate){const p=x.people.find(y=>y.id===Number(b.dataset.simulate));if(!p||!p.approved||p.status!=="unpaid")throw Error("Approval required");p.status="demo_paid";message("SIMULATED contribution recorded. No PayPal charge was made.")}
+});
+});
+restore();$("eventDate").value=new Date().toISOString().slice(0,10);render();
+</script>
+</body></html>
