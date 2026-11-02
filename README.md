@@ -49,6 +49,16 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Optional hosted judge demo (Render Blueprint)
+
+The repository includes [render.yaml](render.yaml) for a **Free plan** web service, but creating a Render service is a separate action. Deployment is not automatic just because the file exists.
+
+When CIRCLESPLIT_HOSTED=1, all UI and organizer API routes require HTTP Basic credentials and the application **fails closed** until DEMO_PASSWORD is set to a strong value (12+ characters). Configure it through Render's secret environment variables and give judges the username/password privately through Devpost testing instructions. Health checks and PayPal webhook calls are excluded from Basic authentication; webhook calls still require PayPal signature verification.
+
+The Free instance uses **ephemeral SQLite storage**, so demo records may reset during restarts or redeploys. This is suitable only for fictional hackathon demo data, not real users. For a PayPal sandbox redirect you must set PUBLIC_BASE_URL to your deployed **HTTPS** URL, and create a Sandbox webhook in the PayPal Developer Dashboard. Set credentials only in the Render environment, never in source.
+
+The shared judge password is **not** participant identity: it protects the organizer demo from anonymous visitors but does not establish individual payment authorization. Before any real users or money, replace it with proper accounts, participant approvals tied to identities, audit controls and production data storage.
+
 ## Safety and demo limitations
 
 The MVP uses a single locally trusted organizer and **does not yet implement accounts or role-based permissions**. It should run locally (127.0.0.1) and must not be exposed directly to the Internet. AI output is untrusted and cannot initiate payments. Do not claim integration success until you test real sandbox credentials. PayPal orders remain authorization- and identity-sensitive. The project does not act as an escrow, money transmitter, or real payment splitting platform.
