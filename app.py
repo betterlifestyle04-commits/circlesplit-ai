@@ -31,7 +31,10 @@ async def demo_access_control(request: Request, call_next):
     if os.getenv("CIRCLESPLIT_HOSTED") == "1":
         # PayPal must reach the webhook without Basic credentials; it verifies a
         # cryptographic signature before any payment state change.
-        if request.url.path not in ("/health", "/api/paypal/webhook"):
+        # The public demo is a standalone, browser-local experience. All
+        # organizer data and mutation/payment/AI routes still require Basic auth.
+        public_page = request.url.path == "/" and request.method in ("GET", "HEAD")
+        if not public_page and request.url.path not in ("/health", "/api/paypal/webhook"):
             user = os.getenv("DEMO_USERNAME", "judge")
             password = os.getenv("DEMO_PASSWORD", "")
             if len(password) < 12:
@@ -147,6 +150,12 @@ def detailed(c, eid):
 
 @app.get("/")
 def index():
+    # Hosted public site is safe and fully client-local; organizer stays private.
+    page = "public.html" if os.getenv("CIRCLESPLIT_HOSTED") == "1" else "index.html"
+    return FileResponse(ROOT / "static" / page)
+
+@app.get("/workspace")
+def organizer_workspace():
     return FileResponse(ROOT / "static" / "index.html")
 
 @app.get("/health")
@@ -338,7 +347,7 @@ async def create_order(eid: int, pid: int, request: Request):
     base = os.getenv("PUBLIC_BASE_URL") or str(request.base_url).rstrip("/")
     # Network calls occur outside transaction lock. 'creating' remains locked if
     # PayPal times out: reconcile manually rather than risking duplicate checkout.
-    response = await paypal.order(amount,eid,pid,base+"/?payment=return",create_key)
+    response = await paypal.order(amount,eid,pid,base+"/workspace?payment=return",create_key)
     with db() as c:
         c.execute("UPDATE payments SET order_id=?,status='created' WHERE id=?",
                   (response["id"],record))
