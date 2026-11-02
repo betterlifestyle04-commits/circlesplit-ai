@@ -137,3 +137,29 @@ def test_hosted_demo_fails_closed_and_accepts_explicit_credentials(client,monkey
     assert client.get("/api/state",auth=("wrong","a-long-random-demo-password")).status_code == 401
     assert client.get("/api/state",auth=("judge","a-long-random-demo-password")).status_code == 200
     assert client.get("/health").status_code == 200
+
+
+def test_mocked_ai_proposal_is_review_only(client, monkeypatch):
+    """Mocked provider output must never mutate an event without explicit approval."""
+    import app as api_module
+    monkeypatch.setenv("GEMINI_API_KEY","test-fake-key")
+    original = initial(client)["total_cents"]
+    class FakeResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"candidates":[{"content":{"parts":[{"text":
+                '{"expenses":[{"title":"Court","amount":"19.95"}],"strategy":"weighted","rationale":"Usage differs"}'
+            }]}}]}
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self,*args): pass
+        async def post(self,*args,**kwargs): return FakeResponse()
+    monkeypatch.setattr(api_module.httpx,"AsyncClient",FakeAsyncClient)
+    response=client.post("/api/ai/parse",json={"note":"The court price is nineteen dollars and ninety five cents"})
+    assert response.status_code==200
+    body=response.json()
+    assert body["requires_approval"] is True
+    assert body["expenses"]==[{"title":"Court","amount":"19.95"}]
+    assert body["strategy"]=="weighted"
+    assert initial(client)["total_cents"]==original
