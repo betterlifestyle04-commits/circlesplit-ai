@@ -182,3 +182,41 @@ def test_deletion_reallocates_and_payment_locks(client):
     client.post(f"/api/events/{eid}/people/{pid}/simulate")
     assert client.delete(f"/api/events/{eid}/expenses/{current['expenses'][0]['id']}").status_code==409
     assert client.delete(f"/api/events/{eid}/people/{current['people'][1]['id']}").status_code==409
+
+
+def test_public_demo_is_open_but_organizer_actions_stay_protected(client, monkeypatch):
+    """Public visitors can interact with a browser-local demo, not the shared backend."""
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED", "1")
+    monkeypatch.setenv("DEMO_USERNAME", "judge")
+    monkeypatch.setenv("DEMO_PASSWORD", "long-and-unguessable-demo-pass")
+    page = client.get("/")
+    assert page.status_code == 200
+    assert "Public interactive demo" in page.text
+    assert "No PayPal orders or AI API requests" in page.text
+    assert "localStorage" in page.text
+    assert client.get("/workspace").status_code == 401
+    assert client.get("/api/state").status_code == 401
+    assert client.get("/api/transactions").status_code == 401
+    assert client.post("/api/events", json={"name":"Spam","date":"2026-11-06"}).status_code == 401
+    assert client.post("/api/ai/parse", json={"note":"some long enough input"}).status_code == 401
+    assert client.post("/api/paypal/orders/1/10").status_code == 401
+    assert client.get("/static/index.html").status_code == 401
+    assert client.get("/workspace",auth=("judge","long-and-unguessable-demo-pass")).status_code == 200
+    assert client.get("/api/state",auth=("judge","long-and-unguessable-demo-pass")).status_code == 200
+
+
+def test_paypal_approval_returns_to_protected_workspace(client, monkeypatch):
+    """After public root release, a sandbox checkout must return to organizer UI."""
+    e = initial(client)
+    eid, pid = e["id"], e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code == 200
+    monkeypatch.setattr(paypal, "configured", lambda: True)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://circlesplit-ai-demo.onrender.com")
+    captured = []
+    async def fake_order(amount, event_id, person_id, url, request_id):
+        captured.append(url)
+        return {"id":"TEST-ORDER-RETURN-42","approval_url":"https://www.sandbox.paypal.com/test"}
+    monkeypatch.setattr(paypal,"order",fake_order)
+    r = client.post(f"/api/paypal/orders/{eid}/{pid}")
+    assert r.status_code == 200
+    assert captured == ["https://circlesplit-ai-demo.onrender.com/workspace?payment=return"]
