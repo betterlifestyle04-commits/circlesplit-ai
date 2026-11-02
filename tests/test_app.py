@@ -279,3 +279,81 @@ def test_gemini_invalid_json_is_reported_distinctly(client, monkeypatch):
     response = client.post("/api/ai/parse", json={"note":"Rental 160 USD, snacks 30 USD"})
     assert response.status_code == 502
     assert "invalid or incomplete structured JSON" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("status,expected_action", [
+    ("PAYER_ACTION_REQUIRED", "approve"),
+    ("CREATED", "approve"),
+    ("APPROVED", "capture"),
+    ("COMPLETED", "done"),
+])
+def test_existing_sandbox_order_recovery(client, monkeypatch, status, expected_action):
+    """Never reissue a created order; reconcile only matching PayPal amounts."""
+    e = initial(client)
+    eid, pid = e["id"], e["people"][0]["id"]
+    amount = e["people"][0]["share_cents"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code == 200
+    monkeypatch.setattr(paypal, "configured", lambda: True)
+    order_id = "TEST-ORDER-STATUS-42"
+    async def fake_order(*args):
+        return {"id":order_id,"approval_url":"https://www.sandbox.paypal.com/checkoutnow?token=TEST"}
+    monkeypatch.setattr(paypal, "order", fake_order)
+    assert client.post(f"/api/paypal/orders/{eid}/{pid}").status_code == 200
+    detail = {
+        "id":order_id,"intent":"CAPTURE","status":status,
+        "purchase_units":[{
+            "custom_id":f"{eid}:{pid}",
+            "amount":{"currency_code":"USD","value":f"{amount/100:.2f}"},
+            "payments":{"captures":[{"id":"TEST-CAPTURE-42", "status":"COMPLETED",
+                "amount":{"currency_code":"USD","value":f"{amount/100:.2f}"}}]} if status=="COMPLETED" else {},
+        }],
+        "links":[{"rel":"payer-action","href":"https://www.sandbox.paypal.com/checkoutnow?token=TEST"}],
+    }
+    async def fake_details(*args):
+        return detail
+    monkeypatch.setattr(paypal, "details",fake_details)
+    result=client.post(f"/api/paypal/order-status/{order_id}")
+    assert result.status_code == 200, result.text
+    body=result.json()
+    assert body["action"] == expected_action
+    assert body["verified"] == (status=="COMPLETED")
+    if status in ("PAYER_ACTION_REQUIRED","CREATED"):
+        assert body["approval_url"].startswith("https://www.sandbox.paypal.com/")
+    if status == "COMPLETED":
+        assert initial(client)["sandbox_cents"] == amount
+        assert client.post(f"/api/paypal/order-status/{order_id}").json()["action"] == "done"
+    else:
+        assert initial(client)["sandbox_cents"] == 0
+    # Repeated order creation is blocked, regardless of PayPal's current state.
+    assert client.post(f"/api/paypal/orders/{eid}/{pid}").status_code == 409
+
+
+def test_sandbox_recovery_rejects_amount_mismatch_and_forged_link(client, monkeypatch):
+    e=initial(client);eid,pid=e["id"],e["people"][0]["id"]
+    client.post(f"/api/events/{eid}/people/{pid}/approve")
+    monkeypatch.setattr(paypal,"configured",lambda:True)
+    order_id = "TEST-ORDER-VALIDATION-42"
+    async def fake_order(*args):
+        return {"id":order_id,"approval_url":"https://www.sandbox.paypal.com/checkoutnow?token=T"}
+    monkeypatch.setattr(paypal,"order",fake_order)
+    assert client.post(f"/api/paypal/orders/{eid}/{pid}").status_code==200
+    data={"id":order_id,"intent":"CAPTURE","status":"PAYER_ACTION_REQUIRED",
+          "purchase_units":[{"custom_id":f"{eid}:{pid}",
+                             "amount":{"currency_code":"USD","value":"999.00"}}],
+          "links":[{"rel":"payer-action","href":"https://evil.example/checkoutnow"}]}
+    async def fake_details(*args): return data
+    monkeypatch.setattr(paypal,"details",fake_details)
+    assert client.post(f"/api/paypal/order-status/{order_id}").status_code==409
+    assert initial(client)["sandbox_cents"]==0
+    data["purchase_units"][0]["amount"]["value"]=f'{e["people"][0]["share_cents"]/100:.2f}'
+    result=client.post(f"/api/paypal/order-status/{order_id}")
+    assert result.status_code==200
+    assert result.json()["action"]=="pending"
+    assert result.json()["approval_url"] is None
+    assert paypal.approval_link({"links":[{"rel":"payer-action","href":"https://paypal.com.evil.example/steal"}]}) is None
+
+
+def test_unknown_sandbox_order_cannot_be_queried(client,monkeypatch):
+    async def no_remote_call(*args): raise AssertionError("Remote lookup must not occur")
+    monkeypatch.setattr(paypal,"details",no_remote_call)
+    assert client.post("/api/paypal/order-status/UNKNOWN-ORDER").status_code==404
