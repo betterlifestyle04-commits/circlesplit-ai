@@ -49,11 +49,20 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Public website and protected organizer workspace
+
+- **Public website:** https://circlesplit-ai-demo.onrender.com/ — no login, interactive fictional events and exact-cent splits, entirely **browser-local** (localStorage). Simulated contributions never contact PayPal; the public AI panel is informational and does not contact Gemini. No public action changes the organizer SQLite database.
+- **Protected organizer workspace:** https://circlesplit-ai-demo.onrender.com/workspace — HTTP Basic authentication, with credentials stored securely as Render environment variables. Only this workspace may call the real organizer/AI/PayPal APIs.
+- **Checkout return:** PayPal sandbox returns to /workspace?payment=return for authenticated capture. Public homepage is *not* a checkout return handler.
+- **API isolation:** hosted service enforces Basic authentication on /api/state, /api/transactions, /api/ai/parse, /api/events/*, /api/paypal/orders/* and /api/paypal/capture. The public homepage and /health are openly accessible; PayPal webhook remains accessible for cryptographically verified event delivery.
+
+This arrangement provides anyone a useful no-login demonstration **without exposing a shared mutable backend or triggering third-party API spend**. It is not a publicly available live AI/payment product. For the hackathon, judges can use the guest preview and receive separate controlled credentials to test verified integrations.
+
 ## Optional hosted judge demo (Render Blueprint)
 
-The repository includes [render.yaml](render.yaml) for a **Free plan** web service, but creating a Render service is a separate action. Deployment is not automatic just because the file exists.
+The repository includes [render.yaml](render.yaml) for a **Free plan** web service, and the website is already deployed to Render. GitHub main changes trigger automatic deployment.
 
-When CIRCLESPLIT_HOSTED=1, all UI and organizer API routes require HTTP Basic credentials and the application **fails closed** until DEMO_PASSWORD is set to a strong value (12+ characters). Configure it through Render's secret environment variables and give judges the username/password privately through Devpost testing instructions. Health checks and PayPal webhook calls are excluded from Basic authentication; webhook calls still require PayPal signature verification.
+When CIRCLESPLIT_HOSTED=1, the organizer workspace and all organizer API routes require HTTP Basic credentials and the application **fails closed** until DEMO_PASSWORD is set to a strong value (12+ characters). Configure it through Render's secret environment variables and give judges the username/password privately through Devpost testing instructions. Health checks and PayPal webhook calls are excluded from Basic authentication; webhook calls still require PayPal signature verification.
 
 The Free instance uses **ephemeral SQLite storage**, so demo records may reset during restarts or redeploys. This is suitable only for fictional hackathon demo data, not real users. For a PayPal sandbox redirect you must set PUBLIC_BASE_URL to your deployed **HTTPS** URL, and create a Sandbox webhook in the PayPal Developer Dashboard. Set credentials only in the Render environment, never in source.
 
