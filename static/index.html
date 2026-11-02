@@ -20,6 +20,7 @@
   <button data-tab="contributions"><span>⇄</span> Contributions</button>
   <button data-tab="assistant"><span>✦</span> AI assistant</button>
   <button data-tab="activity"><span>▤</span> Activity</button>
+   <a href="/judge" style="display:block;color:#7ee0cd;text-decoration:none;font-size:13px;font-weight:750;padding:11px 15px">✓ Judge testing guide ↗</a>
  </nav>
  <div class="side-note"><b>◉ Safe testing environment</b>All PayPal calls use Sandbox only. Demo payments are simulations and never move money. AI never authorizes a charge.</div>
 </aside>
@@ -27,6 +28,11 @@
  <div class="top"><div class="crumb">Workspace / <b id="crumb">Overview</b></div><div class="top-right"><span class="sandbox">● SANDBOX ONLY</span><span class="avatar">CS</span></div></div>
  <div class="content">
   <div id="message" class="status" role="status" aria-live="polite"></div>
+   <div class="capsule small" style="border:1px solid #cdeae3;margin:0 0 20px">
+     <b>Integration testing workspace</b> · All PayPal payments are sandbox-only. Use fictional participants.
+     <a href="/judge">Read the judge walkthrough ↗</a>
+     <div id="judge-health" class="muted" style="margin-top:5px">Checking test environment…</div>
+   </div>
   <section id="overview" class="tabpan active">
    <div class="title"><div><div class="eyebrow">YOUR WORKSPACE</div><h1>Money together. Made simple.</h1><p class="sub">Manage group spending, create fair splits, and make every contribution transparent.</p></div><button class="btn primary" onclick="switchTab('events');focusNew()">＋ Create event</button></div>
    <div class="metrics">
@@ -127,7 +133,17 @@ async function analyze(evt){evt.preventDefault();proposal=null;el("ai-apply").di
 function applyProposal(){let e=event();if(!e||!proposal)return;let titles=[...document.querySelectorAll(".pro-title")],amounts=[...document.querySelectorAll(".pro-amount")];let expenses=titles.map(function(x,i){return {title:x.value,amount:amounts[i].value}});run(function(){return post("/api/events/"+e.id+"/expenses/bulk",{expenses:expenses})},"AI-proposed expenses reviewed and added.");proposal=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Proposal applied. Create another to continue."}
 el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);
 document.querySelectorAll("[data-tab]").forEach(function(x){x.addEventListener("click",function(){switchTab(x.dataset.tab)})});
-el("new-date").value=new Date().toISOString().slice(0,10);load().then(paymentReturn);
+async function checkReadiness(){
+ try{
+   let d=await request("/api/judge-readiness");
+   el("judge-health").textContent="Gemini key: "+(d.ai_key_present?"present":"missing")+
+    " · PayPal sandbox keys: "+(d.paypal_key_pair_present?"present":"missing")+
+    " · Webhook ID: "+(d.webhook_id_present?"present":"missing")+
+    " · Verified captures in current temporary storage: "+d.current_store_verified_captures+
+    ". Credentials present do not prove provider health; demo records may reset after deployment.";
+ }catch(e){el("judge-health").textContent="Readiness check unavailable: "+e.message;}
+}
+el("new-date").value=new Date().toISOString().slice(0,10);load().then(paymentReturn);checkReadiness();
 </script>
 </body>
 </html>
