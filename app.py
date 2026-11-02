@@ -33,7 +33,7 @@ async def demo_access_control(request: Request, call_next):
         # cryptographic signature before any payment state change.
         # The public demo is a standalone, browser-local experience. All
         # organizer data and mutation/payment/AI routes still require Basic auth.
-        public_page = request.url.path == "/" and request.method in ("GET", "HEAD")
+        public_page = request.url.path in ("/", "/favicon.ico") and request.method in ("GET", "HEAD")
         if not public_page and request.url.path not in ("/health", "/api/paypal/webhook"):
             user = os.getenv("DEMO_USERNAME", "judge")
             password = os.getenv("DEMO_PASSWORD", "")
@@ -157,6 +157,11 @@ def index():
 @app.get("/workspace")
 def organizer_workspace():
     return FileResponse(ROOT / "static" / "index.html")
+
+@app.get("/favicon.ico")
+def favicon():
+    # Avoid browser Basic-auth prompts caused by automatic favicon requests.
+    return Response(status_code=204)
 
 @app.get("/health")
 def health():
