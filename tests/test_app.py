@@ -357,3 +357,40 @@ def test_unknown_sandbox_order_cannot_be_queried(client,monkeypatch):
     async def no_remote_call(*args): raise AssertionError("Remote lookup must not occur")
     monkeypatch.setattr(paypal,"details",no_remote_call)
     assert client.post("/api/paypal/order-status/UNKNOWN-ORDER").status_code==404
+
+def test_judge_login_expiration_and_public_guide(client,monkeypatch):
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED", "1")
+    monkeypatch.setenv("DEMO_USERNAME", "owner")
+    monkeypatch.setenv("DEMO_PASSWORD", "long-owner-password-for-tests")
+    monkeypatch.setenv("JUDGE_ACCESS_ENABLED", "1")
+    monkeypatch.setenv("JUDGE_USERNAME", "reviewer")
+    monkeypatch.setenv("JUDGE_PASSWORD", "long-independent-judge-password-for-tests")
+    monkeypatch.setenv("JUDGE_ACCESS_EXPIRES_AT", "2026-12-16T23:59:00+00:00")
+    assert client.get("/judge").status_code == 200
+    assert "Judge walkthrough" in client.get("/judge").text
+    assert client.get("/api/judge-readiness").status_code == 401
+    assert client.get("/api/state",auth=("reviewer","long-independent-judge-password-for-tests")).status_code == 200
+    assert client.get("/workspace",auth=("reviewer","long-independent-judge-password-for-tests")).status_code == 200
+    assert client.get("/api/state",auth=("owner","long-owner-password-for-tests")).status_code == 200
+    assert client.get("/api/state",auth=("reviewer","wrong-password")).status_code == 401
+    status = client.get("/api/judge-readiness",auth=("reviewer","long-independent-judge-password-for-tests"))
+    assert status.status_code == 200
+    assert status.json()["storage"] == "ephemeral-sqlite"
+    assert status.json()["current_store_verified_captures"] == 0
+    assert "JUDGE_PASSWORD" not in status.text
+    monkeypatch.setenv("JUDGE_ACCESS_EXPIRES_AT", "2025-12-16T00:00:00+00:00")
+    assert client.get("/api/state",auth=("reviewer","long-independent-judge-password-for-tests")).status_code == 401
+    assert client.get("/api/state",auth=("owner","long-owner-password-for-tests")).status_code == 200
+    monkeypatch.setenv("JUDGE_ACCESS_EXPIRES_AT","broken")
+    assert client.get("/api/state",auth=("reviewer","long-independent-judge-password-for-tests")).status_code == 401
+    monkeypatch.setenv("JUDGE_ACCESS_ENABLED","0")
+    assert client.get("/api/state",auth=("reviewer","long-independent-judge-password-for-tests")).status_code == 401
+
+
+def test_public_guide_and_homepage_need_no_secret(client,monkeypatch):
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","random-owner-password-for-tests")
+    assert client.get("/").status_code == 200
+    assert client.get("/judge").status_code == 200
+    assert client.get("/workspace").status_code == 401
+    assert client.post("/api/ai/parse",json={"note":"Court 180 dollars, equipment 25 dollars"}).status_code == 401
