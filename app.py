@@ -208,7 +208,7 @@ def detailed(c, eid):
         "sandbox_cents": sum(x["share_cents"] for x in people if x["status"] == "sandbox_paid"),
         "approved": sum(x["approved"] for x in people)}
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def index():
     # Hosted public site is safe and fully client-local; organizer stays private.
     page = "public.html" if os.getenv("CIRCLESPLIT_HOSTED") == "1" else "index.html"
@@ -231,7 +231,7 @@ def favicon():
     # Avoid browser Basic-auth prompts caused by automatic favicon requests.
     return Response(status_code=204)
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok", "mode": "sandbox-only", "version": "0.2.0"}
 
