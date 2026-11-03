@@ -49,6 +49,15 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## New Insight Center and safer AI review
+
+- Protected workspace **Insights & exports** provides live fictional group funding KPIs, outstanding shares, exact-cent allocation validation, and per-event PayPal sandbox progress.
+- Export selected-event participant shares or all event funding totals as CSV. Spreadsheet cells beginning with formula operators are escaped to prevent formula injection.
+- Export an explicitly **read-only JSON snapshot** of the current fictional demo events and sandbox ledger (not a database restore or guaranteed backup). Sensitive PayPal order and capture identifiers are excluded. Records on Render Free can disappear after redeploy.
+- Gemini proposals are bound to the selected event; switching events invalidates the proposal. Suggestions are only shown as saved **after the server confirms** the bulk expense update. Failed updates retain the proposal for correction and retry.
+- PayPal cancellations now direct the organizer to Activity and the existing-order recovery flow instead of creating a new order.
+- Frontend analytics and CSV safety checks run in GitHub Actions using Node's built-in test runner.
+
 ## Judging access and walkthrough
 
 - Public no-login guest demo: https://circlesplit-ai-demo.onrender.com/ — interactive **browser-local simulation** only.

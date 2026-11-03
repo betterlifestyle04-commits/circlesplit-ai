@@ -12,4 +12,17 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
+      - run: node --check static/insights.js
+      - run: node --test tests/test_insights.cjs
+      - name: Validate protected workspace inline JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path("static/index.html").read_text()
+          scripts=re.findall(r"<script>([\s\S]*?)</script>",s)
+          assert len(scripts)==1
+          Path("/tmp/circlesplit-inline.js").write_text(scripts[0])
+          PY
+          node --check /tmp/circlesplit-inline.js
       - run: python -m compileall -q app.py domain.py paypal.py
