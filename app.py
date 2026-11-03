@@ -489,8 +489,11 @@ def get_event_planning(eid: int):
 
 @app.put("/api/events/{eid}/planning")
 def set_event_planning(eid: int, data: EventPlanningInput):
+    raw_cap=data.ceiling.strip() if data.ceiling is not None else ""
+    if raw_cap and not re.fullmatch(r"\d+(?:\.\d{1,2})?",raw_cap):
+        raise HTTPException(422,"Enter a positive USD amount with at most two decimal places")
     try:
-        cap=cents(data.ceiling.strip()) if data.ceiling is not None and data.ceiling.strip() else None
+        cap=cents(raw_cap) if raw_cap else None
     except ValueError as exc:
         raise HTTPException(422,str(exc))
     with db() as c:
