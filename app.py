@@ -867,7 +867,7 @@ async def webhook(request: Request):
 @app.get("/api/transactions")
 def transactions():
     with db() as c:
-        rows = c.execute("""SELECT p.id,p.status,p.order_id,p.amount_cents,p.created,
+        rows = c.execute("""SELECT p.id,p.event_id,p.status,p.order_id,p.amount_cents,p.created,
                                    e.name AS event_name, a.name AS person_name
                             FROM payments p JOIN events e ON p.event_id=e.id
                             JOIN people a ON p.person_id=a.id ORDER BY p.id DESC LIMIT 100""").fetchall()
