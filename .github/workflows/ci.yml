@@ -13,7 +13,8 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
       - run: node --check static/insights.js
-      - run: node --test tests/test_insights.cjs
+      - run: node --test tests/test_insights.cjs tests/test_operations.cjs
+      - run: node --check static/operations.js
       - name: Validate protected workspace inline JavaScript
         run: |
           python - <<'PY'

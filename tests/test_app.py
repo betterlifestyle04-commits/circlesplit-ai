@@ -628,3 +628,44 @@ def test_public_participant_methods_are_minimal(client,monkeypatch):
     assert client.get("/participant").status_code==200
     assert "frame-ancestors 'none'" in client.get("/participant").headers["content-security-policy"]
     assert client.post("/api/events/1/people/10/invite/revoke").status_code==401
+
+def test_tasks_crud_independent_of_payment_lock(client):
+    event=initial(client);eid=event["id"]
+    new=client.post(f"/api/events/{eid}/tasks",json={"title":"Confirm venue"})
+    assert new.status_code==200,new.text
+    tid=new.json()["id"]
+    assert client.post(f"/api/events/{eid}/tasks",json={"title":"confirm VENUE"}).status_code==409
+    assert client.patch(f"/api/events/{eid}/tasks/{tid}",json={"completed":True}).status_code==200
+    assert initial(client)["tasks"][0]["completed"]==1
+    pid=event["people"][0]["id"]
+    client.post(f"/api/events/{eid}/people/{pid}/approve")
+    client.post(f"/api/events/{eid}/people/{pid}/simulate")
+    assert client.patch(f"/api/events/{eid}/tasks/{tid}",json={"completed":False}).status_code==200
+    assert client.delete(f"/api/events/{eid}/tasks/{tid}").status_code==200
+    assert initial(client)["simulated_cents"]==1100
+    assert client.patch(f"/api/events/{eid}/tasks/{tid}",json={"completed":True}).status_code==404
+
+def test_starter_tasks_idempotent_and_cloning_resets_them(client):
+    eid=initial(client)["id"]
+    assert client.post(f"/api/events/{eid}/tasks/starter").json()["added"]==5
+    assert client.post(f"/api/events/{eid}/tasks/starter").json()["added"]==0
+    tid=initial(client)["tasks"][0]["id"]
+    client.patch(f"/api/events/{eid}/tasks/{tid}",json={"completed":True})
+    copy=client.post(f"/api/events/{eid}/clone",json={"name":"Next Volleyball"})
+    assert copy.status_code==200,copy.text
+    assert copy.json()["copied_tasks"]==5
+    target=next(x for x in client.get("/api/state").json()["events"] if x["id"]==copy.json()["id"])
+    assert len(target["tasks"])==5
+    assert all(x["completed"]==0 for x in target["tasks"])
+
+def test_task_scoping_and_hosted_access(client,monkeypatch):
+    eid=initial(client)["id"]
+    other=client.post("/api/events",json={"name":"Other activity","date":"2026-11-07"}).json()["id"]
+    tid=client.post(f"/api/events/{eid}/tasks",json={"title":"Prepare equipment"}).json()["id"]
+    assert client.delete(f"/api/events/{other}/tasks/{tid}").status_code==404
+    assert client.patch(f"/api/events/{other}/tasks/{tid}",json={"completed":True}).status_code==404
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","a-long-owner-demo-password")
+    assert client.post(f"/api/events/{eid}/tasks",json={"title":"Forbidden"}).status_code==401
+    assert client.patch(f"/api/events/{eid}/tasks/{tid}",json={"completed":True}).status_code==401
+    assert client.delete(f"/api/events/{eid}/tasks/{tid}").status_code==401

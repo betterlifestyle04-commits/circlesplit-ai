@@ -49,6 +49,14 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Event Operations checklist and calendar export
+
+- Protected Events page now supports per-event preparation tasks, a completion bar, and a five-task starter checklist.
+- Tasks can be updated after checkout begins without altering budgets, participant approval, or payment records.
+- Duplicating an event copies checklist titles but resets all completed flags.
+- Calendar (.ics) exports are all-day events, produced entirely in the browser with strict date validation, special-character escaping, and UTF-8 line folding.
+- Backend and Node tests cover access control, cross-event isolation, idempotence, payment invariants, calendar escaping, and date boundaries. Like all demo records, event tasks may reset on Render Free redeployment.
+
 ## Private, revocable participant approval links (hackathon demo)
 
 - Organizers can select **Invite** next to an unpaid participant. The server creates a cryptographically random bearer token and stores **only its SHA-256 hash** in SQLite.

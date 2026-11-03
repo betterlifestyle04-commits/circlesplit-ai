@@ -156,6 +156,14 @@ def initialize():
           status TEXT NOT NULL, capture_id TEXT, created TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, created TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS event_tasks (
+            id INTEGER PRIMARY KEY,
+            event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0,1)),
+            created TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS tasks_by_event ON event_tasks(event_id);
         CREATE TABLE IF NOT EXISTS participant_invites (
           id INTEGER PRIMARY KEY,
           person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
@@ -193,7 +201,8 @@ def detailed(c, eid):
         "SELECT * FROM expenses WHERE event_id=? ORDER BY id", (eid,))]
     people = [dict(x) for x in c.execute(
         "SELECT * FROM people WHERE event_id=? ORDER BY id", (eid,))]
-    return {**event, "expenses": expenses, "people": people,
+    tasks = [dict(t) for t in c.execute("SELECT id,title,completed FROM event_tasks WHERE event_id=? ORDER BY id",(eid,))]
+    return {**event, "expenses": expenses, "people": people, "tasks":tasks,
         "total_cents": sum(x["cents"] for x in expenses),
         "simulated_cents": sum(x["share_cents"] for x in people if x["status"] == "demo_paid"),
         "sandbox_cents": sum(x["share_cents"] for x in people if x["status"] == "sandbox_paid"),
@@ -286,6 +295,7 @@ def clone_event(eid: int, data: CloneEventInput):
         people = c.execute(
             "SELECT name,weight FROM people WHERE event_id=? ORDER BY id", (eid,)
         ).fetchall() if data.include_people else []
+        task_names = [t["title"] for t in c.execute("SELECT title FROM event_tasks WHERE event_id=? ORDER BY id",(eid,))]
         if len(people) > 200 or len(expenses) > 200:
             raise HTTPException(422, "Template exceeds demo limits")
         new_id = c.execute(
@@ -298,12 +308,61 @@ def clone_event(eid: int, data: CloneEventInput):
         for person in people:
             c.execute("INSERT INTO people(event_id,name,weight,approved,status) VALUES(?,?,?,0,'unpaid')",
                       (new_id,person["name"],person["weight"]))
+        for task_title in task_names:
+            c.execute("INSERT INTO event_tasks(event_id,title,created) VALUES(?,?,?)",(new_id,task_title,now()))
         if people:
             recalculate(c,new_id,original["strategy"])
     return {"id":new_id,"source_event_id":eid,
-            "copied_expenses":len(expenses),"copied_people":len(people),
+            "copied_expenses":len(expenses),"copied_people":len(people),"copied_tasks":len(task_names),
             "approvals_reset":True,"payments_copied":False}
 
+
+class TaskInput(BaseModel):
+    title: str = Field(min_length=3,max_length=120)
+
+class TaskCompletion(BaseModel):
+    completed: bool
+
+TASK_TEMPLATE = ("Confirm venue","Confirm attendance","Review budget","Prepare equipment","Share event details")
+
+@app.post("/api/events/{eid}/tasks")
+def add_task(eid:int,data:TaskInput):
+    title=data.title.strip()
+    if len(title)<3: raise HTTPException(422,"Task title too short")
+    with db() as c:
+        require_event(c,eid)
+        items=c.execute("SELECT title FROM event_tasks WHERE event_id=?",(eid,)).fetchall()
+        if len(items)>=40: raise HTTPException(422,"Maximum 40 tasks per event")
+        if title.casefold() in {t["title"].casefold() for t in items}:
+            raise HTTPException(409,"This task already exists")
+        tid=c.execute("INSERT INTO event_tasks(event_id,title,created) VALUES(?,?,?)",(eid,title,now())).lastrowid
+    return {"id":tid,"title":title,"completed":False}
+
+@app.post("/api/events/{eid}/tasks/starter")
+def starter_tasks(eid:int):
+    with db() as c:
+        require_event(c,eid)
+        names=[x["title"].casefold() for x in c.execute("SELECT title FROM event_tasks WHERE event_id=?",(eid,))]
+        missing=[x for x in TASK_TEMPLATE if x.casefold() not in names]
+        if len(names)+len(missing)>40: raise HTTPException(422,"Not enough checklist capacity")
+        c.executemany("INSERT INTO event_tasks(event_id,title,created) VALUES(?,?,?)",[(eid,title,now()) for title in missing])
+    return {"added":len(missing)}
+
+@app.patch("/api/events/{eid}/tasks/{task_id}")
+def complete_task(eid:int,task_id:int,data:TaskCompletion):
+    with db() as c:
+        require_event(c,eid)
+        cur=c.execute("UPDATE event_tasks SET completed=? WHERE id=? AND event_id=?",(int(data.completed),task_id,eid))
+        if cur.rowcount!=1: raise HTTPException(404,"Task not found")
+    return {"ok":True,"completed":data.completed}
+
+@app.delete("/api/events/{eid}/tasks/{task_id}")
+def remove_task(eid:int,task_id:int):
+    with db() as c:
+        require_event(c,eid)
+        cur=c.execute("DELETE FROM event_tasks WHERE id=? AND event_id=?",(task_id,eid))
+        if cur.rowcount!=1: raise HTTPException(404,"Task not found")
+    return {"ok":True}
 
 class ScenarioInput(BaseModel):
     adjustment: str = Field(default="0.00", min_length=1, max_length=25)

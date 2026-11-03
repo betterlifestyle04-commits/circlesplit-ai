@@ -1,0 +1,6 @@
+const {test}=require("node:test"),assert=require("node:assert/strict");
+const {taskProgress,icsEscape,exportIcs}=require("../static/operations.js");
+test("task progress is exact",()=>{assert.deepEqual(taskProgress([]),{total:0,done:0,percent:0});assert.deepEqual(taskProgress([{completed:1},{completed:0},{completed:1}]),{total:3,done:2,percent:67});});
+test("calendar handles year boundary",()=>{const x=exportIcs({id:1,date:"2026-12-31",name:"Meetup",note:"Demo"},new Date("2026-11-03T00:00:00Z"));assert.match(x,/DTSTART;VALUE=DATE:20261231/);assert.match(x,/DTEND;VALUE=DATE:20270101/);assert.match(x,/DTSTAMP:20261103T000000Z/);});
+test("calendar safely escapes and folds user-supplied names",()=>{const x=exportIcs({id:2,date:"2026-11-06",name:"A,B;C\nF"+"🚀".repeat(35)},new Date("2026-11-03T00:00:00Z"));assert.match(x,/SUMMARY:A\\,B\\;C\\nF/);assert.ok(x.split("\r\n").every(t=>Buffer.byteLength(t,"utf8")<=75));assert.equal(icsEscape("X\nBEGIN:VEVENT"),"X\\nBEGIN:VEVENT");});
+test("invalid dates are rejected",()=>{for(const date of ["2026-02-30","2026-13-01","hello"])assert.throws(()=>exportIcs({id:1,date,name:"Bad"}),/date/i);});

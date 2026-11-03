@@ -54,7 +54,7 @@
    <div class="grid2">
     <div class="stack">
      <div class="card"><div class="section-heading"><h2>Event budget</h2><select id="event-select" class="select choose" aria-label="Select event" onchange="selectEvent(this.value)"></select></div>
-       <div id="event-detail"></div><div class="space"></div><div class="row wrap"><button class="btn small secondary" onclick="exportSelectedShares()">↓ Export this event’s shares (CSV)</button><button class="btn small" onclick="cloneSelectedEvent()">⧉ Duplicate as new event</button></div><div class="space"></div>
+       <div id="event-detail"></div><div class="space"></div><div class="row wrap"><button class="btn small secondary" onclick="exportSelectedShares()">↓ Export this event’s shares (CSV)</button><button class="btn small" onclick="cloneSelectedEvent()">⧉ Duplicate as new event</button><button class="btn small" onclick="downloadCalendar()">▣ Calendar .ics</button></div><div class="space"></div>
        <div class="row wrap"><button id="equal" class="split-label" onclick="setAllocation('equal')">Equal split</button><button id="weighted" class="split-label" onclick="setAllocation('weighted')">Attendance-weighted</button></div>
        <div class="space"></div><div id="expense-rows"></div>
        <div class="space"></div><form id="expense-form" class="inlineform"><input id="expense-title" required minlength="2" placeholder="Expense (e.g. venue fee)" aria-label="Expense name"><input id="expense-amount" required inputmode="decimal" style="max-width:95px" placeholder="$" aria-label="Expense amount"><button class="btn secondary" type="submit">Add</button></form>
@@ -76,7 +76,8 @@
      <div class="card"><div class="card-title">Create an event</div><p class="muted small">Start with a name and date, then add your expenses and people.</p>
        <form class="formgrid" id="new-form"><div class="field full"><label for="new-name">Event name</label><input id="new-name" required minlength="3" placeholder="e.g. Community badminton"></div><div class="field full"><label for="new-date">Date</label><input id="new-date" type="date" required></div><div class="field full"><label for="new-note">Description</label><input id="new-note" placeholder="What are you organizing?"></div><button class="btn primary full" type="submit">Create new event</button></form>
      </div>
-     <div class="card"><div class="card-title">Why transparent splitting?</div><p class="muted small">Money is calculated in integer cents so the shares always sum to exactly the total budget, even when a total cannot be divided evenly. No hidden rounding discrepancies.</p><div class="capsule small"><b>Approval is required:</b> no sandbox checkout can be created until the individual approves their assigned share.</div></div>
+     <div class="card"><div class="section-heading"><h2>Event preparation</h2><span class="pill neutral" id="task-counter">0 / 0</span></div><p class="notice">Checklist changes do not affect approvals or payments.</p><div class="progress" style="margin:13px 0"><div class="fill" id="task-meter" style="width:0%"></div></div><div id="task-rows"></div><form id="task-form" class="inlineform" style="margin-top:13px"><input id="task-title" required minlength="3" maxlength="120" placeholder="Preparation task" aria-label="New task"><button class="btn secondary">Add</button></form><div class="space"></div><button class="btn small" onclick="addStarterTasks()">＋ Starter checklist</button></div>
+      <div class="card"><div class="card-title">Why transparent splitting?</div><p class="muted small">Money is calculated in integer cents so the shares always sum to exactly the total budget, even when a total cannot be divided evenly. No hidden rounding discrepancies.</p><div class="capsule small"><b>Approval is required:</b> no sandbox checkout can be created until the individual approves their assigned share.</div></div>
     </div>
    </div>
   </section>
@@ -133,6 +134,7 @@
  </div>
 </div></div>
 <script src="/static/insights.js"></script>
+<script src="/static/operations.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -222,6 +224,33 @@ async function importParticipants(evt){
  }catch(err){notice("Import failed: "+err.message+". No rows were added.",true);}
  finally{button.disabled=false;button.textContent="Import participants";}
 }
+function downloadCalendar(){
+ const e=event();if(!e)return;
+ try{offerDownload("circlesplit-"+e.id+".ics",exportIcs(e),"text/calendar;charset=utf-8");notice("Calendar event downloaded. No external account used.",false);}
+ catch(err){notice(err.message,true)}
+}
+async function createTask(evt){
+ evt.preventDefault();const e=event();if(!e)return;const input=el("task-title");
+ try{await post("/api/events/"+e.id+"/tasks",{title:input.value.trim()});input.value="";await load();notice("Task added.",false)}
+ catch(err){notice(err.message,true)}
+}
+async function changeTask(id,completed){const e=event();if(!e)return;
+ try{await request("/api/events/"+e.id+"/tasks/"+id,{method:"PATCH",body:JSON.stringify({completed})});await load()}
+ catch(err){notice(err.message,true)}
+}
+async function removeTask(id){const e=event();if(!e||!confirm("Delete this task?"))return;
+ try{await request("/api/events/"+e.id+"/tasks/"+id,{method:"DELETE"});await load()}
+ catch(err){notice(err.message,true)}
+}
+async function addStarterTasks(){const e=event();if(!e)return;
+ try{const x=await post("/api/events/"+e.id+"/tasks/starter");await load();notice(x.added+" preparation tasks added.",false)}
+ catch(err){notice(err.message,true)}
+}
+function showTasks(e){
+ const tasks=e?.tasks||[],p=taskProgress(tasks);
+ el("task-counter").textContent=p.done+" / "+p.total+" completed";el("task-meter").style.width=p.percent+"%";
+ el("task-rows").innerHTML=tasks.length?tasks.map(t=>'<div class="row between" style="padding:10px 0;border-bottom:1px solid #edf2f1"><label class="row" style="cursor:pointer"><input type="checkbox" '+(t.completed?"checked":"")+' onchange="changeTask('+t.id+',this.checked)"><span style="'+(t.completed?"text-decoration:line-through;opacity:.6":"")+'">'+safe(t.title)+'</span></label><button class="btn small ghost" onclick="removeTask('+t.id+')" aria-label="Delete task">✕</button></div>').join(""):'<p class="notice">Add tasks or start with a suggested checklist.</p>';
+}
 function createEvent(evt){evt.preventDefault();run(async function(){let result=await post("/api/events",{name:el("new-name").value,date:el("new-date").value,note:el("new-note").value});eventId=result.id;el("new-form").reset()},"Event created. Add expenses and participants.")}
 async function createParticipantInvitation(pid){
  const e=event();if(!e)return;
@@ -260,11 +289,11 @@ function render(){
  el("ai-indicator").textContent=state.ai_configured?"AI key set · verify with test":"AI not connected";
   const scenarioTarget=el("scenario-target");if(scenarioTarget)scenarioTarget.textContent=e?"Current event: "+e.name+" · "+money(e.total_cents)+" · "+e.people.length+" participants":"No event selected. Create one in Events.";
 
- if(!e){el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
+ if(!e){showTasks(null);el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
  el("event-detail").innerHTML='<div class="detail-head"><div><div class="muted small">'+safe(e.date)+'</div><h3 style="margin:4px 0">'+safe(e.name)+'</h3><div class="muted small">'+safe(e.note)+'</div></div><div style="text-align:right"><div class="muted small">Total planned budget</div><div style="font-size:27px;font-weight:850">'+money(e.total_cents)+'</div></div></div>';
  el("equal").classList.toggle("active",e.strategy==="equal");el("weighted").classList.toggle("active",e.strategy==="weighted");
  el("expense-rows").innerHTML='<table><thead><tr><th>Expense</th><th style="text-align:right">Amount</th></tr></thead><tbody>'+e.expenses.map(function(x){return '<tr><td>'+safe(x.title)+'</td><td style="text-align:right;font-weight:700">'+money(x.cents)+'</td><td style="text-align:right"><button class="btn small ghost" aria-label="Remove expense" onclick="removeExpense('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
- el("people-count").textContent=e.people.length+" members";
+ el("people-count").textContent=e.people.length+" members";showTasks(e);
  el("people-rows").innerHTML='<table><thead><tr><th>Name</th><th>Weight</th><th>Share</th></tr></thead><tbody>'+e.people.map(function(x){return '<tr><td>'+safe(x.name)+'</td><td>'+x.weight+'</td><td style="font-weight:750">'+money(x.share_cents)+'</td><td><button class="btn small ghost" aria-label="Remove participant" onclick="removePerson('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
  el("contrib-heading").textContent=e.name;
  let pct=e.total_cents?Math.min(100,e.sandbox_cents/e.total_cents*100):0;
@@ -277,7 +306,7 @@ async function applyProposal(){let e=event();if(!e||!proposal||applyingProposal)
 el("bulk-people-form").addEventListener("submit",importParticipants);
 el("scenario-form").addEventListener("submit",previewScenario);
 ["scenario-adjustment","scenario-people","scenario-strategy"].forEach(function(id){el(id).addEventListener("input",resetScenario);});
-el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);
+el("task-form").addEventListener("submit",createTask);el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);
 document.querySelectorAll("[data-tab]").forEach(function(x){x.addEventListener("click",function(){switchTab(x.dataset.tab)})});
 async function checkReadiness(){
  try{
