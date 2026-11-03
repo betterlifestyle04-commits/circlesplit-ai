@@ -112,7 +112,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
        <div id="event-detail"></div><div class="space"></div><div class="row wrap"><button class="btn small secondary" onclick="exportSelectedShares()">↓ Export this event’s shares (CSV)</button><button class="btn small" onclick="cloneSelectedEvent()">⧉ Duplicate as new event</button><button class="btn small" onclick="downloadCalendar()">▣ Calendar .ics</button></div><div class="space"></div>
        <div class="row wrap"><button id="equal" class="split-label" onclick="setAllocation('equal')">Equal split</button><button id="weighted" class="split-label" onclick="setAllocation('weighted')">Attendance-weighted</button></div>
        <div class="space"></div><div id="expense-rows"></div>
-       <div class="space"></div><form id="expense-form" class="inlineform"><input id="expense-title" required minlength="2" placeholder="Expense (e.g. venue fee)" aria-label="Expense name"><input id="expense-amount" required inputmode="decimal" style="max-width:95px" placeholder="$" aria-label="Expense amount"><button class="btn secondary" type="submit">Add</button></form>
+       <div id="budget-categories" class="capsule small" style="margin:16px 0" aria-live="polite">Category totals will appear here.</div>
+       <div class="space"></div><form id="expense-form" class="inlineform"><input id="expense-title" required minlength="2" placeholder="Expense (e.g. venue fee)" aria-label="Expense name"><input id="expense-amount" required inputmode="decimal" style="max-width:95px" placeholder="$" aria-label="Expense amount"><select id="expense-category" class="select" style="max-width:170px" aria-label="Expense category"></select><button class="btn secondary" type="submit">Add</button></form>
      </div>
      <div class="card"><div class="section-heading"><h2>Participants</h2><span class="pill neutral" id="people-count">0 members</span></div><div id="people-rows"></div>
        <div class="capsule small" id="split-explanation" role="status" aria-live="polite" style="margin-top:14px">Select <strong>Explain</strong> next to a person to see how their share was calculated in exact cents.</div>
@@ -222,7 +223,13 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
     </div>
    </div>
   </section>
-  <section id="insights" class="tabpan"><div class="title"><div><div class="eyebrow">INSIGHT CENTER</div><h1>Know where every share stands.</h1><p class="sub">Clear funding progress, outstanding contributions and portable demo reports. No real money is collected.</p></div></div><div class="metrics" id="insights-metrics"></div><div class="space"></div><div class="card"><div class="section-heading"><h2>Event funding overview</h2><div class="row wrap"><button class="btn small secondary" onclick="exportFundingReport()">↓ Export funding CSV</button><button class="btn small" onclick="exportDemoSnapshot()">↓ Download JSON snapshot</button></div></div><p class="notice" id="insights-note" aria-live="polite">Calculating…</p><div style="overflow-x:auto"><table><thead><tr><th>Event</th><th>People</th><th>Budget</th><th>Confirmed sandbox</th><th>Outstanding</th><th>Allocation</th></tr></thead><tbody id="insights-events"></tbody></table></div></div><div class="banner" style="margin-top:16px"><b>Data safety:</b> Reports are read-only and contain fictional demo participants. Render Free can reset its SQLite database after a restart or redeploy. JSON snapshots are NOT restorable backups and omit PayPal transaction identifiers.</div></section>
+  <section id="insights" class="tabpan"><div class="title"><div><div class="eyebrow">INSIGHT CENTER</div><h1>Know where every share stands.</h1><p class="sub">Clear funding progress, outstanding contributions and portable demo reports. No real money is collected.</p></div></div><div class="metrics" id="insights-metrics"></div><div class="space"></div><div class="card"><div class="section-heading"><h2>Event funding overview</h2><div class="row wrap"><button class="btn small secondary" onclick="exportFundingReport()">↓ Export funding CSV</button><button class="btn small" onclick="exportDemoSnapshot()">↓ Download JSON snapshot</button></div></div><p class="notice" id="insights-note" aria-live="polite">Calculating…</p><div style="overflow-x:auto"><table><thead><tr><th>Event</th><th>People</th><th>Budget</th><th>Confirmed sandbox</th><th>Outstanding</th><th>Allocation</th></tr></thead><tbody id="insights-events"></tbody></table></div></div><div class="card" style="margin-top:18px">
+  <div class="section-heading"><h2>Planned spending by category</h2>
+   <button class="btn small secondary" onclick="exportCategoryReport()">↓ Export categories CSV</button></div>
+  <p class="notice">A breakdown of <b>planned event expenses</b>, not PayPal charges or real expenditure.</p>
+  <div id="insights-categories" aria-live="polite">No category data yet.</div>
+ </div>
+ <div class="banner" style="margin-top:16px"><b>Data safety:</b> Reports are read-only and contain fictional demo participants. Render Free can reset its SQLite database after a restart or redeploy. JSON snapshots are NOT restorable backups and omit PayPal transaction identifiers.</div></section>
 <section id="scenario" class="tabpan">
     <div class="title"><div><div class="eyebrow">SCENARIO LAB</div><h1>See the impact before you commit.</h1>
     <p class="sub">Explore extra attendees, costs and allocation methods without changing the event, approvals or PayPal records.</p></div></div>
@@ -261,6 +268,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/pulse.js"></script>
 <script src="/static/communications.js"></script>
 <script src="/static/directory.js"></script>
+<script src="/static/categories.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -405,7 +413,16 @@ async function previewScenario(evt){
 function setAllocation(strategy){let e=event();if(!e)return;run(function(){return post("/api/events/"+e.id+"/allocation",{strategy:strategy})},"Allocation recalculated. Existing approvals reset.")}
 function removeExpense(id){let e=event();if(!e||!window.confirm("Remove this expense and recalculate all shares?"))return;run(function(){return request("/api/events/"+e.id+"/expenses/"+id,{method:"DELETE"})},"Expense removed; approvals reset.")}
 function removePerson(id){let e=event();if(!e||!window.confirm("Remove this participant and recalculate all shares?"))return;run(function(){return request("/api/events/"+e.id+"/people/"+id,{method:"DELETE"})},"Participant removed; shares recalculated.")}
-function addExpense(evt){evt.preventDefault();let e=event();if(!e)return;run(function(){return post("/api/events/"+e.id+"/expenses",{title:el("expense-title").value,amount:el("expense-amount").value})},"Expense added.");el("expense-title").value="";el("expense-amount").value=""}
+async function addExpense(evt){
+ evt.preventDefault();const e=event();if(!e)return;
+ const title=el("expense-title").value.trim(),amount=el("expense-amount").value,category=el("expense-category").value;
+ try{
+  await post("/api/events/"+e.id+"/expenses",{title,amount,category});
+  await load();
+  el("expense-title").value="";el("expense-amount").value="";
+  notice("Categorized expense saved. Shares recalculated; prior approvals reset.",false);
+ }catch(err){notice("Expense not saved: "+err.message+". Your inputs were preserved.",true)}
+}
 function addPerson(evt){evt.preventDefault();let e=event();if(!e)return;run(function(){return post("/api/events/"+e.id+"/people",{name:el("person-name").value,weight:Number(el("person-weight").value)})},"Participant added.");el("person-name").value=""}
 async function importParticipants(evt){
  evt.preventDefault();
@@ -563,18 +580,71 @@ function exportEventHistory(){
   csvText(rows),"text/csv;charset=utf-8");
  notice("Sandbox event history CSV downloaded. No payment IDs or invitation tokens are included.",false);
 }
+function categoryBars(report){
+ const list=report.categories.filter(row=>row.cents>0);
+ return list.length?list.map(row=>{
+  const width=report.totalCents?Math.max(1,Math.min(100,Math.round(100*row.cents/report.totalCents))):0;
+  return '<div style="margin:13px 0"><div class="row between"><b>'+safe(row.label)+'</b>'+
+    '<span>'+money(row.cents)+' · '+row.count+' line(s) · '+row.percent+'%</span></div>'+
+    '<div class="progress" style="margin-top:6px"><div class="fill" style="width:'+width+'%"></div></div></div>';
+ }).join(""):'<div class="notice">Add categorized expenses to see the breakdown.</div>';
+}
+function renderEventCategories(e){
+ const root=el("budget-categories");if(!root)return;
+ if(!e){root.textContent="Select an event to see planned expense categories.";return;}
+ try{
+  const r=budgetCategories(e.expenses);
+  root.innerHTML='<div class="row between"><b>Where the budget goes</b><span>'+money(r.totalCents)+' planned</span></div>'+
+    categoryBars(r)+'<p class="notice" style="margin-bottom:0">Changing a category does not alter the budget or any participant share.</p>';
+ }catch(err){root.textContent="Budget category data needs review: "+err.message;}
+}
+function renderCategoryInsights(){
+ const root=el("insights-categories");if(!root)return;
+ try{const r=allBudgetCategories(state.events);
+  root.innerHTML=categoryBars(r)+'<p class="notice">Category totals are based on '+state.events.length+
+    ' fictional events, including older expenses categorized as Other.</p>';
+ }catch(err){root.textContent="Category totals unavailable: "+err.message;}
+}
+async function updateExpenseCategory(expenseId,category){
+ const e=event();if(!e)return;
+ try{
+  const data=await request("/api/events/"+e.id+"/expenses/"+expenseId+"/category",{
+   method:"PATCH",body:JSON.stringify({category})
+  });
+  await load();
+  notice(data.changed?"Category updated without changing amounts or approvals.":"Category is unchanged.",false);
+ }catch(err){
+  render(); // Restore the original category if the server rejected the change.
+  notice("Category not updated: "+err.message,true);
+ }
+}
+function exportCategoryReport(){
+ try{
+  const rows=[["Event","Date","Category","Planned USD","Expense lines"]];
+  for(const e of state.events){
+   const report=budgetCategories(e.expenses);
+   for(const item of report.categories){
+    rows.push([e.name,e.date,item.label,(item.cents/100).toFixed(2),item.count]);
+   }
+  }
+  offerDownload("circlesplit-planned-expense-categories.csv",
+   csvText(rows),"text/csv;charset=utf-8");
+  notice("Planned expense category report exported. No real payments represented.",false);
+ }catch(err){notice("Category export unavailable: "+err.message,true)}
+}
 function render(){
  let events=state.events,e=event(),people=events.reduce(function(n,x){return n+x.people.length},0),budget=events.reduce(function(n,x){return n+x.total_cents},0),paid=events.reduce(function(n,x){return n+x.sandbox_cents},0);
- el("kpi-events").textContent=events.length;el("kpi-budget").textContent=money(budget);el("kpi-real").textContent=money(paid);el("kpi-people").textContent=people;renderInsights();renderPulse();renderDirectory();
+ el("kpi-events").textContent=events.length;el("kpi-budget").textContent=money(budget);el("kpi-real").textContent=money(paid);el("kpi-people").textContent=people;renderInsights();renderPulse();renderDirectory();renderCategoryInsights();
  el("event-summary").innerHTML=events.length?events.map(function(x){return '<div class="row between" style="padding:15px 0;border-bottom:1px solid #edf0f1"><div><div class="event-name">'+safe(x.name)+'</div><div class="muted small">'+safe(x.date)+' • '+x.people.length+' members</div></div><div style="text-align:right"><b>'+money(x.total_cents)+'</b><div class="small muted">'+x.approved+' approved</div></div></div>'}).join(""):'<div class="empty">No events yet.</div>';
  let select=el("event-select");select.innerHTML=events.map(function(x){return '<option value="'+x.id+'">'+safe(x.name)+'</option>'}).join("");if(e)select.value=e.id;
  el("ai-indicator").textContent=state.ai_configured?"AI key set · verify with test":"AI not connected";
   const scenarioTarget=el("scenario-target");if(scenarioTarget)scenarioTarget.textContent=e?"Current event: "+e.name+" · "+money(e.total_cents)+" · "+e.people.length+" participants":"No event selected. Create one in Events.";
 
- if(!e){el("rsvp-summary").textContent="No event selected.";showTasks(null);el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
+ if(!e){renderEventCategories(null);el("rsvp-summary").textContent="No event selected.";showTasks(null);el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
  el("event-detail").innerHTML='<div class="detail-head"><div><div class="muted small">'+safe(e.date)+'</div><h3 style="margin:4px 0">'+safe(e.name)+'</h3><div class="muted small">'+safe(e.note)+'</div></div><div style="text-align:right"><div class="muted small">Total planned budget</div><div style="font-size:27px;font-weight:850">'+money(e.total_cents)+'</div></div></div>';
  el("equal").classList.toggle("active",e.strategy==="equal");el("weighted").classList.toggle("active",e.strategy==="weighted");
- el("expense-rows").innerHTML='<table><thead><tr><th>Expense</th><th style="text-align:right">Amount</th></tr></thead><tbody>'+e.expenses.map(function(x){return '<tr><td>'+safe(x.title)+'</td><td style="text-align:right;font-weight:700">'+money(x.cents)+'</td><td style="text-align:right"><button class="btn small ghost" aria-label="Remove expense" onclick="removeExpense('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
+ el("expense-rows").innerHTML='<table><thead><tr><th>Expense</th><th>Category</th><th style="text-align:right">Amount</th><th>Remove</th></tr></thead><tbody>'+e.expenses.map(function(x){return '<tr><td>'+safe(x.title)+'</td><td><select class="select" aria-label="Category for '+safe(x.title)+'" onchange="updateExpenseCategory('+x.id+',this.value)">'+categoryOptions(x.category)+'</select></td><td style="text-align:right;font-weight:700">'+money(x.cents)+'</td><td style="text-align:right"><button class="btn small ghost" aria-label="Remove expense" onclick="removeExpense('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
+ renderEventCategories(e);
  el("people-count").textContent=e.people.length+" members";showTasks(e);
  el("people-rows").innerHTML='<table><thead><tr><th>Name</th><th>Weight</th><th>Share</th></tr></thead><tbody>'+e.people.map(function(x){return '<tr><td>'+safe(x.name)+'</td><td>'+x.weight+'</td><td style="font-weight:750">'+money(x.share_cents)+'</td><td><button class="btn small secondary" type="button" onclick="explainMember('+x.id+')" aria-label="Explain '+safe(x.name)+' share">Explain</button></td><td><button class="btn small ghost" aria-label="Remove participant" onclick="removePerson('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
  el("contrib-heading").textContent=e.name;
@@ -588,7 +658,7 @@ function render(){
 }
 async function load(){try{state=await request("/api/state");historyCache=null;el("history-export").disabled=true;if(!state.events.some(function(e){return e.id===eventId}))eventId=state.events.length?state.events[0].id:null;render();let t=await request("/api/transactions");window.circleTransactions=t.transactions;renderInsights();renderPulse();
  if(currentTab==="history")await loadEventHistory();el("transaction-list").innerHTML=t.transactions.length?'<div class="notice">Order created ≠ payment captured. Click Check PayPal to resume buyer approval or reconcile a previously approved sandbox order.</div><div class="space"></div><div style="overflow-x:auto"><table><thead><tr><th>Person</th><th>Event</th><th>Amount</th><th>Status</th><th>Verify</th></tr></thead><tbody>'+t.transactions.map(function(p){let id=String(p.order_id||"");let canCheck=p.status!=="completed"&&/^[A-Za-z0-9-]{5,50}$/.test(id);return '<tr><td>'+safe(p.person_name)+'</td><td>'+safe(p.event_name)+'</td><td>'+money(p.amount_cents)+'</td><td><span class="pill '+(p.status==="completed"?"":"orange")+'">'+safe(p.status==="completed"?"VERIFIED CAPTURE":p.status==="created"?"ORDER CREATED — NOT PAID":p.status)+'</span></td><td>'+(canCheck?'<button class="btn small secondary" onclick="verifyPayPalOrder(\''+id+'\')">Check PayPal</button>':p.status==="completed"?"Verified":"—")+'</td></tr>'}).join("")+'</tbody></table></div>':'<div class="empty">No real PayPal sandbox orders created yet.</div>'}catch(e){notice(e.message,true)}}
-async function analyze(evt){evt.preventDefault();if(applyingProposal)return;proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").textContent="Analyzing your note...";const target=event();const targetId=target?target.id:null;el("ai-button").disabled=true;try{if(!targetId)throw Error("Select an event before analyzing costs.");let p=await post("/api/ai/parse",{note:el("ai-note").value});if(event()?.id!==targetId)throw Error("Event changed during AI analysis. Re-run for the selected event.");proposal=p;proposalEventId=targetId;el("ai-rationale").textContent=(p.rationale||"Review before applying")+" · Target event: "+target.name;el("ai-proposal").className="stack";el("ai-proposal").innerHTML=p.expenses.map(function(x,i){return '<div class="formgrid"><div class="field"><label>Expense</label><input class="pro-title" value="'+safe(x.title)+'"></div><div class="field"><label>USD</label><input class="pro-amount" value="'+safe(x.amount)+'"></div></div>'}).join("")||'<div class="empty">No explicit prices were identified in the note.</div>';el("ai-apply").disabled=!p.expenses.length}catch(e){el("ai-proposal").className="empty";el("ai-proposal").textContent=e.message;notice(e.message,true)}finally{el("ai-button").disabled=false}}
+async function analyze(evt){evt.preventDefault();if(applyingProposal)return;proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").textContent="Analyzing your note...";const target=event();const targetId=target?target.id:null;el("ai-button").disabled=true;try{if(!targetId)throw Error("Select an event before analyzing costs.");let p=await post("/api/ai/parse",{note:el("ai-note").value});if(event()?.id!==targetId)throw Error("Event changed during AI analysis. Re-run for the selected event.");proposal=p;proposalEventId=targetId;el("ai-rationale").textContent=(p.rationale||"Review before applying")+" · Target event: "+target.name;el("ai-proposal").className="stack";el("ai-proposal").innerHTML=p.expenses.map(function(x,i){return '<div class="formgrid"><div class="field"><label>Expense</label><input class="pro-title" value="'+safe(x.title)+'"></div><div class="field"><label>USD</label><input class="pro-amount" value="'+safe(x.amount)+'"></div><div class="field full"><label>Category — review and adjust</label><select class="pro-category select">'+categoryOptions(x.category)+'</select></div></div>'}).join("")||'<div class="empty">No explicit prices were identified in the note.</div>';el("ai-apply").disabled=!p.expenses.length}catch(e){el("ai-proposal").className="empty";el("ai-proposal").textContent=e.message;notice(e.message,true)}finally{el("ai-button").disabled=false}}
 async function generateTaskPlan(evt){
  evt.preventDefault();if(applyingTaskDraft)return;
  const target=event(),id=target?.id;
@@ -651,7 +721,7 @@ async function applyTaskPlan(){
   applyingTaskDraft=false;el("ai-plan-apply").disabled=!taskDraft;
  }
 }
-async function applyProposal(){let e=event();if(!e||!proposal||applyingProposal)return;if(proposalEventId!==e.id){notice("This proposal belongs to a different event. Analyze the selected event again.",true);return;}let titles=[...document.querySelectorAll(".pro-title")],amounts=[...document.querySelectorAll(".pro-amount")];let expenses=titles.map(function(x,i){return {title:x.value.trim(),amount:amounts[i].value.trim()}});if(expenses.some(x=>!x.title||!/^\d+(\.\d{1,2})?$/.test(x.amount))){notice("Check the expense titles and USD amounts before approving.",true);return;}applyingProposal=true;el("ai-apply").disabled=true;try{await post("/api/events/"+e.id+"/expenses/bulk",{expenses:expenses});proposal=null;proposalEventId=null;await load();el("ai-proposal").className="empty";el("ai-proposal").textContent="Expenses saved successfully to "+e.name+".";notice("AI proposal reviewed and saved for "+e.name+".",false);}catch(err){notice("Not saved: "+err.message+". Review amounts or the event’s payment lock, then retry.",true);}finally{applyingProposal=false;el("ai-apply").disabled=!proposal}}
+async function applyProposal(){let e=event();if(!e||!proposal||applyingProposal)return;if(proposalEventId!==e.id){notice("This proposal belongs to a different event. Analyze the selected event again.",true);return;}let titles=[...document.querySelectorAll(".pro-title")],amounts=[...document.querySelectorAll(".pro-amount")],categories=[...document.querySelectorAll(".pro-category")];let expenses=titles.map(function(x,i){return {title:x.value.trim(),amount:amounts[i].value.trim(),category:categories[i].value}});if(expenses.some(x=>!x.title||!/^\d+(\.\d{1,2})?$/.test(x.amount))){notice("Check the expense titles and USD amounts before approving.",true);return;}applyingProposal=true;el("ai-apply").disabled=true;try{await post("/api/events/"+e.id+"/expenses/bulk",{expenses:expenses});proposal=null;proposalEventId=null;await load();el("ai-proposal").className="empty";el("ai-proposal").textContent="Expenses saved successfully to "+e.name+".";notice("AI proposal reviewed and saved for "+e.name+".",false);}catch(err){notice("Not saved: "+err.message+". Review amounts or the event’s payment lock, then retry.",true);}finally{applyingProposal=false;el("ai-apply").disabled=!proposal}}
 el("directory-search").addEventListener("input",function(){directoryQuery=this.value.trim();renderDirectory()});
 el("directory-filter").addEventListener("change",function(){directoryFilter=this.value;renderDirectory()});
 el("directory-sort").addEventListener("change",function(){directorySort=this.value;renderDirectory()});
@@ -673,6 +743,7 @@ async function checkReadiness(){
     ". Credentials present do not prove provider health; demo records may reset after deployment.";
  }catch(e){el("judge-health").textContent="Readiness check unavailable: "+e.message;}
 }
+el("expense-category").innerHTML=categoryOptions("other");
 el("new-date").value=new Date().toISOString().slice(0,10);load().then(paymentReturn);checkReadiness();
 </script>
 </body>

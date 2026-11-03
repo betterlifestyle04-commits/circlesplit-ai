@@ -1077,3 +1077,130 @@ def test_verified_sandbox_total_counts_only_completed_capture_records(client):
         conn.execute("UPDATE payments SET status='completed' WHERE person_id=?",
                      (second["id"],))
     assert initial(client)["sandbox_cents"]==first["share_cents"]
+
+
+def test_expense_categories_totals_and_clone(client):
+    event=initial(client);eid=event["id"]
+    endpoint=f"/api/events/{eid}/budget-breakdown"
+    report=client.get(endpoint)
+    assert report.status_code==200,report.text
+    data=report.json()
+    assert data["source"]=="planned_expenses"
+    assert data["total_cents"]==22000
+    by_key={x["key"]:x for x in data["categories"]}
+    assert by_key["venue"]["cents"]==16000
+    assert by_key["equipment"]["cents"]==2500
+    assert by_key["food"]["cents"]==3500
+    assert sum(x["cents"] for x in data["categories"])==22000
+    assert [x["category"] for x in event["expenses"]]==["venue","equipment","food"]
+    copied=client.post(f"/api/events/{eid}/clone",json={"name":"Same event next week"})
+    assert copied.status_code==200,copied.text
+    target=next(e for e in client.get("/api/state").json()["events"] if e["id"]==copied.json()["id"])
+    assert [(x["title"],x["cents"],x["category"]) for x in target["expenses"]]==[
+        (x["title"],x["cents"],x["category"]) for x in event["expenses"]
+    ]
+    assert target["sandbox_cents"]==0
+    assert all(p["approved"]==0 for p in target["people"])
+
+
+def test_category_edit_is_metadata_only_until_budget_locked(client):
+    event=initial(client);eid=event["id"];pid=event["people"][0]["id"]
+    expense=event["expenses"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    before=initial(client)
+    path=f"/api/events/{eid}/expenses/{expense}/category"
+    response=client.patch(path,json={"category":"travel"})
+    assert response.status_code==200,response.text
+    assert response.json()["amount_changed"] is False
+    after=initial(client)
+    assert after["expenses"][0]["category"]=="travel"
+    assert after["expenses"][0]["cents"]==before["expenses"][0]["cents"]
+    assert after["people"]==before["people"]
+    assert after["total_cents"]==before["total_cents"]
+    assert client.get(f"/api/events/{eid}/history").json()["entries"][0]["action"]=="expense_recategorized"
+    assert client.patch(path,json={"category":"travel"}).json()["changed"] is False
+    assert client.patch(path,json={"category":"not-a-category"}).status_code==422
+    assert client.patch(f"/api/events/{eid}/expenses/999999/category",json={"category":"food"}).status_code==404
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    assert client.patch(path,json={"category":"venue"}).status_code==409
+    assert initial(client)["expenses"][0]["category"]=="travel"
+
+
+def test_categorized_manual_and_ai_reviewed_bulk_expenses(client):
+    event=client.post("/api/events",json={"name":"Conference meet-up","date":"2026-11-20"}).json()
+    eid=event["id"]
+    r=client.post(f"/api/events/{eid}/expenses",json={
+        "title":"Taxi","amount":"12.15","category":"travel"
+    })
+    assert r.status_code==200,r.text
+    assert client.post(f"/api/events/{eid}/expenses",json={
+        "title":"Wrong","amount":"1.00","category":"chemicals"
+    }).status_code==422
+    bulk=client.post(f"/api/events/{eid}/expenses/bulk",json={"expenses":[
+        {"title":"Food","amount":"7.85","category":"food"},
+        {"title":"General expense","amount":"5.00"},
+    ]})
+    assert bulk.status_code==200,bulk.text
+    r=client.get(f"/api/events/{eid}/budget-breakdown").json()
+    assert r["total_cents"]==2500
+    assert {x["key"]:x["cents"] for x in r["categories"]}=={
+        "venue":0,"equipment":0,"food":785,
+        "travel":1215,"services":0,"other":500
+    }
+    current=next(x for x in client.get("/api/state").json()["events"] if x["id"]==eid)
+    assert [x["category"] for x in current["expenses"]]==["travel","food","other"]
+
+
+def test_gemini_expense_category_suggestions_are_validated(client,monkeypatch):
+    import app as api
+    async def fake_provider(prompt):
+        return {"expenses":[
+            {"title":"Court","amount":"80.00","category":"venue"},
+            {"title":"Mystery charge","amount":"2.00","category":"unsupported"},
+            {"title":"Other","amount":"3.00"}
+        ],"strategy":"equal","rationale":"Estimate only"}
+    monkeypatch.setattr(api,"gemini_structured",fake_provider)
+    proposal=client.post("/api/ai/parse",json={
+        "note":"Court booking $80, mystery $2, incidental $3 to be reviewed."
+    })
+    assert proposal.status_code==200,proposal.text
+    assert [x["category"] for x in proposal.json()["expenses"]]==["venue","other","other"]
+    assert proposal.json()["requires_approval"] is True
+
+
+def test_legacy_database_adds_category_without_losing_expenses(client,monkeypatch,tmp_path):
+    import app as api
+    import sqlite3
+    legacy=tmp_path/"existing_legacy.sqlite3"
+    with sqlite3.connect(str(legacy)) as conn:
+        conn.executescript("""
+            CREATE TABLE events(
+                id INTEGER PRIMARY KEY,name TEXT NOT NULL,date TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',strategy TEXT NOT NULL DEFAULT 'equal',
+                created TEXT NOT NULL
+            );
+            CREATE TABLE expenses(
+                id INTEGER PRIMARY KEY,event_id INTEGER NOT NULL REFERENCES events(id),
+                title TEXT NOT NULL,cents INTEGER NOT NULL
+            );
+        """)
+        conn.execute("INSERT INTO events(id,name,date,note,created) VALUES(1,'Older event','2026-09-20','Past demo','2026-09-01')")
+        conn.execute("INSERT INTO expenses(event_id,title,cents) VALUES(1,'Legacy venue',2500)")
+    monkeypatch.setattr(api,"DB",legacy)
+    api.initialize()
+    with api.db() as conn:
+        expense=conn.execute("SELECT title,cents,category FROM expenses WHERE event_id=1").fetchone()
+        assert (expense["title"],expense["cents"],expense["category"])==("Legacy venue",2500,"other")
+    api.initialize()  # Repeat is safe.
+    with api.db() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM expenses").fetchone()[0]==1
+
+
+def test_budget_breakdown_requires_organizer_access(client,monkeypatch):
+    eid=initial(client)["id"]
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","category-test-password-long-enough")
+    assert client.get(f"/api/events/{eid}/budget-breakdown").status_code==401
+    assert client.patch(f"/api/events/{eid}/expenses/1/category",json={"category":"venue"}).status_code==401
+    auth=("judge","category-test-password-long-enough")
+    assert client.get(f"/api/events/{eid}/budget-breakdown",auth=auth).status_code==200

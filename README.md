@@ -49,6 +49,17 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Planned expense categories & budget insights
+
+- Each event expense can now be assigned one of six **validated** planning categories: **Venue & space, Equipment, Food & drinks, Travel, Services, and Other**.
+- The protected **Events** page shows a category breakdown and lets an organizer change an existing expense's category. **Reclassification changes only metadata**: the budget, assigned shares, outstanding RSVP links and existing approvals do not change. To preserve auditability, category edits are blocked once a PayPal sandbox checkout or simulated contribution has locked the budget.
+- The **Insights & exports** page shows cross-event category breakdowns and downloads a **planned expense category CSV**. CSV cells use the existing spreadsheet formula-injection protection.
+- Gemini expense-extraction now includes a reviewable category suggestion. Invalid provider categories are downgraded to **Other**; organizers can edit categories before approving the proposal. Gemini never directly updates budget records or authorizes payments.
+- Old expense records are migrated with the default **Other** category. New demo seed expenses are categorized for demonstration. Duplicating events preserves their categories but does not transfer prior approvals or payment records.
+- The API provides a protected read-only `GET /api/events/{id}/budget-breakdown` and a guarded `PATCH /api/events/{id}/expenses/{expense_id}/category`.
+- Automated Python and Node tests cover exact-cent category totals, a legacy-database upgrade, cloned expenses, budget locks, provider validation and the category CSV helper.
+- Categories describe **planned costs**, not settled bills, invoices, merchant payouts or verified PayPal activity. All provider payments remain sandbox-only.
+
 ## Event finder, exact-cent split explanations and ledger-backed totals
 
 - A searchable **Event directory** in the protected workspace filters upcoming, past and events needing attention, sorts by date or budget, and offers one-click selection of an event. This does not move or delete event data.

@@ -56,7 +56,7 @@ function exportDemoSnapshot(){
     events:(state.events||[]).map(function(e){return {
       name:e.name,date:e.date,note:e.note,strategy:e.strategy,total_cents:e.total_cents,
       verified_sandbox_cents:e.sandbox_cents,simulated_cents:e.simulated_cents,
-      expenses:(e.expenses||[]).map(function(x){return {title:x.title,cents:x.cents}}),
+      expenses:(e.expenses||[]).map(function(x){return {title:x.title,cents:x.cents,category:x.category||"other"}}),
       people:(e.people||[]).map(function(p){return {name:p.name,weight:p.weight,share_cents:p.share_cents,approved:Boolean(p.approved),status:p.status}})
     }}),
     transactions:(window.circleTransactions||[]).map(function(p){return {
