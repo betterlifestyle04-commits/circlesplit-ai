@@ -1338,3 +1338,133 @@ def test_planning_rounds_tiny_reserves_up_to_whole_cent(client):
     assert p["projected_cents"]==107
     assert p["headroom_cents"]==3
     assert api.planning_forecast(0,None,0)["reserve_cents"]==0
+
+
+def test_closeout_preview_remains_read_only_and_sandbox_only(client):
+    e=initial(client);eid=e["id"]
+    history_before=client.get(f"/api/events/{eid}/history").json()
+    report=client.get(f"/api/events/{eid}/closeout")
+    assert report.status_code==200,report.text
+    d=report.json()
+    assert d["event_id"]==eid and d["currency"]=="USD"
+    assert d["mode"]=="SANDBOX ONLY"
+    assert d["stage"]=="unverified"
+    assert d["integrity"]["status"]=="consistent"
+    assert d["summary"]["planned_cents"]==22000
+    assert d["summary"]["allocated_cents"]==22000
+    assert d["summary"]["verified_sandbox_cents"]==0
+    assert d["summary"]["simulated_cents"]==0
+    assert d["summary"]["unverified_against_sandbox_cents"]==22000
+    assert d["summary"]["approvals_pending"]==20
+    assert d["summary"]["pending_orders"]==0
+    assert d["summary"]["participants"]==20
+    assert len(d["participants"])==20
+    assert all(p["pending_orders"]==0 for p in d["participants"])
+    assert all(p["verified_sandbox_cents"]==0 for p in d["participants"])
+    assert any("not real funds" in warning for warning in d["warnings"])
+    assert "not a payment request" not in str(d).lower() or "not invoices" in str(d).lower()
+    assert client.get(f"/api/events/{eid}/history").json()==history_before
+    assert client.get(f"/api/events/{eid}/closeout").json()==d
+
+
+def test_closeout_simulations_never_count_as_verified_sandbox(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    d=client.get(f"/api/events/{eid}/closeout").json()
+    assert d["stage"]=="demo_activity"
+    assert d["summary"]["simulated_cents"]==1100
+    assert d["summary"]["verified_sandbox_cents"]==0
+    assert d["summary"]["unverified_against_sandbox_cents"]==22000
+    person=next(p for p in d["participants"] if p["name"]==e["people"][0]["name"])
+    assert person["simulated_cents"]==1100
+    assert person["verified_sandbox_cents"]==0
+    assert person["unverified_against_sandbox_cents"]==1100
+    assert person["recorded_status"]=="demo_paid"
+    assert "paypal" not in person["approval_source"].lower()
+
+
+def test_closeout_pending_orders_and_capture_references(client):
+    import app as api
+    e=initial(client);eid=e["id"];person=e["people"][0];pid=person["id"]
+    with api.db() as c:
+        c.execute(
+            """INSERT INTO payments(event_id,person_id,amount_cents,request_id,capture_key,
+                                    order_id,status,created)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            (eid,pid,person["share_cents"],"closeout-created-1","closeout-cap-1",
+             "FAKE-ORDER-SECRET-TEST","created",api.now())
+        )
+    pending=client.get(f"/api/events/{eid}/closeout").json()
+    assert pending["stage"]=="orders_pending"
+    assert pending["summary"]["pending_orders"]==1
+    assert pending["summary"]["verified_sandbox_cents"]==0
+    assert pending["participants"][0]["pending_orders"]==1
+    assert pending["integrity"]["status"]=="consistent"
+    assert "FAKE-ORDER-SECRET-TEST" not in str(pending)
+    with api.db() as c:
+        c.execute("""UPDATE payments SET status='completed',
+                     capture_id='FAKE-CAPTURE-SECRET-TEST' WHERE person_id=?""",(pid,))
+        c.execute("UPDATE people SET status='sandbox_paid' WHERE id=?",(pid,))
+    captured=client.get(f"/api/events/{eid}/closeout").json()
+    assert captured["summary"]["verified_sandbox_cents"]==person["share_cents"]
+    assert captured["summary"]["pending_orders"]==0
+    assert captured["summary"]["unverified_against_sandbox_cents"]==22000-person["share_cents"]
+    assert captured["participants"][0]["verified_sandbox_cents"]==person["share_cents"]
+    assert captured["participants"][0]["pending_orders"]==0
+    assert captured["stage"]=="unverified"
+    assert captured["integrity"]["status"]=="consistent"
+    assert "FAKE-CAPTURE-SECRET-TEST" not in str(captured)
+
+
+def test_closeout_can_describe_fully_captured_one_person_sandbox_event(client):
+    import app as api
+    event=client.post("/api/events",json={"name":"Solo group demo","date":"2026-11-22"}).json()
+    eid=event["id"]
+    assert client.post(f"/api/events/{eid}/people",json={"name":"Fictional Participant","weight":1}).status_code==200
+    assert client.post(f"/api/events/{eid}/expenses",json={"title":"Rental fee","amount":"15.00"}).status_code==200
+    e=next(x for x in client.get("/api/state").json()["events"] if x["id"]==eid)
+    pid=e["people"][0]["id"]
+    with api.db() as c:
+        c.execute(
+            """INSERT INTO payments(event_id,person_id,amount_cents,request_id,capture_key,
+                                    order_id,status,capture_id,created)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            (eid,pid,1500,"closeout-solo-req","closeout-solo-cap",
+             "CLOSEOUT-SOLO-ORDER","completed","CLOSEOUT-SOLO-CAPTURE",api.now())
+        )
+        c.execute("UPDATE people SET status='sandbox_paid' WHERE id=?",(pid,))
+    d=client.get(f"/api/events/{eid}/closeout").json()
+    assert d["stage"]=="sandbox_captures_cover_budget"
+    assert d["summary"]["verified_sandbox_cents"]==1500
+    assert d["summary"]["unverified_against_sandbox_cents"]==0
+    assert d["integrity"]["status"]=="consistent"
+    assert d["summary"]["pending_orders"]==0
+
+
+def test_closeout_never_mistakes_corruption_for_complete_settlement(client):
+    import app as api
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    with api.db() as c:
+        c.execute("UPDATE people SET share_cents=share_cents+1 WHERE id=?",(pid,))
+    d=client.get(f"/api/events/{eid}/closeout").json()
+    assert d["stage"]=="needs_review"
+    assert d["integrity"]["status"]=="needs_review"
+    assert "allocation_mismatch" in [x["code"] for x in d["integrity"]["issues"]]
+    assert d["summary"]["allocated_cents"]==22001
+
+
+def test_closeout_protected_from_public_or_participant_invitation(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","long-closeout-test-owner-password")
+    assert client.get(f"/api/events/{eid}/closeout").status_code==401
+    assert client.get(f"/api/events/{eid}/closeout",
+                      headers={"Authorization":"Bearer "+token}).status_code==401
+    authorized=client.get(f"/api/events/{eid}/closeout",
+                          auth=("judge","long-closeout-test-owner-password"))
+    assert authorized.status_code==200
+    assert authorized.json()["event_id"]==eid
+    assert client.get("/api/events/999999/closeout",
+                      auth=("judge","long-closeout-test-owner-password")).status_code==404

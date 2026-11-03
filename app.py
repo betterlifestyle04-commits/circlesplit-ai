@@ -372,6 +372,93 @@ def event_integrity(c, eid: int) -> dict:
     }
 
 
+@app.get("/api/events/{eid}/closeout")
+def event_closeout(eid: int):
+    """Read-only sandbox closeout preview. No provider calls or ledger changes."""
+    with db() as c:
+        event = detailed(c,eid)
+        integrity = event_integrity(c,eid)
+        orders = c.execute(
+            """SELECT person_id,amount_cents,status,capture_id
+               FROM payments WHERE event_id=? ORDER BY id""",(eid,)
+        ).fetchall()
+        by_person = {}
+        for order in orders:
+            by_person.setdefault(order["person_id"],[]).append(order)
+        participants = []
+        for person in event["people"]:
+            records = by_person.get(person["id"],[])
+            captured = sum(
+                int(order["amount_cents"]) for order in records
+                if order["status"]=="completed" and order["capture_id"]
+            )
+            pending = sum(1 for order in records if order["status"]!="completed")
+            participants.append({
+                "name":person["name"],
+                "share_cents":person["share_cents"],
+                "approved":bool(person["approved"]),
+                "approval_source":person["approval_source"] or "none",
+                "rsvp_status":person["rsvp_status"],
+                "recorded_status":person["status"],
+                "verified_sandbox_cents":captured,
+                "simulated_cents":person["share_cents"] if person["status"]=="demo_paid" else 0,
+                "unverified_against_sandbox_cents":max(0,person["share_cents"]-captured),
+                "pending_orders":pending,
+            })
+        budget = int(event["total_cents"])
+        captured_total = int(event["sandbox_cents"])
+        simulated_total = int(event["simulated_cents"])
+        pending_total = sum(1 for order in orders if order["status"]!="completed")
+        unapproved = sum(1 for person in event["people"]
+                         if not person["approved"] and person["share_cents"]>0
+                         and person["status"]=="unpaid")
+        declined = sum(1 for person in event["people"] if person["rsvp_status"]=="declined")
+        tasks_done = sum(1 for task in event["tasks"] if task["completed"])
+        if integrity["status"]!="consistent" or captured_total>budget:
+            stage="needs_review"
+        elif not event["people"] or budget<=0:
+            stage="needs_setup"
+        elif pending_total>0:
+            stage="orders_pending"
+        elif captured_total>=budget:
+            stage="sandbox_captures_cover_budget"
+        elif simulated_total>0:
+            stage="demo_activity"
+        else:
+            stage="unverified"
+        result = {
+            "event_id":eid,
+            "event_name":event["name"],
+            "event_date":event["date"],
+            "currency":"USD",
+            "mode":"SANDBOX ONLY",
+            "stage":stage,
+            "summary":{
+                "planned_cents":budget,
+                "allocated_cents":sum(int(person["share_cents"]) for person in event["people"]),
+                "verified_sandbox_cents":captured_total,
+                "simulated_cents":simulated_total,
+                "unverified_against_sandbox_cents":max(0,budget-captured_total),
+                "pending_orders":pending_total,
+                "participants":len(event["people"]),
+                "approvals_pending":unapproved,
+                "rsvp_declined":declined,
+                "tasks_completed":tasks_done,
+                "tasks_total":len(event["tasks"]),
+            },
+            "participants":participants,
+            "integrity":integrity,
+            "warnings":[
+                "Read-only prototype report. No event was closed or archived.",
+                "PayPal sandbox captures are test transactions, not real funds.",
+                "Simulated contributions are never counted as verified sandbox captures.",
+                "Unverified amounts are NOT invoices, debts, or payment requests.",
+                "Records are local and ephemeral; this does not query PayPal in real time.",
+            ],
+        }
+    return result
+
+
 @app.get("/api/events/{eid}/history")
 def event_history(eid: int):
     with db() as c:

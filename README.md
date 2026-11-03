@@ -49,6 +49,17 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Protected closeout preview (read-only and sandbox-only)
+
+- New **Closeout preview** workspace tab shows an organizer's **read-only** event closing summary. It uses a protected backend \`GET /api/events/{eid}/closeout\` endpoint and does not mutate the database, create transactions, close an event, create invoices, contact PayPal or send messages.
+- Report totals distinguish **verified PayPal sandbox capture records** from **simulated contributions** and **amounts unverified against the PayPal sandbox**. Unverified amounts are never described as money owed or debts. Payment orders that have not been captured are listed separately.
+- Per-person reconciliation displays assigned share, approval source, RSVP response, local status, verified sandbox amount, simulation amount, unverified amount and number of pending orders. This protected view is not accessible through participant invitation tokens.
+- Stages include **needs setup**, **needs review**, **pending sandbox orders**, **simulation activity**, **unverified sandbox funding**, and **sandbox captures cover planned budget**. Even the last stage is specifically limited to local PayPal sandbox ledger evidence and is **not real-world settlement**.
+- The closeout includes the existing local financial-integrity checks and preparation/approval/attendance counts. A discrepancy overrides a favorable payment stage, preventing a corrupted allocation from being called complete.
+- **Copy summary** produces an aggregate-only plaintext report without individual participant names. **Download CSV** produces a clearly labeled fictional sandbox report with participant names; keep this file private. Exports omit API keys, PayPal order/capture/webhook identifiers and invitation URLs.
+- All previews are temporary and not a restorable backup. Render Free's ephemeral SQLite can erase data after deployment; no historical statement should be treated as permanent. This feature does **not** include real payment finalization, provider reconciliation, refunds or payout logic.
+- New backend and JavaScript tests cover sandbox-only stage calculation, pending orders, completed captures, simulations, corruption, authorization and export wording.
+
 ## Advisory spending targets and contingency forecasts
 
 - The **Events** page supports a per-event optional spending ceiling and **0–50% contingency reserve**. The organizer can preview an over-target amount, remaining headroom and projected total before saving.
