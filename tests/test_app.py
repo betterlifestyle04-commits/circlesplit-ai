@@ -1027,3 +1027,53 @@ def test_integrity_finds_unverified_sandbox_status_without_leaking_ids(client):
     report=client.get(f"/api/events/{eid}/history").json()
     assert report["integrity"]["status"]=="needs_review"
     assert "paid_without_capture" in [x["code"] for x in report["integrity"]["issues"]]
+
+
+def test_verified_sandbox_total_never_trusts_member_status_alone(client):
+    """A participant status flag is not proof of a PayPal capture."""
+    import app as api
+    e=initial(client)
+    eid=e["id"]
+    pid=e["people"][0]["id"]
+    with api.db() as conn:
+        conn.execute("UPDATE people SET status='sandbox_paid' WHERE id=?",(pid,))
+    state=initial(client)
+    assert state["sandbox_cents"]==0
+    report=client.get(f"/api/events/{eid}/history").json()
+    assert "paid_without_capture" in [x["code"] for x in report["integrity"]["issues"]]
+
+
+def test_verified_sandbox_total_counts_only_completed_capture_records(client):
+    """Pending and incomplete sandbox payment rows cannot inflate confirmed totals."""
+    import app as api
+    e=initial(client)
+    eid=e["id"]
+    people=e["people"]
+    first,second=people[0],people[1]
+    with api.db() as conn:
+        conn.execute(
+            """INSERT INTO payments(event_id,person_id,amount_cents,request_id,capture_key,
+                                    order_id,status,capture_id,created)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            (eid,first["id"],first["share_cents"],"req-safe-1","cap-safe-1",
+             "ORDER-PENDING","created",None,api.now())
+        )
+        assert conn.execute("SELECT changes()").fetchone()[0]==1
+    assert initial(client)["sandbox_cents"]==0
+    with api.db() as conn:
+        conn.execute(
+            """UPDATE payments SET status='completed',capture_id='VERIFIED-TEST-CAPTURE'
+               WHERE person_id=?""", (first["id"],)
+        )
+    assert initial(client)["sandbox_cents"]==first["share_cents"]
+    with api.db() as conn:
+        conn.execute(
+            """INSERT INTO payments(event_id,person_id,amount_cents,request_id,capture_key,
+                                    order_id,status,created)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            (eid,second["id"],second["share_cents"],"req-safe-2","cap-safe-2",
+             "ORDER-NOCAPTURE","created",api.now())
+        )
+        conn.execute("UPDATE payments SET status='completed' WHERE person_id=?",
+                     (second["id"],))
+    assert initial(client)["sandbox_cents"]==first["share_cents"]

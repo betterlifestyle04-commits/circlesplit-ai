@@ -7,9 +7,21 @@
 <style>
 :root{--ink:#102838;--muted:#657987;--bg:#f5f8f8;--panel:#fff;--line:#dce7e8;--primary:#087f73;--pale:#e8f6f2;--dark:#0c2332;--orange:#e49a39;--shadow:0 16px 44px rgba(13,46,56,.06)}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}button,input,textarea,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}a{color:var(--primary)}.app{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:100vh}.aside{background:var(--dark);color:#c3d2d7;padding:32px 17px;display:flex;flex-direction:column;gap:27px}.brand{display:flex;align-items:center;gap:11px;padding:0 13px;color:white;font-size:20px;letter-spacing:-.8px;font-weight:800}.brand-mark{background:#32b89e;color:#073b38;font-weight:900;width:39px;height:39px;display:grid;place-items:center;border-radius:12px}.aside small{color:#7596a2;letter-spacing:1.7px;font-size:10px;font-weight:800;padding:0 14px}.nav{display:grid;gap:6px}.nav button{color:#a8c0c7;border:0;text-align:left;background:transparent;border-radius:11px;padding:13px 15px;font-weight:600}.nav button.active,.nav button:hover{background:#1c4050;color:white}.nav button span{width:27px;display:inline-block}.side-note{margin-top:auto;background:#183a47;border:1px solid #305460;padding:16px;border-radius:13px;font-size:12px;line-height:1.7;color:#a8c7cc}.side-note b{color:#7ee0cd;display:block;margin-bottom:5px}.main{min-width:0}.top{background:#fff;border-bottom:1px solid var(--line);padding:17px 38px;display:flex;justify-content:space-between;align-items:center;gap:20px}.crumb{font-size:13px;color:var(--muted)}.top-right{display:flex;align-items:center;gap:10px}.sandbox{background:#fff5e2;border:1px solid #f3dbab;color:#8c5714;font-weight:750;padding:7px 11px;border-radius:100px;font-size:11px}.avatar{width:37px;height:37px;border-radius:50%;background:var(--pale);color:var(--primary);font-weight:800;display:grid;place-items:center}.content{max-width:1360px;margin:auto;padding:35px 40px 70px}.title{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:27px}.eyebrow{text-transform:uppercase;letter-spacing:1.9px;color:var(--primary);font-weight:800;font-size:11px}.title h1{font-size:33px;letter-spacing:-1.3px;margin:5px 0 7px;line-height:1.15}.sub{color:var(--muted);margin:0;max-width:720px}.btn{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:10px;padding:10px 15px;font-weight:700;font-size:13px;display:inline-flex;gap:9px;align-items:center;justify-content:center}.btn:hover{border-color:#63bdb0}.btn.primary{background:var(--primary);border-color:var(--primary);color:white}.btn.secondary{background:var(--pale);color:var(--primary);border-color:#cdebe3}.btn.small{padding:6px 9px;font-size:12px}.btn.ghost{border:0;background:transparent}.stack{display:grid;gap:20px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:17px}.card{background:var(--panel);border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow);padding:24px;min-width:0}.metric-label{font-size:12px;color:var(--muted);font-weight:650}.metric-value{font-size:29px;font-weight:850;letter-spacing:-1.1px;margin:9px 0 4px}.metric-foot{font-size:12px;color:#19836b}.grid2{display:grid;grid-template-columns:1.55fr 1fr;gap:20px}.card-title{font-size:17px;font-weight:800;letter-spacing:-.5px;margin:0 0 5px}.muted{color:var(--muted)}.small{font-size:12px}.section-heading{display:flex;align-items:center;justify-content:space-between;margin:0 0 16px;gap:14px}.section-heading h2{font-size:19px;letter-spacing:-.5px;margin:0}table{width:100%;border-collapse:collapse;text-align:left}th{color:#8b9ba4;text-transform:uppercase;letter-spacing:1px;font-size:10px;font-weight:800}td,th{padding:14px 9px;border-bottom:1px solid #ecf0f2}tr:last-child td{border:0}.event-name{font-weight:750}.pill{display:inline-block;border-radius:30px;background:var(--pale);padding:5px 9px;font-weight:750;color:#177767;font-size:11px}.pill.neutral{background:#f1f3f5;color:#647680}.pill.orange{background:#fff4e7;color:#a3661d}.progress{height:8px;background:#e9eeee;border-radius:8px;overflow:hidden}.fill{height:100%;background:#1ca68b;border-radius:8px;transition:width .3s}.hero{background:linear-gradient(125deg,#07393e,#0d2a3d);border-radius:16px;padding:30px;color:white;position:relative;overflow:hidden}.hero:after{content:"";width:230px;height:230px;border:40px solid rgba(35,193,166,.08);position:absolute;right:-90px;top:-90px;border-radius:50%}.hero h2{font-size:26px;line-height:1.2;letter-spacing:-1px;max-width:340px;margin:11px 0}.hero p{color:#b9d9d9;font-size:13px;max-width:340px}.hero .btn{margin-top:15px;background:#3bccaf;border:0;color:#073e3d}.row{display:flex;align-items:center;gap:12px}.between{justify-content:space-between}.wrap{flex-wrap:wrap}.tabpan{display:none}.tabpan.active{display:block}.formgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:15px}.field{display:grid;gap:6px}.field label{font-size:12px;font-weight:750;color:#526d77}.field input,.field textarea,.field select,.select{width:100%;border:1px solid #d9e4e6;border-radius:9px;background:#fff;color:var(--ink);padding:11px 12px;outline:0}.field textarea{min-height:115px;resize:vertical}.field input:focus,.field textarea:focus,.field select:focus{border-color:#2fae9b;box-shadow:0 0 0 3px #d8f3eb}.full{grid-column:1/-1}.space{height:14px}.status{padding:11px 15px;background:#eaf5f4;border-radius:9px;color:#0a6d62;font-size:13px;display:none}.status.error{background:#fff0eb;color:#a33b24}.status.show{display:block}.empty{padding:40px;text-align:center;color:var(--muted);background:#fbfcfc;border:1px dashed var(--line);border-radius:12px}.choose{max-width:510px;margin-bottom:18px}.banner{border:1px solid #f1dbb4;background:#fff8ea;color:#775223;border-radius:11px;padding:12px 17px;font-size:12px}.inlineform{display:flex;gap:9px}.inlineform input{min-width:0;flex:1}.detail-head{display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap}.capsule{border-radius:10px;padding:14px;background:#f4faf9}.split-label{padding:9px 13px;border-radius:9px;border:1px solid var(--line);font-weight:750;background:white}.split-label.active{background:var(--pale);border-color:#4cb7a4;color:#087a70}.count{font-variant-numeric:tabular-nums}.notice{font-size:12px;color:#6a808b;line-height:1.65}.footer{font-size:11px;color:#8ca0a6;padding-top:15px}@media(max-width:1100px){.metrics{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.content{padding:28px 25px}}@media(max-width:760px){.app{display:block}.aside{padding:14px;gap:12px}.brand{font-size:17px}.side-note,.aside small{display:none}.nav{display:flex;overflow-x:auto}.nav button{white-space:nowrap;padding:9px 11px}.top{padding:12px 16px}.content{padding:23px 15px 50px}.title{align-items:start}.title h1{font-size:27px}.metrics{gap:10px}.card{padding:17px}.metric-value{font-size:24px}.formgrid{grid-template-columns:1fr}.full{grid-column:auto}.top-right{font-size:11px}table{font-size:12px}td,th{padding:11px 5px}.row{flex-wrap:wrap}}
+
+.skip-link{position:absolute;top:-100px;left:12px;background:white;color:#073e3d;z-index:1000;padding:12px 18px;border:2px solid #087f73;border-radius:9px}.skip-link:focus{top:12px}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #1ba890;outline-offset:3px}
+#expense-rows,#people-rows,#contrib-rows,#transaction-list{max-width:100%;overflow-x:auto}
+.dir-controls{display:grid;grid-template-columns:minmax(190px,1.6fr) repeat(2,minmax(145px,1fr));gap:12px;margin-bottom:16px}
+.dir-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px}
+.dir-item{text-align:left;display:grid;gap:7px;width:100%;min-width:0;padding:15px;border-radius:12px;border:1px solid #dce7e8;background:#fbfdfd;color:var(--ink)}
+.dir-item:hover{border-color:#21a38e;background:#f4fbf9}.dir-item.active{border-color:#0b8d7d;box-shadow:inset 0 0 0 1px #0b8d7d;background:#eff9f6}
+.dir-item-title{font-weight:800;overflow-wrap:anywhere}.dir-meta{font-size:12px;color:var(--muted)}
+@media(max-width:760px){.dir-controls{grid-template-columns:1fr}.title{flex-wrap:wrap}.inlineform{flex-wrap:wrap}.inlineform input{flex:1 1 130px}.section-heading{flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important}}
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 <div class="app">
 <aside class="aside">
  <div class="brand"><div class="brand-mark">◉</div>CircleSplit <span style="color:#55ccb5">AI</span></div>
@@ -28,7 +40,7 @@
  </nav>
  <div class="side-note"><b>◉ Safe testing environment</b>All PayPal calls use Sandbox only. Demo payments are simulations and never move money. AI never authorizes a charge.</div>
 </aside>
-<div class="main">
+<div class="main" id="main-content" role="main">
  <div class="top"><div class="crumb">Workspace / <b id="crumb">Overview</b></div><div class="top-right"><span class="sandbox">● SANDBOX ONLY</span><span class="avatar">CS</span></div></div>
  <div class="content">
   <div id="message" class="status" role="status" aria-live="polite"></div>
@@ -81,6 +93,19 @@
   </section>
   <section id="events" class="tabpan">
    <div class="title"><div><div class="eyebrow">EVENT MANAGEMENT</div><h1>Plan & split</h1><p class="sub">Set up your event, estimate costs and decide how to divide them fairly.</p></div></div>
+   <div class="card" id="event-directory" style="margin-bottom:20px">
+    <div class="section-heading"><h2>Find an event</h2><span class="pill neutral" id="directory-count">0 events</span></div>
+    <div class="dir-controls">
+     <div class="field"><label for="directory-search">Search events</label>
+      <input id="directory-search" type="search" placeholder="Name, date or description" autocomplete="off"></div>
+     <div class="field"><label for="directory-filter">Show</label>
+      <select id="directory-filter"><option value="all">All events</option><option value="upcoming">Upcoming</option><option value="past">Past</option><option value="needs-attention">Needs attention</option></select></div>
+     <div class="field"><label for="directory-sort">Sort by</label>
+      <select id="directory-sort"><option value="soonest">Upcoming first</option><option value="latest">Latest date</option><option value="budget">Highest budget</option></select></div>
+    </div>
+    <div class="dir-results" id="directory-results" aria-live="polite"><div class="empty">Your events will appear here.</div></div>
+    <p class="notice" style="margin-top:13px">Select an event to review its budget, participants and checklist. Search never modifies event records.</p>
+   </div>
    <div class="grid2">
     <div class="stack">
      <div class="card"><div class="section-heading"><h2>Event budget</h2><select id="event-select" class="select choose" aria-label="Select event" onchange="selectEvent(this.value)"></select></div>
@@ -90,6 +115,7 @@
        <div class="space"></div><form id="expense-form" class="inlineform"><input id="expense-title" required minlength="2" placeholder="Expense (e.g. venue fee)" aria-label="Expense name"><input id="expense-amount" required inputmode="decimal" style="max-width:95px" placeholder="$" aria-label="Expense amount"><button class="btn secondary" type="submit">Add</button></form>
      </div>
      <div class="card"><div class="section-heading"><h2>Participants</h2><span class="pill neutral" id="people-count">0 members</span></div><div id="people-rows"></div>
+       <div class="capsule small" id="split-explanation" role="status" aria-live="polite" style="margin-top:14px">Select <strong>Explain</strong> next to a person to see how their share was calculated in exact cents.</div>
        <div class="space"></div><form class="inlineform" id="person-form"><input id="person-name" minlength="2" required placeholder="Participant name" aria-label="Participant name"><input id="person-weight" type="number" min="1" max="10" value="1" aria-label="Attendance weight" style="max-width:76px"><button class="btn secondary" type="submit">Add</button></form>
        <p class="notice">Weights affect allocations only when attendance-weighted splitting is selected. Every edit resets approvals. Payment activity locks the budget.</p>
    <div class="space"></div><details style="border-top:1px solid var(--line);padding-top:15px">
@@ -234,10 +260,12 @@
 <script src="/static/operations.js"></script>
 <script src="/static/pulse.js"></script>
 <script src="/static/communications.js"></script>
+<script src="/static/directory.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
 let pulseQuery="",pulseLevel="all";
+let directoryQuery="",directoryFilter="all",directorySort="soonest";
 let historyCache=null;
 let eventId = null, currentTab = "overview", proposal = null, proposalEventId=null, applyingProposal=false;
 let taskDraft=null,taskDraftEventId=null,applyingTaskDraft=false;
@@ -295,8 +323,40 @@ function copyEventBrief(){
  .catch(()=>window.prompt("Copy the event briefing:",brief));
  else window.prompt("Copy the event briefing:",brief);
 }
+function renderDirectory(){
+ const found=directoryView(state.events,directoryQuery,directoryFilter,directorySort,localDay());
+ el("directory-count").textContent=found.length+" / "+state.events.length+" events";
+ el("directory-results").innerHTML=found.length?found.map(function(e){
+  const tasks=e.tasks||[],done=tasks.filter(x=>Boolean(x.completed)).length,upcoming=validDay(e.date)&&e.date>=localDay();
+  return '<button type="button" class="dir-item '+(e.id===eventId?"active":"")+'"'+
+    ' onclick="selectEvent('+Number(e.id)+')" aria-pressed="'+(e.id===eventId?"true":"false")+'">'+
+    '<span class="row between"><span class="dir-item-title">'+safe(e.name)+'</span><span class="pill neutral">'+
+    (upcoming?"Upcoming":"Past / review")+'</span></span>'+
+    '<span class="dir-meta">'+safe(e.date)+' · '+e.people.length+' people</span>'+
+    '<strong>'+money(e.total_cents)+' planned</strong>'+
+    '<span class="dir-meta">'+done+'/'+tasks.length+' preparation tasks · '+e.approved+' approvals</span></button>';
+ }).join(""):'<div class="empty">No events match. Adjust your search or create a new event.</div>';
+}
+function explainMember(id){
+ try{
+  const d=explainShare(event(),id);
+  const good=d.consistent;
+  el("split-explanation").innerHTML=
+    '<div class="row between"><b>'+safe(d.name)+' — exact-cent explanation</b>'+
+    '<span class="pill '+(good?"neutral":"orange")+'">'+(good?"Consistent":"Review allocation")+'</span></div>'+
+    '<p style="margin:10px 0 5px">Total budget: <b>'+money(d.totalCents)+'</b> · '+d.peopleCount+' participants</p>'+
+    '<p style="margin:5px 0">Method: '+safe(d.strategy==="weighted"?"Attendance-weighted":"Equal split")+
+      ' · Effective weight '+d.effectiveWeight+' of '+d.totalWeight+'</p>'+
+    '<p style="margin:5px 0">Rounded-down base: <b>'+money(d.baseCents)+'</b> · Remainder adjustment: <b>+'+money(d.roundingCents)+'</b></p>'+
+    '<p style="margin:5px 0">Expected: <b>'+money(d.expectedCents)+'</b> · Saved: <b>'+money(d.recordedCents)+'</b></p>'+
+    '<p class="notice" style="margin-bottom:0">'+safe(good?
+       "Leftover cents go to the largest remainders; ties are resolved by stable participant ID.":
+       "The saved allocation differs from the exact-cent calculation. Review History & checks before creating more PayPal sandbox orders.")+'</p>';
+  el("split-explanation").scrollIntoView({block:"nearest"});
+ }catch(err){el("split-explanation").textContent="Unable to explain this share: "+err.message}
+}
 function focusNew(){setTimeout(function(){el("new-name").focus()},100)}
-function selectEvent(id){eventId=Number(id);historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();render()}
+function selectEvent(id){eventId=Number(id);el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();render()}
 async function cloneSelectedEvent(){
  const e=event();if(!e)return;
  const name=window.prompt("New event name (expenses and participants will be copied, payments will not)",("Copy of "+e.name).slice(0,90));
@@ -505,7 +565,7 @@ function exportEventHistory(){
 }
 function render(){
  let events=state.events,e=event(),people=events.reduce(function(n,x){return n+x.people.length},0),budget=events.reduce(function(n,x){return n+x.total_cents},0),paid=events.reduce(function(n,x){return n+x.sandbox_cents},0);
- el("kpi-events").textContent=events.length;el("kpi-budget").textContent=money(budget);el("kpi-real").textContent=money(paid);el("kpi-people").textContent=people;renderInsights();renderPulse();
+ el("kpi-events").textContent=events.length;el("kpi-budget").textContent=money(budget);el("kpi-real").textContent=money(paid);el("kpi-people").textContent=people;renderInsights();renderPulse();renderDirectory();
  el("event-summary").innerHTML=events.length?events.map(function(x){return '<div class="row between" style="padding:15px 0;border-bottom:1px solid #edf0f1"><div><div class="event-name">'+safe(x.name)+'</div><div class="muted small">'+safe(x.date)+' • '+x.people.length+' members</div></div><div style="text-align:right"><b>'+money(x.total_cents)+'</b><div class="small muted">'+x.approved+' approved</div></div></div>'}).join(""):'<div class="empty">No events yet.</div>';
  let select=el("event-select");select.innerHTML=events.map(function(x){return '<option value="'+x.id+'">'+safe(x.name)+'</option>'}).join("");if(e)select.value=e.id;
  el("ai-indicator").textContent=state.ai_configured?"AI key set · verify with test":"AI not connected";
@@ -516,7 +576,7 @@ function render(){
  el("equal").classList.toggle("active",e.strategy==="equal");el("weighted").classList.toggle("active",e.strategy==="weighted");
  el("expense-rows").innerHTML='<table><thead><tr><th>Expense</th><th style="text-align:right">Amount</th></tr></thead><tbody>'+e.expenses.map(function(x){return '<tr><td>'+safe(x.title)+'</td><td style="text-align:right;font-weight:700">'+money(x.cents)+'</td><td style="text-align:right"><button class="btn small ghost" aria-label="Remove expense" onclick="removeExpense('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
  el("people-count").textContent=e.people.length+" members";showTasks(e);
- el("people-rows").innerHTML='<table><thead><tr><th>Name</th><th>Weight</th><th>Share</th></tr></thead><tbody>'+e.people.map(function(x){return '<tr><td>'+safe(x.name)+'</td><td>'+x.weight+'</td><td style="font-weight:750">'+money(x.share_cents)+'</td><td><button class="btn small ghost" aria-label="Remove participant" onclick="removePerson('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
+ el("people-rows").innerHTML='<table><thead><tr><th>Name</th><th>Weight</th><th>Share</th></tr></thead><tbody>'+e.people.map(function(x){return '<tr><td>'+safe(x.name)+'</td><td>'+x.weight+'</td><td style="font-weight:750">'+money(x.share_cents)+'</td><td><button class="btn small secondary" type="button" onclick="explainMember('+x.id+')" aria-label="Explain '+safe(x.name)+' share">Explain</button></td><td><button class="btn small ghost" aria-label="Remove participant" onclick="removePerson('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
  el("contrib-heading").textContent=e.name;
   const attendance=rsvpStats(e.people);
   el("rsvp-summary").textContent="Attendance · "+attendance.going+" Going · "+attendance.maybe+
@@ -592,6 +652,9 @@ async function applyTaskPlan(){
  }
 }
 async function applyProposal(){let e=event();if(!e||!proposal||applyingProposal)return;if(proposalEventId!==e.id){notice("This proposal belongs to a different event. Analyze the selected event again.",true);return;}let titles=[...document.querySelectorAll(".pro-title")],amounts=[...document.querySelectorAll(".pro-amount")];let expenses=titles.map(function(x,i){return {title:x.value.trim(),amount:amounts[i].value.trim()}});if(expenses.some(x=>!x.title||!/^\d+(\.\d{1,2})?$/.test(x.amount))){notice("Check the expense titles and USD amounts before approving.",true);return;}applyingProposal=true;el("ai-apply").disabled=true;try{await post("/api/events/"+e.id+"/expenses/bulk",{expenses:expenses});proposal=null;proposalEventId=null;await load();el("ai-proposal").className="empty";el("ai-proposal").textContent="Expenses saved successfully to "+e.name+".";notice("AI proposal reviewed and saved for "+e.name+".",false);}catch(err){notice("Not saved: "+err.message+". Review amounts or the event’s payment lock, then retry.",true);}finally{applyingProposal=false;el("ai-apply").disabled=!proposal}}
+el("directory-search").addEventListener("input",function(){directoryQuery=this.value.trim();renderDirectory()});
+el("directory-filter").addEventListener("change",function(){directoryFilter=this.value;renderDirectory()});
+el("directory-sort").addEventListener("change",function(){directorySort=this.value;renderDirectory()});
 el("pulse-search").addEventListener("input",function(){pulseQuery=this.value.trim();renderPulse()});
 el("pulse-level").addEventListener("change",function(){pulseLevel=this.value;renderPulse()});
 el("ai-plan-form").addEventListener("submit",generateTaskPlan);

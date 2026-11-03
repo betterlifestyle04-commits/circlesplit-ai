@@ -221,7 +221,14 @@ def detailed(c, eid):
     return {**event, "expenses": expenses, "people": people, "tasks":tasks,
         "total_cents": sum(x["cents"] for x in expenses),
         "simulated_cents": sum(x["share_cents"] for x in people if x["status"] == "demo_paid"),
-        "sandbox_cents": sum(x["share_cents"] for x in people if x["status"] == "sandbox_paid"),
+        # Verified sandbox funding must come from completed capture-backed payment
+        # records, NEVER from a manually altered participant status flag.
+        "sandbox_cents": c.execute(
+            """SELECT COALESCE(SUM(amount_cents),0) FROM payments
+               WHERE event_id=? AND status='completed'
+                 AND capture_id IS NOT NULL AND length(capture_id)>0""",
+            (eid,)
+        ).fetchone()[0],
         "approved": sum(x["approved"] for x in people)}
 
 

@@ -49,6 +49,15 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Event finder, exact-cent split explanations and ledger-backed totals
+
+- A searchable **Event directory** in the protected workspace filters upcoming, past and events needing attention, sorts by date or budget, and offers one-click selection of an event. This does not move or delete event data.
+- Every participant row includes **Explain**: a local, read-only breakdown of their assigned share, effective weight, total event weight, floor allocation, and any one-cent largest-remainder adjustment. Ties are broken by stable participant ID, consistent with the server's allocation algorithm. If stored shares disagree, the panel warns the organizer to review event integrity.
+- **Critical accounting hardening:** the backend's `sandbox_cents` and all derived funding KPIs now sum only local payment rows marked `completed` **with non-empty capture identifiers**. An isolated `sandbox_paid` participant status is no longer counted as verified sandbox funding.
+- This is still confirmation within the local sandbox ledger, **not a real-time PayPal provider check or real-money transfer**. The dedicated owner-initiated order-status action remains available for provider reconciliation.
+- Improved keyboard focus styling, reduced-motion support and horizontal scrolling for dense tables on narrow screens.
+- Node tests cover directory filters and exact-cent explanations; Python regression tests verify that status-only flags and pending or capture-less payment rows do not inflate verified totals.
+
 ## Event History & Integrity (sandbox-only)
 
 The protected organizer workspace now includes **History & checks**, with a chronological record of key operations and a read-only consistency report for the currently selected fictional event.
