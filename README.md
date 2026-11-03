@@ -49,6 +49,16 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Private, revocable participant approval links (hackathon demo)
+
+- Organizers can select **Invite** next to an unpaid participant. The server creates a cryptographically random bearer token and stores **only its SHA-256 hash** in SQLite.
+- The invitation uses the URL **fragment** `/participant#token=...` rather than sending the token in a request path/query. The standalone portal clears the fragment and remembers the token for that browser tab's session; no external scripts or third-party requests are loaded.
+- The portal exposes only the specific participant's event name/date, own share, approval and sandbox/simulation status. It cannot access the organizer dashboard or call Gemini or PayPal APIs.
+- Invitation links expire after 7 days, are revocable, and each regeneration invalidates all previous links. Budget reallocations revoke issued links and reset approvals; a token is bound to its original exact-cent amount.
+- **Consent limitation:** Possession of a private link is not proof of legal identity. Organizer "Approve" is explicitly labelled a **demo approval**, distinct from an approval submitted through a participant link. No real payment happens when a share is approved.
+- These links and approvals use Render Free's ephemeral SQLite and will disappear after redeployment. The feature is a sandbox-only experience, not a full production user account system.
+- Tests verify minimal data disclosure, method-level access, revocation, expiry, budget invalidation, and that bearer links cannot access PayPal or the organizer's records.
+
 ## Batch participant import
 
 - The protected Events page supports one-name-per-line participant imports, with optional attendance weight (1–10), for larger fictional groups.

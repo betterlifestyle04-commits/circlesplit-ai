@@ -3,12 +3,15 @@ import base64
 import binascii
 import hmac
 import json
+import secrets
+import hashlib
+import re
 from decimal import Decimal, InvalidOperation
 import os
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -34,8 +37,13 @@ async def demo_access_control(request: Request, call_next):
         # cryptographic signature before any payment state change.
         # The public demo is a standalone, browser-local experience. All
         # organizer data and mutation/payment/AI routes still require Basic auth.
-        public_page = request.url.path in ("/", "/judge", "/favicon.ico") and request.method in ("GET", "HEAD")
-        if not public_page and request.url.path not in ("/health", "/api/paypal/webhook"):
+        public_page = request.url.path in ("/", "/judge", "/participant", "/favicon.ico") and request.method in ("GET", "HEAD")
+        # Only two bearer-token endpoints are public. Other API paths stay protected.
+        participant_api = (
+            (request.url.path == "/api/participant/overview" and request.method == "GET")
+            or (request.url.path == "/api/participant/approve" and request.method == "POST")
+        )
+        if not public_page and not participant_api and request.url.path not in ("/health", "/api/paypal/webhook"):
             user = os.getenv("DEMO_USERNAME", "judge")
             password = os.getenv("DEMO_PASSWORD", "")
             if len(password) < 12:
@@ -69,7 +77,17 @@ async def demo_access_control(request: Request, call_next):
                 return Response("Protected testing workspace credentials required", status_code=401,
                     headers={"WWW-Authenticate": 'Basic realm="CircleSplit AI Testing"'})
             request.state.viewer_role = "owner" if owner_ok else "judge"
-    return await call_next(request)
+
+    response = await call_next(request)
+    if request.url.path in ("/participant", "/api/participant/overview", "/api/participant/approve") or "/invite" in request.url.path:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+    if request.url.path == "/participant":
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+            "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+        )
+    return response
 
 
 def now():
@@ -108,8 +126,11 @@ def recalculate(c, event_id, strategy):
     total = c.execute("SELECT COALESCE(SUM(cents),0) FROM expenses WHERE event_id=?", (event_id,)).fetchone()[0]
     if people:
         for pid, share in allocate(total, people, strategy).items():
-            c.execute("UPDATE people SET share_cents=?,approved=0 WHERE id=?", (share, pid))
+            c.execute("UPDATE people SET share_cents=?,approved=0,approval_source='' WHERE id=?", (share, pid))
     c.execute("UPDATE events SET strategy=? WHERE id=?", (strategy, event_id))
+    # Any budget or participant change invalidates old consent URLs.
+    c.execute("""UPDATE participant_invites SET revoked=1
+              WHERE person_id IN (SELECT id FROM people WHERE event_id=?)""", (event_id,))
 
 def initialize():
     with db() as c:
@@ -135,7 +156,20 @@ def initialize():
           status TEXT NOT NULL, capture_id TEXT, created TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, created TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS participant_invites (
+          id INTEGER PRIMARY KEY,
+          person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+          token_hash TEXT UNIQUE NOT NULL,
+          expected_cents INTEGER NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          revoked INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS participant_invites_person_idx
+          ON participant_invites(person_id);
         """)
+        if "approval_source" not in {row["name"] for row in c.execute("PRAGMA table_info(people)")}:
+            c.execute("ALTER TABLE people ADD COLUMN approval_source TEXT NOT NULL DEFAULT ''")
         if c.execute("SELECT 1 FROM events LIMIT 1").fetchone():
             return
         e = c.execute("INSERT INTO events(name,date,note,created) VALUES(?,?,?,?)",
@@ -178,6 +212,10 @@ def organizer_workspace():
 @app.get("/judge")
 def judge_guide():
     return FileResponse(ROOT / "static" / "judge.html")
+
+@app.get("/participant")
+def participant_portal():
+    return FileResponse(ROOT / "static" / "participant.html")
 
 @app.api_route("/favicon.ico", methods=["GET", "HEAD"])
 def favicon():
@@ -441,8 +479,115 @@ def approve(eid: int, pid: int):
         if not p: raise HTTPException(404, "Participant not found")
         if p["status"] != "unpaid": raise HTTPException(409, "Already paid")
         if p["share_cents"] < 1: raise HTTPException(409, "Cannot approve zero amount")
-        c.execute("UPDATE people SET approved=1 WHERE id=?", (pid,))
+        c.execute("UPDATE people SET approved=1,approval_source='organizer_demo' WHERE id=?", (pid,))
     return {"ok":True}
+
+def participant_from_invite(c, request: Request):
+    header = request.headers.get("authorization", "")
+    scheme, _, bearer = header.partition(" ")
+    if scheme.lower() != "bearer" or not re.fullmatch(r"[A-Za-z0-9_-]{40,128}",bearer):
+        raise HTTPException(401,"Valid participant invitation required")
+    digest = hashlib.sha256(bearer.encode("ascii")).hexdigest()
+    row = c.execute(
+        """SELECT l.*,p.id AS person_id,p.event_id,p.name AS person_name,
+                  p.share_cents,p.approved,p.approval_source,p.status,
+                  e.name AS event_name,e.date AS event_date
+           FROM participant_invites l
+           JOIN people p ON p.id=l.person_id
+           JOIN events e ON e.id=p.event_id
+           WHERE l.token_hash=?""",(digest,)
+    ).fetchone()
+    if not row or row["revoked"]:
+        raise HTTPException(404,"Invitation not found or revoked")
+    try:
+        expires = datetime.fromisoformat(row["expires_at"])
+    except ValueError:
+        raise HTTPException(404,"Invitation no longer valid")
+    if expires.tzinfo is None or datetime.now(timezone.utc) >= expires:
+        raise HTTPException(410,"This invitation has expired")
+    if row["share_cents"] != row["expected_cents"]:
+        raise HTTPException(409,"Budget changed; ask organizer for a new invitation")
+    return row
+
+
+@app.post("/api/events/{eid}/people/{pid}/invite")
+def invite_participant(eid: int,pid: int):
+    # Organizer-controlled invitation only. Never exposes other participant data.
+    with db() as c:
+        require_event(c,eid)
+        p = c.execute(
+            "SELECT * FROM people WHERE event_id=? AND id=?",(eid,pid)
+        ).fetchone()
+        if p is None:
+            raise HTTPException(404,"Participant not found")
+        if p["status"] != "unpaid" or p["share_cents"] < 1:
+            raise HTTPException(409,"Only unpaid positive shares can be invited")
+        if c.execute("SELECT 1 FROM payments WHERE person_id=? LIMIT 1",(pid,)).fetchone():
+            raise HTTPException(409,"PayPal order already exists for participant")
+        token = secrets.token_urlsafe(32)
+        digest = hashlib.sha256(token.encode("ascii")).hexdigest()
+        expires = (datetime.now(timezone.utc)+timedelta(days=7)).isoformat()
+        c.execute("UPDATE participant_invites SET revoked=1 WHERE person_id=?", (pid,))
+        c.execute(
+            "INSERT INTO participant_invites(person_id,token_hash,expected_cents,expires_at,created_at) VALUES(?,?,?,?,?)",
+            (pid,digest,p["share_cents"],expires,now())
+        )
+    return {"token":token,"expires_at":expires,"share_cents":p["share_cents"],
+            "note":"Private bearer link; whoever possesses it may approve this fictional share. No identity verification."}
+
+
+@app.post("/api/events/{eid}/people/{pid}/invite/revoke")
+def revoke_participant_invites(eid: int,pid: int):
+    with db() as c:
+        require_event(c,eid)
+        person=c.execute("SELECT 1 FROM people WHERE event_id=? AND id=?",(eid,pid)).fetchone()
+        if not person:
+            raise HTTPException(404,"Participant not found")
+        result=c.execute(
+            "UPDATE participant_invites SET revoked=1 WHERE person_id=? AND revoked=0",(pid,)
+        )
+    return {"ok":True,"revoked":result.rowcount}
+
+
+@app.get("/api/participant/overview")
+def participant_overview(request: Request):
+    with db() as c:
+        invitation = participant_from_invite(c,request)
+        return {
+            "event_name":invitation["event_name"],
+            "event_date":invitation["event_date"],
+            "participant":invitation["person_name"],
+            "share_cents":invitation["share_cents"],
+            "approved":bool(invitation["approved"]),
+            "approval_source":invitation["approval_source"] or "unspecified",
+            "status":invitation["status"],
+            "expires_at":invitation["expires_at"],
+            "currency":"USD",
+            "payment_mode":"NONE",
+            "identity_verified":False,
+        }
+
+
+@app.post("/api/participant/approve")
+def participant_approve(request: Request):
+    # A single bearer-capability approval, not a PayPal charge or identity proof.
+    with db() as c:
+        invitation=participant_from_invite(c,request)
+        if invitation["status"]!="unpaid":
+            raise HTTPException(409,"Contribution already recorded")
+        if invitation["share_cents"] < 1:
+            raise HTTPException(409,"No positive share to approve")
+        if c.execute("SELECT 1 FROM payments WHERE person_id=? LIMIT 1",
+                     (invitation["person_id"],)).fetchone():
+            raise HTTPException(409,"Payment checkout already initiated")
+        if invitation["approved"]:
+            return {"ok":True,"already_approved":True,
+                    "approval_source":invitation["approval_source"]}
+        c.execute("UPDATE people SET approved=1,approval_source='participant_link' WHERE id=?",
+                  (invitation["person_id"],))
+    return {"ok":True,"approved":True,"approval_source":"participant_link",
+            "payment_created":False}
+
 
 @app.post("/api/events/{eid}/people/{pid}/simulate")
 def simulate(eid: int, pid: int):

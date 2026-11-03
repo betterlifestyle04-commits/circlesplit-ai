@@ -1,0 +1,73 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><meta name="robots" content="noindex,nofollow,noarchive">
+<meta name="theme-color" content="#0d2935"><title>Your share — CircleSplit AI</title>
+<style>:root{--ink:#173642;--muted:#68828d;--teal:#087f73;--line:#d9e8e6}
+*{box-sizing:border-box}body{margin:0;background:#f3f7f7;color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{background:#0b2633;color:white;padding:18px max(20px,calc((100vw - 680px)/2))}
+main{max-width:680px;margin:52px auto;padding:0 17px}.card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:30px;box-shadow:0 18px 48px #102a340d}
+.kicker{font-size:11px;text-transform:uppercase;letter-spacing:1.6px;font-weight:800;color:var(--teal)}
+h1{margin:8px 0;font-size:clamp(29px,4vw,39px);letter-spacing:-1px}p{color:var(--muted)}
+.amount{font-size:42px;font-weight:850;letter-spacing:-1px;margin:13px 0}
+.row{display:flex;justify-content:space-between;gap:15px;border-bottom:1px solid #edf2f1;padding:12px 0}
+button{border:0;background:var(--teal);color:white;font:inherit;font-weight:800;border-radius:10px;padding:13px 20px;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}.warn{background:#fff6e7;border:1px solid #f4deae;color:#7d5a26;padding:13px;border-radius:11px;font-size:12px;margin:20px 0}
+.message{margin-top:16px;background:#e7f6f1;color:#0d7560;padding:13px;border-radius:11px;display:none}
+.message.error{background:#fceeea;color:#a43f2b}.message.show{display:block}
+footer{margin-top:22px;font-size:12px;color:#84959e}
+</style></head><body>
+<header><strong>◉ CircleSplit AI</strong> <span style="opacity:.6;margin-left:10px">Private participant approval</span></header>
+<main><div class="card"><div class="kicker">Your invitation</div>
+<h1 id="title">Loading your assigned share…</h1>
+<p id="description">Only your own event and share are displayed. This page cannot see other participants or start a payment.</p>
+<div id="details" hidden><div class="amount" id="amount">—</div>
+<div class="row"><span>Participant</span><strong id="person">—</strong></div>
+<div class="row"><span>Event date</span><strong id="date">—</strong></div>
+<div class="row"><span>Currency</span><strong>USD</strong></div>
+<div class="row"><span>Approval</span><strong id="approval">Pending</strong></div>
+<div class="row"><span>Contribution</span><strong id="payment">Unpaid</strong></div>
+<div class="warn"><strong>Demo approval only.</strong> Approving records acceptance of this fictional share. It does not charge you, verify your identity, or grant access to PayPal. Anyone with this secret invitation URL can approve on your behalf. Do not share it publicly.</div>
+<button id="approve" type="button" disabled>I approve this amount</button>
+<p style="font-size:12px">Invitation expires: <strong id="expiry">—</strong></p></div>
+<div class="message" id="message" role="status" aria-live="polite"></div>
+</div><footer>CircleSplit AI hackathon prototype · No live money movement or personal identity verification</footer></main>
+<script>"use strict";
+let token="";
+const $=id=>document.getElementById(id);
+const format=n=>"$"+(n/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+function message(s,error){$("message").textContent=s;$("message").className="message show"+(error?" error":"")}
+async function api(path,method){
+ const r=await fetch(path,{method:method||"GET",cache:"no-store",
+  headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"}});
+ const body=await r.json().catch(()=>({}));
+ if(!r.ok)throw Error(body.detail||"Request failed");
+ return body;
+}
+async function refresh(){
+ try{
+  if(!token)throw Error("Missing invitation token. Ask the organizer for a fresh private link.");
+  const d=await api("/api/participant/overview");
+  $("details").hidden=false;$("title").textContent=d.event_name;
+  $("description").textContent="Review the assigned fictional contribution below.";
+  $("amount").textContent=format(d.share_cents);$("person").textContent=d.participant;
+  $("date").textContent=d.event_date;$("expiry").textContent=new Date(d.expires_at).toLocaleString();
+  $("approval").textContent=d.approved?(d.approval_source==="participant_link"?"Approved via private link":"Previously approved in demo"):"Pending";
+  $("payment").textContent=d.status==="sandbox_paid"?"Sandbox captured":d.status==="demo_paid"?"Simulated":"Unpaid";
+  $("approve").disabled=Boolean(d.approved)||d.status!=="unpaid";
+  $("approve").textContent=d.approved?"Share approved":"I approve this amount";
+ }catch(err){$("details").hidden=true;$("title").textContent="Invitation unavailable";$("description").textContent="The invitation may have expired, been revoked, or changed after the budget was edited.";message(err.message,true);}
+}
+$("approve").addEventListener("click",async()=>{
+ if(!window.confirm("Approve this fictional group contribution? This will not make a payment."))return;
+ $("approve").disabled=true;
+ try{const r=await api("/api/participant/approve","POST");await refresh();message(r.already_approved?"Already approved. No additional action was taken.":"Your approval was recorded. No PayPal order or payment was created.",false)}
+ catch(err){message(err.message,true);await refresh()}
+});
+try{
+ const urlToken=new URLSearchParams(window.location.hash.slice(1)).get("token");
+ if(urlToken&&/^[A-Za-z0-9_-]{40,128}$/.test(urlToken))sessionStorage.setItem("circlesplit-participant-token",urlToken);
+ token=sessionStorage.getItem("circlesplit-participant-token")||"";
+ if(window.location.hash)history.replaceState(null,"","/participant");
+}catch(e){token=""}
+refresh();
+</script></body></html>

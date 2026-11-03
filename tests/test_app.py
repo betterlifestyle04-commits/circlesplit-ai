@@ -543,3 +543,88 @@ def test_bulk_people_import_respects_payment_locks(client):
     assert client.post(f"/api/events/{eid}/people/bulk",json={
         "people":[{"name":"NewOne","weight":1}]
     }).status_code==409
+
+
+def test_participant_invitation_is_private_and_approves_only_own_share(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","long-demo-owner-password")
+    owner=("judge","long-demo-owner-password")
+    assert client.get("/participant").status_code==200
+    assert client.get("/api/participant/overview").status_code==401
+    assert client.post(f"/api/events/{eid}/people/{pid}/invite").status_code==401
+    out=client.post(f"/api/events/{eid}/people/{pid}/invite",auth=owner)
+    assert out.status_code==200,out.text
+    token=out.json()["token"]
+    assert len(token)>=40
+    assert "https://" not in out.text and "PRIVATE" not in out.text
+    headers={"Authorization":"Bearer "+token}
+    detail=client.get("/api/participant/overview",headers=headers)
+    assert detail.status_code==200
+    d=detail.json()
+    assert set(d)=={"event_name","event_date","participant","share_cents","approved",
+                    "approval_source","status","expires_at","currency","payment_mode","identity_verified"}
+    assert d["participant"]=="Alex" and d["share_cents"]==1100
+    assert d["identity_verified"] is False and d["payment_mode"]=="NONE"
+    assert detail.headers.get("Cache-Control")=="no-store"
+    assert "no-referrer"==detail.headers.get("Referrer-Policy")
+    assert client.post("/api/participant/approve",headers=headers).json()["approval_source"]=="participant_link"
+    again=client.post("/api/participant/approve",headers=headers)
+    assert again.status_code==200 and again.json()["already_approved"] is True
+    original=next(x for x in client.get("/api/state",auth=owner).json()["events"] if x["id"]==eid)
+    assert original["people"][0]["approved"]==1
+    assert original["people"][0]["approval_source"]=="participant_link"
+    assert all(not x["approved"] for x in original["people"][1:])
+    assert client.post(f"/api/paypal/orders/{eid}/{pid}",headers=headers).status_code==401
+    assert client.get("/api/state",headers=headers).status_code==401
+    assert client.get("/api/transactions",headers=headers).status_code==401
+    assert client.post("/api/ai/parse",json={"note":"court fee $180 and snacks $35"},headers=headers).status_code==401
+
+
+def test_revocation_rotation_and_expiry(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    import app as api
+    t1=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    t2=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    assert t1!=t2
+    assert client.get("/api/participant/overview",headers={"Authorization":"Bearer "+t1}).status_code==404
+    h2={"Authorization":"Bearer "+t2}
+    assert client.get("/api/participant/overview",headers=h2).status_code==200
+    with api.db() as c:
+        c.execute("UPDATE participant_invites SET expires_at='2000-01-01T00:00:00+00:00'")
+    assert client.get("/api/participant/overview",headers=h2).status_code==410
+    t3=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    h3={"Authorization":"Bearer "+t3}
+    assert client.get("/api/participant/overview",headers=h3).status_code==200
+    revoked=client.post(f"/api/events/{eid}/people/{pid}/invite/revoke")
+    assert revoked.status_code==200 and revoked.json()["revoked"]==1
+    assert client.post("/api/participant/approve",headers=h3).status_code==404
+
+
+def test_budget_change_invalidates_invite(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    h={"Authorization":"Bearer "+token}
+    assert client.get("/api/participant/overview",headers=h).status_code==200
+    assert client.post(f"/api/events/{eid}/expenses",json={"title":"New expense","amount":"5.00"}).status_code==200
+    assert client.post("/api/participant/approve",headers=h).status_code==404
+
+
+def test_invites_do_not_bypass_payment_locks(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    headers={"Authorization":"Bearer "+token}
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/invite").status_code==409
+    assert client.post("/api/participant/approve",headers=headers).status_code==409
+
+
+def test_public_participant_methods_are_minimal(client,monkeypatch):
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","long-demo-owner-password")
+    assert client.post("/api/participant/overview").status_code==401
+    assert client.get("/api/participant/approve").status_code==401
+    assert client.get("/participant").status_code==200
+    assert "frame-ancestors 'none'" in client.get("/participant").headers["content-security-policy"]
+    assert client.post("/api/events/1/people/10/invite/revoke").status_code==401
