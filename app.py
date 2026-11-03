@@ -167,6 +167,12 @@ def initialize():
             created TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS history_event_idx ON event_history(event_id,id);
+        CREATE TABLE IF NOT EXISTS event_planning (
+            event_id INTEGER PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+            ceiling_cents INTEGER,
+            reserve_percent INTEGER NOT NULL DEFAULT 0 CHECK(reserve_percent BETWEEN 0 AND 50),
+            updated_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS event_tasks (
             id INTEGER PRIMARY KEY,
             event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -225,7 +231,11 @@ def detailed(c, eid):
     people = [dict(x) for x in c.execute(
         "SELECT * FROM people WHERE event_id=? ORDER BY id", (eid,))]
     tasks = [dict(t) for t in c.execute("SELECT id,title,completed FROM event_tasks WHERE event_id=? ORDER BY id",(eid,))]
-    return {**event, "expenses": expenses, "people": people, "tasks":tasks,
+    setting = c.execute("SELECT ceiling_cents,reserve_percent FROM event_planning WHERE event_id=?",(eid,)).fetchone()
+    planned_total = sum(x["cents"] for x in expenses)
+    planning = planning_forecast(planned_total,setting["ceiling_cents"] if setting else None,
+                                 setting["reserve_percent"] if setting else 0)
+    return {**event, "expenses": expenses, "people": people, "tasks":tasks, "planning":planning,
         "total_cents": sum(x["cents"] for x in expenses),
         "simulated_cents": sum(x["share_cents"] for x in people if x["status"] == "demo_paid"),
         # Verified sandbox funding must come from completed capture-backed payment
@@ -246,6 +256,7 @@ HISTORY_SUMMARIES = {
     "event_duplicated":"Event duplicated as a new plan",
     "expense_added":"Expense added; shares recalculated",
     "expense_recategorized":"Expense category updated without changing the budget",
+    "planning_target_updated":"Planning ceiling and contingency reserve changed",
     "expense_removed":"Expense removed; shares recalculated",
     "expenses_bulk_added":"Reviewed expense proposals added",
     "participant_added":"Participant added; shares recalculated",
@@ -438,6 +449,72 @@ def state():
             "ai_configured": bool(os.getenv("GEMINI_API_KEY")),
             "environment": "SANDBOX ONLY", "currency": "USD"}
 
+def planning_forecast(total_cents: int, ceiling_cents: int | None,
+                      reserve_percent: int) -> dict:
+    """A hypothetical reserve; never alters allocated shares or PayPal amounts."""
+    if total_cents < 0 or reserve_percent < 0 or reserve_percent > 50:
+        raise ValueError("Invalid planning forecast")
+    reserve_cents = (total_cents * reserve_percent + 99) // 100
+    projected_cents = total_cents + reserve_cents
+    headroom = ceiling_cents - projected_cents if ceiling_cents is not None else None
+    return {
+        "planned_cents": total_cents,
+        "ceiling_cents": ceiling_cents,
+        "reserve_percent": reserve_percent,
+        "reserve_cents": reserve_cents,
+        "projected_cents": projected_cents,
+        "headroom_cents": headroom,
+        "over_ceiling_cents": max(0, -headroom) if headroom is not None else 0,
+        "status": ("no_ceiling" if ceiling_cents is None else
+                   "over_ceiling" if headroom < 0 else "within_ceiling"),
+        "read_only_projection": True,
+        "notice": "Contingency is hypothetical and does not change contributions, approvals, payment orders or actual spending.",
+    }
+
+
+class EventPlanningInput(BaseModel):
+    ceiling: str | None = Field(default=None, max_length=20)
+    reserve_percent: int = Field(default=0, ge=0, le=50)
+
+
+@app.get("/api/events/{eid}/planning")
+def get_event_planning(eid: int):
+    with db() as c:
+        require_event(c,eid)
+        expenses=c.execute("SELECT COALESCE(SUM(cents),0) FROM expenses WHERE event_id=?",(eid,)).fetchone()[0]
+        settings=c.execute("SELECT ceiling_cents,reserve_percent FROM event_planning WHERE event_id=?",(eid,)).fetchone()
+    return planning_forecast(expenses,settings["ceiling_cents"] if settings else None,
+                              settings["reserve_percent"] if settings else 0)
+
+
+@app.put("/api/events/{eid}/planning")
+def set_event_planning(eid: int, data: EventPlanningInput):
+    try:
+        cap=cents(data.ceiling.strip()) if data.ceiling is not None and data.ceiling.strip() else None
+    except ValueError as exc:
+        raise HTTPException(422,str(exc))
+    with db() as c:
+        require_event(c,eid)
+        old=c.execute("SELECT ceiling_cents,reserve_percent FROM event_planning WHERE event_id=?",(eid,)).fetchone()
+        if old is not None and old["ceiling_cents"]==cap and old["reserve_percent"]==data.reserve_percent:
+            amount=c.execute("SELECT COALESCE(SUM(cents),0) FROM expenses WHERE event_id=?",(eid,)).fetchone()[0]
+            return {"ok":True,"changed":False,"planning":planning_forecast(amount,cap,data.reserve_percent)}
+        c.execute(
+            """INSERT INTO event_planning(event_id,ceiling_cents,reserve_percent,updated_at)
+               VALUES(?,?,?,?)
+               ON CONFLICT(event_id) DO UPDATE SET ceiling_cents=excluded.ceiling_cents,
+                 reserve_percent=excluded.reserve_percent, updated_at=excluded.updated_at""",
+            (eid,cap,data.reserve_percent,now())
+        )
+        record_history(c,eid,"planning_target_updated",details={
+            "ceiling_cents":cap,
+            "reserve_percent":data.reserve_percent
+        })
+        amount=c.execute("SELECT COALESCE(SUM(cents),0) FROM expenses WHERE event_id=?",(eid,)).fetchone()[0]
+    return {"ok":True,"changed":True,"planning":planning_forecast(amount,cap,data.reserve_percent),
+            "financial_records_changed":False}
+
+
 class EventInput(BaseModel):
     name: str = Field(min_length=3, max_length=90)
     date: str = Field(min_length=8, max_length=20)
@@ -472,6 +549,7 @@ def clone_event(eid: int, data: CloneEventInput):
             "SELECT name,weight FROM people WHERE event_id=? ORDER BY id", (eid,)
         ).fetchall() if data.include_people else []
         task_names = [t["title"] for t in c.execute("SELECT title FROM event_tasks WHERE event_id=? ORDER BY id",(eid,))]
+        planning_setting=c.execute("SELECT ceiling_cents,reserve_percent FROM event_planning WHERE event_id=?",(eid,)).fetchone()
         if len(people) > 200 or len(expenses) > 200:
             raise HTTPException(422, "Template exceeds demo limits")
         new_id = c.execute(
@@ -486,6 +564,9 @@ def clone_event(eid: int, data: CloneEventInput):
                       (new_id,person["name"],person["weight"]))
         for task_title in task_names:
             c.execute("INSERT INTO event_tasks(event_id,title,created) VALUES(?,?,?)",(new_id,task_title,now()))
+        if planning_setting:
+            c.execute("INSERT INTO event_planning(event_id,ceiling_cents,reserve_percent,updated_at) VALUES(?,?,?,?)",
+                      (new_id,planning_setting["ceiling_cents"],planning_setting["reserve_percent"],now()))
         if people:
             recalculate(c,new_id,original["strategy"])
         record_history(c,new_id,"event_duplicated",details={
@@ -494,6 +575,7 @@ def clone_event(eid: int, data: CloneEventInput):
         })
     return {"id":new_id,"source_event_id":eid,
             "copied_expenses":len(expenses),"copied_people":len(people),"copied_tasks":len(task_names),
+            "planning_copied":bool(planning_setting),
             "approvals_reset":True,"payments_copied":False}
 
 

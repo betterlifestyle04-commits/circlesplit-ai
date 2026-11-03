@@ -115,6 +115,21 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
        <div id="budget-categories" class="capsule small" style="margin:16px 0" aria-live="polite">Category totals will appear here.</div>
        <div class="space"></div><form id="expense-form" class="inlineform"><input id="expense-title" required minlength="2" placeholder="Expense (e.g. venue fee)" aria-label="Expense name"><input id="expense-amount" required inputmode="decimal" style="max-width:95px" placeholder="$" aria-label="Expense amount"><select id="expense-category" class="select" style="max-width:170px" aria-label="Expense category"></select><button class="btn secondary" type="submit">Add</button></form>
      </div>
+     <div class="card" id="planning-card">
+      <div class="section-heading"><h2>Budget target & contingency</h2><span class="pill neutral">Advisory only</span></div>
+      <p class="notice">Set a spending ceiling and forecast an optional reserve for unexpected costs. Neither changes contributions or PayPal sandbox payments.</p>
+      <form id="planning-form" class="formgrid">
+       <div class="field"><label for="planning-ceiling">Spending ceiling (USD, optional)</label>
+        <input id="planning-ceiling" inputmode="decimal" placeholder="e.g. 250.00" maxlength="20"></div>
+       <div class="field"><label for="planning-reserve">Contingency reserve (%)</label>
+        <input id="planning-reserve" type="number" min="0" max="50" step="1" value="0" required></div>
+       <button class="btn primary full" type="submit">Save planning target</button>
+      </form>
+      <div id="planning-report" class="capsule small" role="status" aria-live="polite" style="margin-top:15px">
+       Set a target or reserve to preview your planning buffer.
+      </div>
+      <p class="notice" style="margin-top:11px">Leave the ceiling blank to remove it. A warning never stops an expense from being added or charges participants.</p>
+     </div>
      <div class="card"><div class="section-heading"><h2>Participants</h2><span class="pill neutral" id="people-count">0 members</span></div><div id="people-rows"></div>
        <div class="capsule small" id="split-explanation" role="status" aria-live="polite" style="margin-top:14px">Select <strong>Explain</strong> next to a person to see how their share was calculated in exact cents.</div>
        <div class="space"></div><form class="inlineform" id="person-form"><input id="person-name" minlength="2" required placeholder="Participant name" aria-label="Participant name"><input id="person-weight" type="number" min="1" max="10" value="1" aria-label="Attendance weight" style="max-width:76px"><button class="btn secondary" type="submit">Add</button></form>
@@ -229,6 +244,11 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   <p class="notice">A breakdown of <b>planned event expenses</b>, not PayPal charges or real expenditure.</p>
   <div id="insights-categories" aria-live="polite">No category data yet.</div>
  </div>
+ <div class="card" style="margin-top:18px">
+  <div class="section-heading"><h2>Budget risk across events</h2><span class="pill neutral">Advisory projections</span></div>
+  <div id="planning-portfolio" aria-live="polite">Budget target summary will appear here.</div>
+  <p class="notice">Projected reserves are not included in approved contributions or PayPal sandbox captures.</p>
+ </div>
  <div class="banner" style="margin-top:16px"><b>Data safety:</b> Reports are read-only and contain fictional demo participants. Render Free can reset its SQLite database after a restart or redeploy. JSON snapshots are NOT restorable backups and omit PayPal transaction identifiers.</div></section>
 <section id="scenario" class="tabpan">
     <div class="title"><div><div class="eyebrow">SCENARIO LAB</div><h1>See the impact before you commit.</h1>
@@ -269,6 +289,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/communications.js"></script>
 <script src="/static/directory.js"></script>
 <script src="/static/categories.js"></script>
+<script src="/static/planning.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -632,15 +653,81 @@ function exportCategoryReport(){
   notice("Planned expense category report exported. No real payments represented.",false);
  }catch(err){notice("Category export unavailable: "+err.message,true)}
 }
+function showPlanningForecast(saved=false){
+ const e=event(),root=el("planning-report");
+ if(!e){root.textContent="Select an event to plan its budget.";return;}
+ try{
+  const cap=parseCeilingCents(el("planning-ceiling").value);
+  const percent=Number(el("planning-reserve").value);
+  const p=budgetForecast(Number(e.total_cents),cap,percent);
+  const label=p.status==="over_ceiling"?"Above target":p.status==="within_ceiling"?"Within target":"No spending ceiling";
+  root.innerHTML=
+   '<div class="row between"><b>'+safe(label)+'</b><span class="pill '+(p.status==="over_ceiling"?"orange":"neutral")+'">'+
+     (saved?"Saved target":"Unsaved preview")+'</span></div>'+
+   '<div class="row between" style="padding:7px 0"><span>Planned expenses</span><b>'+money(p.planned_cents)+'</b></div>'+
+   '<div class="row between" style="padding:7px 0"><span>Hypothetical contingency ('+p.reserve_percent+'%)</span><b>'+money(p.reserve_cents)+'</b></div>'+
+   '<div class="row between" style="padding:7px 0"><span>Projected total</span><b>'+money(p.projected_cents)+'</b></div>'+
+   '<div class="row between" style="padding:7px 0"><span>Target ceiling</span><b>'+(cap===null?"Not set":money(cap))+'</b></div>'+
+   (p.headroom_cents===null?"":'<div class="row between" style="padding:7px 0"><span>'+
+    (p.headroom_cents>=0?"Remaining buffer":"Over target by")+'</span><b>'+money(Math.abs(p.headroom_cents))+'</b></div>')+
+   '<p class="notice" style="margin-bottom:0">'+(p.status==="over_ceiling"?
+     "Review potential reductions or adjust the advisory target. This warning does not change existing payments.":
+     "Projections are hypothetical. No participant share, approval or payment is modified.")+'</p>';
+ }catch(err){root.textContent="Correct the planning inputs: "+err.message;}
+}
+function renderPlanning(e){
+ if(!e){el("planning-report").textContent="Select an event to plan its budget.";return;}
+ const p=e.planning||{ceiling_cents:null,reserve_percent:0};
+ el("planning-ceiling").value=p.ceiling_cents===null||p.ceiling_cents===undefined?"":(p.ceiling_cents/100).toFixed(2);
+ el("planning-reserve").value=p.reserve_percent||0;
+ showPlanningForecast(true);
+}
+async function savePlanning(evt){
+ evt.preventDefault();
+ const e=event();if(!e){notice("Select an event first.",true);return;}
+ const capInput=el("planning-ceiling").value.trim(),reserve=Number(el("planning-reserve").value);
+ try{
+  parseCeilingCents(capInput);
+  if(!Number.isInteger(reserve)||reserve<0||reserve>50)
+   throw Error("Reserve must be a whole percentage from 0 to 50.");
+  const updated=await request("/api/events/"+e.id+"/planning",{
+   method:"PUT",body:JSON.stringify({ceiling:capInput||null,reserve_percent:reserve})
+  });
+  await load();
+  notice(updated.changed?
+   "Advisory planning target saved. Budget, participant shares and approvals are unchanged.":
+   "Planning target is unchanged.",false);
+ }catch(err){notice("Planning target not saved: "+err.message,true)}
+}
+function renderPlanningPortfolio(){
+ const root=el("planning-portfolio");
+ if(!root)return;
+ try{
+  const p=budgetPortfolio(state.events);
+  root.innerHTML='<div class="row between" style="padding:7px 0"><span>Events with targets</span><b>'+
+    p.withCeiling+' / '+p.events+'</b></div>'+
+   '<div class="row between" style="padding:7px 0"><span>Over advisory ceiling</span><b>'+
+    p.overCeiling+'</b></div>'+
+   '<div class="row between" style="padding:7px 0"><span>Planned expenses</span><b>'+
+    money(p.plannedCents)+'</b></div>'+
+   '<div class="row between" style="padding:7px 0"><span>Hypothetical total reserves</span><b>'+
+    money(p.reserveCents)+'</b></div>'+
+   '<div class="row between" style="padding:7px 0"><span>Projected total</span><b>'+
+    money(p.projectedCents)+'</b></div>'+
+   '<div class="row between" style="padding:7px 0"><span>Combined overruns vs individual targets</span><b>'+
+    money(p.overCeilingCents)+'</b></div>';
+ }catch(err){root.textContent="Planning summary unavailable: "+err.message;}
+}
 function render(){
  let events=state.events,e=event(),people=events.reduce(function(n,x){return n+x.people.length},0),budget=events.reduce(function(n,x){return n+x.total_cents},0),paid=events.reduce(function(n,x){return n+x.sandbox_cents},0);
- el("kpi-events").textContent=events.length;el("kpi-budget").textContent=money(budget);el("kpi-real").textContent=money(paid);el("kpi-people").textContent=people;renderInsights();renderPulse();renderDirectory();renderCategoryInsights();
+ el("kpi-events").textContent=events.length;el("kpi-budget").textContent=money(budget);el("kpi-real").textContent=money(paid);el("kpi-people").textContent=people;renderInsights();renderPulse();renderDirectory();renderCategoryInsights();renderPlanningPortfolio();
  el("event-summary").innerHTML=events.length?events.map(function(x){return '<div class="row between" style="padding:15px 0;border-bottom:1px solid #edf0f1"><div><div class="event-name">'+safe(x.name)+'</div><div class="muted small">'+safe(x.date)+' • '+x.people.length+' members</div></div><div style="text-align:right"><b>'+money(x.total_cents)+'</b><div class="small muted">'+x.approved+' approved</div></div></div>'}).join(""):'<div class="empty">No events yet.</div>';
  let select=el("event-select");select.innerHTML=events.map(function(x){return '<option value="'+x.id+'">'+safe(x.name)+'</option>'}).join("");if(e)select.value=e.id;
  el("ai-indicator").textContent=state.ai_configured?"AI key set · verify with test":"AI not connected";
   const scenarioTarget=el("scenario-target");if(scenarioTarget)scenarioTarget.textContent=e?"Current event: "+e.name+" · "+money(e.total_cents)+" · "+e.people.length+" participants":"No event selected. Create one in Events.";
 
- if(!e){renderEventCategories(null);el("rsvp-summary").textContent="No event selected.";showTasks(null);el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
+ if(!e){renderPlanning(null);renderEventCategories(null);el("rsvp-summary").textContent="No event selected.";showTasks(null);el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
+ renderPlanning(e);
  el("event-detail").innerHTML='<div class="detail-head"><div><div class="muted small">'+safe(e.date)+'</div><h3 style="margin:4px 0">'+safe(e.name)+'</h3><div class="muted small">'+safe(e.note)+'</div></div><div style="text-align:right"><div class="muted small">Total planned budget</div><div style="font-size:27px;font-weight:850">'+money(e.total_cents)+'</div></div></div>';
  el("equal").classList.toggle("active",e.strategy==="equal");el("weighted").classList.toggle("active",e.strategy==="weighted");
  el("expense-rows").innerHTML='<table><thead><tr><th>Expense</th><th>Category</th><th style="text-align:right">Amount</th><th>Remove</th></tr></thead><tbody>'+e.expenses.map(function(x){return '<tr><td>'+safe(x.title)+'</td><td><select class="select" aria-label="Category for '+safe(x.title)+'" onchange="updateExpenseCategory('+x.id+',this.value)">'+categoryOptions(x.category)+'</select></td><td style="text-align:right;font-weight:700">'+money(x.cents)+'</td><td style="text-align:right"><button class="btn small ghost" aria-label="Remove expense" onclick="removeExpense('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
@@ -731,7 +818,10 @@ el("ai-plan-form").addEventListener("submit",generateTaskPlan);
 el("bulk-people-form").addEventListener("submit",importParticipants);
 el("scenario-form").addEventListener("submit",previewScenario);
 ["scenario-adjustment","scenario-people","scenario-strategy"].forEach(function(id){el(id).addEventListener("input",resetScenario);});
-el("task-form").addEventListener("submit",createTask);el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);
+el("task-form").addEventListener("submit",createTask);el("planning-form").addEventListener("submit",savePlanning);
+el("planning-ceiling").addEventListener("input",()=>showPlanningForecast(false));
+el("planning-reserve").addEventListener("input",()=>showPlanningForecast(false));
+el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);
 document.querySelectorAll("[data-tab]").forEach(function(x){x.addEventListener("click",function(){switchTab(x.dataset.tab)})});
 async function checkReadiness(){
  try{

@@ -1204,3 +1204,137 @@ def test_budget_breakdown_requires_organizer_access(client,monkeypatch):
     assert client.patch(f"/api/events/{eid}/expenses/1/category",json={"category":"venue"}).status_code==401
     auth=("judge","category-test-password-long-enough")
     assert client.get(f"/api/events/{eid}/budget-breakdown",auth=auth).status_code==200
+
+
+def test_budget_target_rounding_and_risk_warning(client):
+    event=initial(client);eid=event["id"]
+    assert event["planning"]["status"]=="no_ceiling"
+    assert event["planning"]["projected_cents"]==22000
+    assert client.get(f"/api/events/{eid}/planning").json()==event["planning"]
+    response=client.put(f"/api/events/{eid}/planning",json={
+        "ceiling":"230.00","reserve_percent":10
+    })
+    assert response.status_code==200,response.text
+    p=response.json()["planning"]
+    assert p["planned_cents"]==22000
+    assert p["reserve_cents"]==2200
+    assert p["projected_cents"]==24200
+    assert p["headroom_cents"]==-1200
+    assert p["over_ceiling_cents"]==1200
+    assert p["status"]=="over_ceiling"
+    after=initial(client)
+    assert after["planning"]==p
+    assert after["total_cents"]==event["total_cents"]
+    assert after["people"]==event["people"]
+    assert response.json()["financial_records_changed"] is False
+    history=client.get(f"/api/events/{eid}/history").json()
+    assert history["entries"][0]["action"]=="planning_target_updated"
+    assert history["entries"][0]["details"]=={
+        "ceiling_cents":23000,"reserve_percent":10
+    }
+    again=client.put(f"/api/events/{eid}/planning",json={
+        "ceiling":"230.00","reserve_percent":10
+    })
+    assert again.status_code==200 and again.json()["changed"] is False
+    assert client.get(f"/api/events/{eid}/history").json()["total_actions"]==1
+
+
+def test_contingency_is_a_projection_not_a_payment_or_allocation(client):
+    event=initial(client);eid=event["id"];pid=event["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    before=initial(client)
+    p=client.put(f"/api/events/{eid}/planning",json={
+        "ceiling":"225.00","reserve_percent":5
+    })
+    assert p.status_code==200
+    assert p.json()["planning"]["status"]=="over_ceiling"
+    assert p.json()["planning"]["reserve_cents"]==1100
+    after=initial(client)
+    assert after["people"]==before["people"]
+    assert after["sandbox_cents"]==before["sandbox_cents"]==0
+    assert after["simulated_cents"]==before["simulated_cents"]==0
+    assert after["expenses"]==before["expenses"]
+    # Existing private invitation and approval remain valid.
+    assert client.get("/api/participant/overview",headers={
+        "Authorization":"Bearer "+token
+    }).status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    assert client.put(f"/api/events/{eid}/planning",json={
+        "ceiling":None,"reserve_percent":0
+    }).status_code==200
+    assert initial(client)["simulated_cents"]==1100
+
+
+def test_risk_targets_are_advisory_and_update_after_expenses(client):
+    event=client.post("/api/events",json={"name":"Team outing","date":"2026-11-17"}).json()
+    eid=event["id"]
+    client.put(f"/api/events/{eid}/planning",json={"ceiling":"30.00","reserve_percent":5})
+    assert client.post(f"/api/events/{eid}/expenses",json={
+        "title":"Room reservation","amount":"30.00"
+    }).status_code==200
+    planning=client.get(f"/api/events/{eid}/planning").json()
+    assert planning["planned_cents"]==3000
+    assert planning["reserve_cents"]==150
+    assert planning["projected_cents"]==3150
+    assert planning["status"]=="over_ceiling"
+    # Going over an advisory cap must not automatically block budget edits.
+    assert client.post(f"/api/events/{eid}/expenses",json={
+        "title":"Extra equipment","amount":"2.00"
+    }).status_code==200
+    planning=client.get(f"/api/events/{eid}/planning").json()
+    assert planning["planned_cents"]==3200
+    assert planning["reserve_cents"]==160
+    assert planning["over_ceiling_cents"]==360
+
+
+def test_planning_settings_clone_without_payment_history(client):
+    original=initial(client);eid=original["id"]
+    assert client.put(f"/api/events/{eid}/planning",json={
+        "ceiling":"300.00","reserve_percent":15
+    }).status_code==200
+    new=client.post(f"/api/events/{eid}/clone",json={"name":"Repeat meetup"})
+    assert new.status_code==200,new.text
+    assert new.json()["planning_copied"] is True
+    duplicate=next(x for x in client.get("/api/state").json()["events"] if x["id"]==new.json()["id"])
+    assert duplicate["planning"]["ceiling_cents"]==30000
+    assert duplicate["planning"]["reserve_percent"]==15
+    assert duplicate["planning"]["projected_cents"]==25300
+    assert duplicate["sandbox_cents"]==0
+    assert all(p["approved"]==0 for p in duplicate["people"])
+
+
+def test_planning_validation_and_scope(client,monkeypatch):
+    eid=initial(client)["id"]
+    for ceiling in ["0","-1.00","1e4","NaN","100000.01","10.123"]:
+        r=client.put(f"/api/events/{eid}/planning",json={
+            "ceiling":ceiling,"reserve_percent":2
+        })
+        assert r.status_code==422,(ceiling,r.text)
+    for percent in [-1,51,2.5]:
+        assert client.put(f"/api/events/{eid}/planning",json={
+            "ceiling":"100.00","reserve_percent":percent
+        }).status_code==422
+    assert client.put("/api/events/999999/planning",json={
+        "ceiling":"50.00","reserve_percent":0
+    }).status_code==404
+    assert client.get("/api/events/999999/planning").status_code==404
+    assert initial(client)["planning"]["status"]=="no_ceiling"
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","a-long-test-owner-password")
+    assert client.get(f"/api/events/{eid}/planning").status_code==401
+    assert client.put(f"/api/events/{eid}/planning",json={
+        "ceiling":"100.00","reserve_percent":2
+    }).status_code==401
+    assert client.put(f"/api/events/{eid}/planning",json={
+        "ceiling":"100.00","reserve_percent":2
+    },auth=("judge","a-long-test-owner-password")).status_code==200
+
+
+def test_planning_rounds_tiny_reserves_up_to_whole_cent(client):
+    import app as api
+    p=api.planning_forecast(101,110,5)
+    assert p["reserve_cents"]==6
+    assert p["projected_cents"]==107
+    assert p["headroom_cents"]==3
+    assert api.planning_forecast(0,None,0)["reserve_cents"]==0

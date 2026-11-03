@@ -49,6 +49,18 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Advisory spending targets and contingency forecasts
+
+- The **Events** page supports a per-event optional spending ceiling and **0–50% contingency reserve**. The organizer can preview an over-target amount, remaining headroom and projected total before saving.
+- All forecasting is done in **integer cents**, with the contingency rounded **up** to the next cent so the risk buffer is not understated. A reserve is **hypothetical**: it is not added to expenses, allocated among participants, charged through PayPal, or presented as money collected.
+- The planning ceiling is **advisory, not enforced**. Expenses may exceed the target; the dashboard clearly flags overruns rather than silently blocking an event or adjusting approved shares.
+- The protected **Insights** page aggregates the number of targeted and over-target events, the combined hypothetical reserve and projected planned spending across the organizer's event list. Overrun totals are summed *per event* and are not netted against unrelated events' unused limits.
+- Budget targets may be updated after a simulated or PayPal sandbox contribution without modifying existing financial records, consent links or captures. Changes create a privacy-minimal history entry, while exact repeats do not create duplicate history entries.
+- A new `event_planning` SQLite table stores this information and is safely created alongside existing tables on application startup. Duplicating an event carries over planning preferences but never payments or approvals.
+- Protected `GET /api/events/{eid}/planning` and `PUT /api/events/{eid}/planning` endpoints provide exact-cent planning data. The same forecast is included in `/api/state` to avoid extra calls.
+- Node and Python tests cover rounding, invalid inputs, cloning, access control, idempotent history, live budget updates and strict financial separation.
+- **Sandbox limitation:** These preferences remain subject to Render Free's ephemeral SQLite and may disappear after a deploy. They are planning aids, not actual expenses, guarantees of venue prices, payments or invoices.
+
 ## Planned expense categories & budget insights
 
 - Each event expense can now be assigned one of six **validated** planning categories: **Venue & space, Equipment, Food & drinks, Travel, Services, and Other**.
