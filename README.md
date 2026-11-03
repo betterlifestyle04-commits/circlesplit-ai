@@ -49,6 +49,15 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Guarded financial editing of expenses and participants
+
+- In protected **Events**, existing expenses now have **Edit** controls for their title, exact-cent USD amount and category. Participants have **Edit** controls for names and attendance weights (1–10). Editors are clearly labeled and allow cancellation.
+- A changed expense or participant is saved **atomically** via organizer-only `PUT /api/events/{eid}/expenses/{expense_id}` and `PUT /api/events/{eid}/people/{pid}` endpoints. All shares are recalculated by the server's exact-cent allocation. Existing approvals are reset and private invitation links revoked, because their consented amount/details might no longer be valid.
+- Neither financial editing endpoint can change records once a simulation is recorded or any PayPal sandbox order has begun. Such attempts return HTTP 409 without mutating the event. Editing the category alone uses the existing separate metadata-only endpoint; it does **not** reset approvals before the payment lock.
+- Submitting identical details is a **no-op**: no history entry, approval reset, or invitation revocation. Changed edits get a history entry with IDs, amounts or weight metadata, **not participant names or invitation tokens**.
+- The UI asks for explicit confirmation before a meaningful save and keeps the edit form intact when the server rejects a request. Server-side Pydantic validation checks names, weights, categories, expense amounts and participant-name collisions.
+- Regression tests verify recalculation, approval revocation, expired links, no-op preservation, payment locks, validation, organizer authorization and unchanged financial state on failure. The feature remains a fictional sandbox prototype on temporary SQLite storage.
+
 ## Quick Start — event templates (fictional sandbox planning)
 
 - The protected **Events** page includes a **Quick Start** wizard with five ready-made examples: **Volleyball night, Group dinner, Weekend getaway, Study meetup, and Community cleanup**. The user can preview the cost breakdown and checklist before creating a new plan.

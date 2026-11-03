@@ -174,6 +174,17 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
        <div id="event-detail"></div><div class="space"></div><div class="row wrap"><button class="btn small secondary" onclick="exportSelectedShares()">↓ Export this event’s shares (CSV)</button><button class="btn small" onclick="cloneSelectedEvent()">⧉ Duplicate as new event</button><button class="btn small" onclick="downloadCalendar()">▣ Calendar .ics</button></div><div class="space"></div>
        <div class="row wrap"><button id="equal" class="split-label" onclick="setAllocation('equal')">Equal split</button><button id="weighted" class="split-label" onclick="setAllocation('weighted')">Attendance-weighted</button></div>
        <div class="space"></div><div id="expense-rows"></div>
+       <form id="expense-edit-form" style="display:none;margin:14px 0;padding:15px;border:1px solid var(--line);border-radius:12px" aria-label="Edit expense">
+        <div class="section-heading"><h3>Edit expense</h3><span class="pill orange">Resets approvals</span></div>
+        <div class="formgrid">
+         <div class="field full"><label for="expense-edit-title">Expense name</label><input id="expense-edit-title" maxlength="120" minlength="2" required></div>
+         <div class="field"><label for="expense-edit-amount">Amount (USD)</label><input id="expense-edit-amount" inputmode="decimal" required></div>
+         <div class="field"><label for="expense-edit-category">Category</label><select id="expense-edit-category" class="select"></select></div>
+        </div>
+        <p class="notice">Saving a changed expense recalculates everyone's share, revokes existing invitation links and resets approvals. No financial edit is allowed after a simulated contribution or PayPal checkout starts.</p>
+        <div class="row wrap"><button type="submit" id="expense-edit-save" class="btn primary">Save expense changes</button>
+         <button type="button" onclick="cancelExpenseEditor()" class="btn secondary">Cancel</button></div>
+       </form>
        <div id="budget-categories" class="capsule small" style="margin:16px 0" aria-live="polite">Category totals will appear here.</div>
        <div class="space"></div><form id="expense-form" class="inlineform"><input id="expense-title" required minlength="2" placeholder="Expense (e.g. venue fee)" aria-label="Expense name"><input id="expense-amount" required inputmode="decimal" style="max-width:95px" placeholder="$" aria-label="Expense amount"><select id="expense-category" class="select" style="max-width:170px" aria-label="Expense category"></select><button class="btn secondary" type="submit">Add</button></form>
      </div>
@@ -193,6 +204,16 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
       <p class="notice" style="margin-top:11px">Leave the ceiling blank to remove it. A warning never stops an expense from being added or charges participants.</p>
      </div>
      <div class="card"><div class="section-heading"><h2>Participants</h2><span class="pill neutral" id="people-count">0 members</span></div><div id="people-rows"></div>
+       <form id="participant-edit-form" style="display:none;margin:14px 0;padding:15px;border:1px solid var(--line);border-radius:12px" aria-label="Edit participant">
+        <div class="section-heading"><h3>Edit participant</h3><span class="pill orange">Resets approvals</span></div>
+        <div class="formgrid">
+         <div class="field full"><label for="participant-edit-name">Participant name</label><input id="participant-edit-name" minlength="2" maxlength="60" required></div>
+         <div class="field full"><label for="participant-edit-weight">Weight (1–10)</label><input id="participant-edit-weight" type="number" min="1" max="10" step="1" required></div>
+        </div>
+        <p class="notice">Saving changed details recalculates all shares and revokes consent links. Weights affect amounts when attendance-weighted splitting is selected. Payment activity locks edits.</p>
+        <div class="row wrap"><button id="participant-edit-save" type="submit" class="btn primary">Save participant changes</button>
+         <button type="button" onclick="cancelParticipantEditor()" class="btn secondary">Cancel</button></div>
+       </form>
        <div class="capsule small" id="split-explanation" role="status" aria-live="polite" style="margin-top:14px">Select <strong>Explain</strong> next to a person to see how their share was calculated in exact cents.</div>
        <div class="space"></div><form class="inlineform" id="person-form"><input id="person-name" minlength="2" required placeholder="Participant name" aria-label="Participant name"><input id="person-weight" type="number" min="1" max="10" value="1" aria-label="Attendance weight" style="max-width:76px"><button class="btn secondary" type="submit">Add</button></form>
        <p class="notice">Weights affect allocations only when attendance-weighted splitting is selected. Every edit resets approvals. Payment activity locks the budget.</p>
@@ -399,6 +420,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/closeout.js"></script>
 <script src="/static/backup.js"></script>
 <script src="/static/templates.js"></script>
+<script src="/static/editing.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -407,6 +429,7 @@ let directoryQuery="",directoryFilter="all",directorySort="soonest";
 let historyCache=null;
 let closeoutCache=null;
 let selectedPlanningBackup=null;
+let expenseEditing=null,participantEditing=null;
 let eventTemplates=null,selectedTemplateKey=null,templateRequestKey=null,templatesRequestPending=false;
 let eventId = null, currentTab = "overview", proposal = null, proposalEventId=null, applyingProposal=false;
 let taskDraft=null,taskDraftEventId=null,applyingTaskDraft=false;
@@ -562,6 +585,79 @@ async function createQuickStartEvent(evt){
   button.textContent="Plan created — edit details for another";
  }
 }
+function cancelExpenseEditor(){
+ expenseEditing=null;
+ el("expense-edit-form").style.display="none";
+}
+function cancelParticipantEditor(){
+ participantEditing=null;
+ el("participant-edit-form").style.display="none";
+}
+function openExpenseEditor(id){
+ const e=event(),x=e?.expenses.find(r=>r.id===id);
+ if(!e||!x){notice("This expense is no longer available.",true);return;}
+ cancelParticipantEditor();
+ expenseEditing={eventId:e.id,id};
+ el("expense-edit-title").value=x.title;
+ el("expense-edit-amount").value=(Number(x.cents)/100).toFixed(2);
+ el("expense-edit-category").innerHTML=categoryOptions(x.category);
+ el("expense-edit-form").style.display="block";
+ el("expense-edit-title").focus();
+}
+function openParticipantEditor(id){
+ const e=event(),x=e?.people.find(r=>r.id===id);
+ if(!e||!x){notice("This participant is no longer available.",true);return;}
+ cancelExpenseEditor();
+ participantEditing={eventId:e.id,id};
+ el("participant-edit-name").value=x.name;
+ el("participant-edit-weight").value=x.weight;
+ el("participant-edit-form").style.display="block";
+ el("participant-edit-name").focus();
+}
+async function submitExpenseEdit(evt){
+ evt.preventDefault();
+ const editing=expenseEditing,e=event();
+ if(!editing||!e||editing.eventId!==e.id){notice("Select the expense again.",true);return;}
+ let payload;
+ try{
+  payload=validateExpenseEdit(el("expense-edit-title").value,el("expense-edit-amount").value,el("expense-edit-category").value);
+ }catch(err){notice(err.message,true);return;}
+ if(!window.confirm("Update this expense? Changed details recalculate every share, reset approvals and revoke private invitation links. Existing sandbox payments prevent this edit."))return;
+ const button=el("expense-edit-save");button.disabled=true;
+ try{
+  const data=await request("/api/events/"+e.id+"/expenses/"+editing.id,{
+   method:"PUT",body:JSON.stringify(payload)
+  });
+  cancelExpenseEditor();
+  await load();
+  notice(data.changed?
+   "Expense saved. Exact-cent shares recalculated; approvals and invitation links reset.":
+   "Expense unchanged. Existing approvals were preserved.",false);
+ }catch(err){notice("Expense edit rejected: "+err.message+". Your changes remain in the form.",true);}
+ finally{button.disabled=false;}
+}
+async function submitParticipantEdit(evt){
+ evt.preventDefault();
+ const editing=participantEditing,e=event();
+ if(!editing||!e||editing.eventId!==e.id){notice("Select the participant again.",true);return;}
+ let payload;
+ try{
+  payload=validateParticipantEdit(el("participant-edit-name").value,el("participant-edit-weight").value);
+ }catch(err){notice(err.message,true);return;}
+ if(!window.confirm("Update this participant? Changed details recalculate every share, reset approvals and revoke private invitation links. Payment activity prevents this edit."))return;
+ const button=el("participant-edit-save");button.disabled=true;
+ try{
+  const data=await request("/api/events/"+e.id+"/people/"+editing.id,{
+   method:"PUT",body:JSON.stringify(payload)
+  });
+  cancelParticipantEditor();
+  await load();
+  notice(data.changed?
+   "Participant saved. Shares recalculated; approvals and private invitation links reset.":
+   "Participant unchanged. Existing approvals were preserved.",false);
+ }catch(err){notice("Participant edit rejected: "+err.message+". Your changes remain in the form.",true);}
+ finally{button.disabled=false;}
+}
 function renderDirectory(){
  const found=directoryView(state.events,directoryQuery,directoryFilter,directorySort,localDay());
  el("directory-count").textContent=found.length+" / "+state.events.length+" events";
@@ -595,7 +691,7 @@ function explainMember(id){
  }catch(err){el("split-explanation").textContent="Unable to explain this share: "+err.message}
 }
 function focusNew(){setTimeout(function(){el("new-name").focus()},100)}
-function selectEvent(id){eventId=Number(id);clearCloseout();el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();render()}
+function selectEvent(id){eventId=Number(id);cancelExpenseEditor();cancelParticipantEditor();clearCloseout();el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();render()}
 async function cloneSelectedEvent(){
  const e=event();if(!e)return;
  const name=window.prompt("New event name (expenses and participants will be copied, payments will not)",("Copy of "+e.name).slice(0,90));
@@ -1124,10 +1220,10 @@ function render(){
  renderPlanning(e);
  el("event-detail").innerHTML='<div class="detail-head"><div><div class="muted small">'+safe(e.date)+'</div><h3 style="margin:4px 0">'+safe(e.name)+'</h3><div class="muted small">'+safe(e.note)+'</div></div><div style="text-align:right"><div class="muted small">Total planned budget</div><div style="font-size:27px;font-weight:850">'+money(e.total_cents)+'</div></div></div>';
  el("equal").classList.toggle("active",e.strategy==="equal");el("weighted").classList.toggle("active",e.strategy==="weighted");
- el("expense-rows").innerHTML='<table><thead><tr><th>Expense</th><th>Category</th><th style="text-align:right">Amount</th><th>Remove</th></tr></thead><tbody>'+e.expenses.map(function(x){return '<tr><td>'+safe(x.title)+'</td><td><select class="select" aria-label="Category for '+safe(x.title)+'" onchange="updateExpenseCategory('+x.id+',this.value)">'+categoryOptions(x.category)+'</select></td><td style="text-align:right;font-weight:700">'+money(x.cents)+'</td><td style="text-align:right"><button class="btn small ghost" aria-label="Remove expense" onclick="removeExpense('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
+ el("expense-rows").innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Expense</th><th>Category</th><th style="text-align:right">Amount</th><th>Actions</th></tr></thead><tbody>'+e.expenses.map(function(x){return '<tr><td>'+safe(x.title)+'</td><td><select class="select" aria-label="Category for '+safe(x.title)+'" onchange="updateExpenseCategory('+x.id+',this.value)">'+categoryOptions(x.category)+'</select></td><td style="text-align:right;font-weight:700">'+money(x.cents)+'</td><td><button class="btn small secondary" type="button" onclick="openExpenseEditor('+x.id+')" aria-label="Edit '+safe(x.title)+'">Edit</button> <button class="btn small ghost" aria-label="Remove expense" onclick="removeExpense('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table></div>';
  renderEventCategories(e);
  el("people-count").textContent=e.people.length+" members";showTasks(e);
- el("people-rows").innerHTML='<table><thead><tr><th>Name</th><th>Weight</th><th>Share</th></tr></thead><tbody>'+e.people.map(function(x){return '<tr><td>'+safe(x.name)+'</td><td>'+x.weight+'</td><td style="font-weight:750">'+money(x.share_cents)+'</td><td><button class="btn small secondary" type="button" onclick="explainMember('+x.id+')" aria-label="Explain '+safe(x.name)+' share">Explain</button></td><td><button class="btn small ghost" aria-label="Remove participant" onclick="removePerson('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table>';
+ el("people-rows").innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Name</th><th>Weight</th><th>Share</th><th>Actions</th></tr></thead><tbody>'+e.people.map(function(x){return '<tr><td>'+safe(x.name)+'</td><td>'+x.weight+'</td><td style="font-weight:750">'+money(x.share_cents)+'</td><td><button class="btn small secondary" type="button" onclick="openParticipantEditor('+x.id+')" aria-label="Edit '+safe(x.name)+'">Edit</button> <button class="btn small secondary" type="button" onclick="explainMember('+x.id+')" aria-label="Explain '+safe(x.name)+' share">Explain</button> <button class="btn small ghost" aria-label="Remove participant" onclick="removePerson('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table></div>';
  el("contrib-heading").textContent=e.name;
   const attendance=rsvpStats(e.people);
   el("rsvp-summary").textContent="Attendance · "+attendance.going+" Going · "+attendance.maybe+
@@ -1219,6 +1315,8 @@ el("task-form").addEventListener("submit",createTask);el("backup-file").addEvent
 el("planning-form").addEventListener("submit",savePlanning);
 el("planning-ceiling").addEventListener("input",()=>showPlanningForecast(false));
 el("planning-reserve").addEventListener("input",()=>showPlanningForecast(false));
+el("expense-edit-form").addEventListener("submit",submitExpenseEdit);
+el("participant-edit-form").addEventListener("submit",submitParticipantEdit);
 el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("quickstart-form").addEventListener("submit",createQuickStartEvent);
 el("quickstart-date").value=localDay();
 for(const field of ["quickstart-name","quickstart-date","quickstart-expenses","quickstart-tasks"]){

@@ -1962,3 +1962,147 @@ def test_quickstart_does_not_reset_existing_sandbox_approvals(client):
     after=next(e for e in client.get("/api/state").json()["events"] if e["id"]==eid)
     assert after==before
     assert after["simulated_cents"]==1100
+
+
+def test_edit_expense_updates_exact_cents_and_invalidates_prior_consent(client):
+    e=initial(client);eid=e["id"];ex=e["expenses"][0];pid=e["people"][0]["id"]
+    approved=client.post(f"/api/events/{eid}/people/{pid}/approve")
+    assert approved.status_code==200,approved.text
+    invitation=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    p=f"/api/events/{eid}/expenses/{ex['id']}"
+    initial_share=e["people"][0]["share_cents"]
+    response=client.put(p,json={
+        "title":"  Updated court rental  ","amount":"165.01","category":"venue"
+    })
+    assert response.status_code==200,response.text
+    assert response.json()["changed"] is True
+    assert response.json()["approvals_reset"] is True
+    now=initial(client)
+    assert now["total_cents"]==22501
+    assert sum(x["share_cents"] for x in now["people"])==22501
+    assert now["people"][0]["share_cents"]!=initial_share
+    assert all(not x["approved"] for x in now["people"])
+    assert now["expenses"][0]["title"]=="Updated court rental"
+    assert now["expenses"][0]["cents"]==16501
+    assert client.get("/api/participant/overview",headers={
+        "Authorization":"Bearer "+invitation
+    }).status_code==404
+    history=client.get(f"/api/events/{eid}/history").json()["entries"]
+    assert history[0]["action"]=="expense_updated"
+    assert history[0]["details"]["old_cents"]==16000
+    assert history[0]["details"]["new_cents"]==16501
+    assert "court rental" not in str(history).lower()
+    assert invitation not in str(history)
+
+
+def test_noop_expense_and_participant_edits_preserve_approvals_and_invites(client):
+    e=initial(client);eid=e["id"];x=e["expenses"][0];p=e["people"][0]
+    assert client.post(f"/api/events/{eid}/people/{p['id']}/approve").status_code==200
+    token=client.post(f"/api/events/{eid}/people/{p['id']}/invite").json()["token"]
+    event_history=client.get(f"/api/events/{eid}/history").json()["total_actions"]
+    unchanged=client.put(f"/api/events/{eid}/expenses/{x['id']}",json={
+        "title":x["title"],"amount":f"{x['cents']/100:.2f}","category":x["category"]
+    })
+    assert unchanged.status_code==200 and unchanged.json()["changed"] is False
+    unchanged_p=client.put(f"/api/events/{eid}/people/{p['id']}",json={
+        "name":p["name"],"weight":p["weight"]
+    })
+    assert unchanged_p.status_code==200 and unchanged_p.json()["changed"] is False
+    assert initial(client)["approved"]==1
+    assert client.get("/api/participant/overview",headers={
+        "Authorization":"Bearer "+token
+    }).status_code==200
+    assert client.get(f"/api/events/{eid}/history").json()["total_actions"]==event_history
+
+
+def test_edit_weight_and_name_recalculates_weighted_split(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/allocation",json={"strategy":"weighted"}).status_code==200
+    response=client.put(f"/api/events/{eid}/people/{pid}",json={
+        "name":"  New organizer  ","weight":3
+    })
+    assert response.status_code==200,response.text
+    assert response.json()["shares_recalculated"] is True
+    updated=initial(client)
+    assert updated["people"][0]["name"]=="New organizer"
+    assert updated["people"][0]["weight"]==3
+    assert sum(x["share_cents"] for x in updated["people"])==updated["total_cents"]
+    assert updated["people"][0]["share_cents"]>updated["people"][1]["share_cents"]
+    assert client.get(f"/api/events/{eid}/history").json()["entries"][0]["action"]=="participant_updated"
+
+
+def test_person_edit_resets_approval_and_invalidates_link(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    res=client.put(f"/api/events/{eid}/people/{pid}",json={"name":"Revised name","weight":2})
+    assert res.status_code==200,res.text
+    assert initial(client)["approved"]==0
+    assert client.get("/api/participant/overview",headers={
+        "Authorization":"Bearer "+token
+    }).status_code==404
+
+
+def test_edits_validate_input_and_do_not_partially_update(client):
+    e=initial(client);eid=e["id"];expense=e["expenses"][0];person=e["people"][0]
+    before=client.get("/api/state").json()
+    for amt in ["-1","0","1.234","notmoney","100000.01"]:
+        r=client.put(f"/api/events/{eid}/expenses/{expense['id']}",json={
+            "title":"Court","amount":amt,"category":"venue"
+        })
+        assert r.status_code==422,(amt,r.text)
+    for weight in [0,11,1.5]:
+        r=client.put(f"/api/events/{eid}/people/{person['id']}",json={
+            "name":"Revised name","weight":weight
+        })
+        assert r.status_code==422,(weight,r.text)
+    r=client.put(f"/api/events/{eid}/people/{person['id']}",json={
+        "name":e["people"][1]["name"],"weight":2
+    })
+    assert r.status_code==409,r.text
+    assert client.put(f"/api/events/{eid}/expenses/999999",json={
+        "title":"Court","amount":"50","category":"venue"
+    }).status_code==404
+    assert client.put(f"/api/events/{eid}/people/999999",json={
+        "name":"Nobody","weight":2
+    }).status_code==404
+    assert client.get("/api/state").json()==before
+
+
+def test_edits_blocked_after_sandbox_or_simulated_payment(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"];expense=e["expenses"][0]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    expense_r=client.put(f"/api/events/{eid}/expenses/{expense['id']}",json={
+        "title":"Revised court","amount":"155.00","category":"venue"
+    })
+    person_r=client.put(f"/api/events/{eid}/people/{pid}",json={
+        "name":"Revised participant","weight":3
+    })
+    assert expense_r.status_code==409
+    assert person_r.status_code==409
+    state=initial(client)
+    assert state["expenses"]==e["expenses"]
+    assert state["people"][0]["status"]=="demo_paid"
+    assert state["people"][0]["weight"]==e["people"][0]["weight"]
+
+
+def test_event_edit_endpoints_require_organizer_not_invitation(client,monkeypatch):
+    e=initial(client);eid=e["id"];person=e["people"][0];ex=e["expenses"][0]
+    invite=client.post(f"/api/events/{eid}/people/{person['id']}/invite").json()["token"]
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","secure-edit-test-owner-password")
+    xp=f"/api/events/{eid}/expenses/{ex['id']}"
+    pp=f"/api/events/{eid}/people/{person['id']}"
+    expense_data={"title":"Court","amount":"40.00","category":"venue"}
+    person_data={"name":"Revised test","weight":2}
+    assert client.put(xp,json=expense_data).status_code==401
+    assert client.put(pp,json=person_data).status_code==401
+    assert client.put(xp,json=expense_data,headers={
+        "Authorization":"Bearer "+invite
+    }).status_code==401
+    assert client.put(pp,json=person_data,headers={
+        "Authorization":"Bearer "+invite
+    }).status_code==401
+    auth=("judge","secure-edit-test-owner-password")
+    assert client.put(xp,json=expense_data,auth=auth).status_code==200

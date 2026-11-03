@@ -267,6 +267,8 @@ HISTORY_SUMMARIES = {
     "event_template_created":"Event created from a fictional quick-start template",
     "event_duplicated":"Event duplicated as a new plan",
     "expense_added":"Expense added; shares recalculated",
+    "expense_updated":"Expense edited; shares and approvals recalculated",
+    "participant_updated":"Participant details edited; shares and approvals recalculated",
     "expense_recategorized":"Expense category updated without changing the budget",
     "planning_target_updated":"Planning ceiling and contingency reserve changed",
     "planning_restored":"Planning template restored as a new unpaid event",
@@ -1271,6 +1273,47 @@ def add_expense(eid: int, data: ExpenseInput):
     return {"ok": True}
 
 
+class ExpenseUpdateInput(BaseModel):
+    title: str = Field(min_length=2,max_length=120)
+    amount: str
+    category: ExpenseCategory
+
+
+@app.put("/api/events/{eid}/expenses/{expense_id}")
+def update_expense(eid: int,expense_id: int,data: ExpenseUpdateInput):
+    """Atomic financial edit; no edits after contributions or checkout begin."""
+    title=data.title.strip()
+    if len(title)<2:
+        raise HTTPException(422,"Expense title must have at least two characters")
+    try:
+        amount=cents(data.amount)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc))
+    with db() as c:
+        event=require_event(c,eid)
+        original=c.execute(
+            "SELECT title,cents,category FROM expenses WHERE id=? AND event_id=?",
+            (expense_id,eid)
+        ).fetchone()
+        if not original:
+            raise HTTPException(404,"Expense not found")
+        if (original["title"]==title and original["cents"]==amount
+                and original["category"]==data.category):
+            return {"ok":True,"changed":False,"approvals_reset":False}
+        require_editable(c,eid)
+        c.execute(
+            "UPDATE expenses SET title=?,cents=?,category=? WHERE id=? AND event_id=?",
+            (title,amount,data.category,expense_id,eid)
+        )
+        recalculate(c,eid,event["strategy"])
+        record_history(c,eid,"expense_updated",details={
+            "expense_id":expense_id,"old_cents":original["cents"],
+            "new_cents":amount,"category":data.category
+        })
+    return {"ok":True,"changed":True,"approvals_reset":True,
+            "invitations_revoked":True,"shares_recalculated":True}
+
+
 @app.delete("/api/events/{eid}/expenses/{expense_id}")
 def delete_expense(eid: int, expense_id: int):
     with db() as c:
@@ -1338,6 +1381,44 @@ def add_person(eid: int, data: PersonInput):
         recalculate(c,eid,event["strategy"])
         record_history(c,eid,"participant_added",details={"participant_id":row.lastrowid})
     return {"ok": True}
+
+
+class ParticipantUpdateInput(BaseModel):
+    name: str = Field(min_length=2,max_length=60)
+    weight: int = Field(ge=1,le=10)
+
+
+@app.put("/api/events/{eid}/people/{pid}")
+def update_participant(eid: int,pid: int,data: ParticipantUpdateInput):
+    """Recalculate exact shares and revoke stale consent on any meaningful edit."""
+    name=data.name.strip()
+    if len(name)<2:
+        raise HTTPException(422,"Participant name must have at least two characters")
+    with db() as c:
+        event=require_event(c,eid)
+        original=c.execute(
+            "SELECT name,weight FROM people WHERE id=? AND event_id=?",(pid,eid)
+        ).fetchone()
+        if not original:
+            raise HTTPException(404,"Participant not found")
+        if original["name"]==name and original["weight"]==data.weight:
+            return {"ok":True,"changed":False,"approvals_reset":False}
+        require_editable(c,eid)
+        duplicate=c.execute(
+            "SELECT 1 FROM people WHERE event_id=? AND id!=? AND lower(trim(name))=lower(?)",
+            (eid,pid,name)
+        ).fetchone()
+        if duplicate:
+            raise HTTPException(409,"A participant with this name already exists in this event")
+        c.execute("UPDATE people SET name=?,weight=? WHERE id=? AND event_id=?",
+                  (name,data.weight,pid,eid))
+        recalculate(c,eid,event["strategy"])
+        record_history(c,eid,"participant_updated",details={
+            "participant_id":pid,"old_weight":original["weight"],
+            "new_weight":data.weight
+        })
+    return {"ok":True,"changed":True,"approvals_reset":True,
+            "invitations_revoked":True,"shares_recalculated":True}
 
 
 @app.delete("/api/events/{eid}/people/{pid}")
