@@ -415,7 +415,8 @@ def test_clone_event_copies_budget_but_not_payments(client,monkeypatch):
     assert sum(x["share_cents"] for x in cloned["people"])==22000
     assert all(x["approved"]==0 and x["status"]=="unpaid" for x in cloned["people"])
     assert cloned["sandbox_cents"]==0 and cloned["simulated_cents"]==0
-    assert initial(client)["simulated_cents"]==1100
+    original=next(x for x in client.get("/api/state").json()["events"] if x["id"]==eid)
+    assert original["simulated_cents"]==1100
 
 
 def test_clone_without_people_and_original_payment_lock(client,monkeypatch):
