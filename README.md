@@ -49,6 +49,16 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Private RSVP and organizer communications
+
+- The protected organizer workspace now shows each fictional participant's **Going / Maybe / Can't attend / Awaiting response** RSVP and aggregate counts.
+- Private invitees can update attendance through their **existing seven-day bearer link** using `POST /api/participant/rsvp`. This new method is the only additional public API action; the link still cannot access organizer data, Gemini, or PayPal.
+- A decline made before checkout revokes any outstanding demo contribution approval for that person. The server prevents new organizer approvals, simulations and PayPal sandbox order creation for participants marked declined.
+- **RSVP is not a financial transaction.** Changing attendance never silently changes the budget, reallocates an existing share, cancels a previously created PayPal order, or issues a refund. The organizer must review adjustments.
+- **Event updates & reminders** creates editable drafts for group announcements, RSVP reminders and preparation updates. Drafts contain only aggregate counts—not individual participant names, private invitation tokens, or secret account links. Messages are copied manually; CircleSplit does not send email, SMS, or chat messages.
+- Automated tests cover invite token expiry and revocation, RSVP authorization, disabled checkout for declined attendees, financial immutability, and drafts' explicit sandbox-only language.
+- This remains a controlled hackathon prototype with shared organizer credentials and ephemeral SQLite storage; it is **not** a production attendance or consent identity system.
+
 ## AI-assisted event preparation (Gemini)
 
 - The protected **AI assistant** now offers a second workflow: **Generate preparation tasks**. Gemini uses the selected fictional event's name, date, description, existing checklist titles, and optionally the organizer's additional context to suggest an actionable plan.

@@ -10,7 +10,8 @@ const ranks={blocker:0,attention:1,planning:2};
 function pulseEvent(e,orders=[],today="2026-11-03"){
  const people=Array.isArray(e.people)?e.people:[],tasks=Array.isArray(e.tasks)?e.tasks:[],
  budget=Number(e.total_cents)||0,verified=Number(e.sandbox_cents)||0;
- const approval=people.filter(p=>p.status==="unpaid"&&!p.approved&&Number(p.share_cents)>0).length;
+ const approval=people.filter(p=>p.status==="unpaid"&&!p.approved&&p.rsvp_status!=="declined"&&Number(p.share_cents)>0).length;
+ const declined=people.filter(p=>p.rsvp_status==="declined").length;
  const openOrders=orders.filter(p=>p.event_id===e.id&&p.status!=="completed").length;
  const completed=tasks.filter(t=>!!t.completed).length,actions=[];
  function add(code,level,title,detail,tab){actions.push({code,level,title,detail,tab,eventId:e.id,eventName:e.name,date:e.date});}
@@ -20,13 +21,14 @@ function pulseEvent(e,orders=[],today="2026-11-03"){
   add("allocation","blocker","Review allocation","Allocated shares do not equal the budget.","events");
  if(openOrders)add("orders","blocker","Reconcile PayPal orders",openOrders+" sandbox order(s) not recorded as captured.","activity");
  if(approval)add("approval","attention","Request approvals",approval+" fictional share(s) awaiting approval.","contributions");
+ if(declined)add("attendance","attention","Review declined attendance",declined+" participant(s) cannot attend. Review the participant list and budget manually; no refund or reallocation occurs automatically.","events");
  if(!tasks.length)add("checklist","planning","Plan the event","Create a preparation checklist.","events");
  else if(completed<tasks.length)add("tasks","planning","Finish preparation",(tasks.length-completed)+" preparation task(s) remaining.","events");
  const dateState=pulseDate(e.date,today);
  if(dateState==="past"&&budget>verified)add("past","planning","Review past event","Past date with unconfirmed sandbox contributions; not a real debt.","insights");
  if(dateState==="unknown")add("date","attention","Check event date","Invalid or unknown event date.","events");
  const blockers=actions.filter(a=>a.level==="blocker").length,attention=actions.filter(a=>a.level==="attention").length;
- return {id:e.id,name:e.name,date:e.date,actions,blockers,attention,approval,openOrders,
+ return {id:e.id,name:e.name,date:e.date,actions,blockers,attention,approval,declined,openOrders,
   tasksTotal:tasks.length,tasksDone:completed,budget,verified,simulated:Number(e.simulated_cents)||0,
   outstanding:Math.max(0,budget-verified),people:people.length,
   status:blockers?"Needs setup":attention?"Needs approval":"Planning progressing"};

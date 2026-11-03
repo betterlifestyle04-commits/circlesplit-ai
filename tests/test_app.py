@@ -563,8 +563,9 @@ def test_participant_invitation_is_private_and_approves_only_own_share(client,mo
     assert detail.status_code==200
     d=detail.json()
     assert set(d)=={"event_name","event_date","participant","share_cents","approved",
-                    "approval_source","status","expires_at","currency","payment_mode","identity_verified"}
+                    "approval_source","status","rsvp_status","expires_at","currency","payment_mode","identity_verified"}
     assert d["participant"]=="Alex" and d["share_cents"]==1100
+    assert d["rsvp_status"]=="pending"
     assert d["identity_verified"] is False and d["payment_mode"]=="NONE"
     assert detail.headers.get("Cache-Control")=="no-store"
     assert "no-referrer"==detail.headers.get("Referrer-Policy")
@@ -816,3 +817,71 @@ def test_ai_task_provider_fails_safely_on_bad_output(client,monkeypatch):
     assert r.status_code==502
     assert "task list" in r.json()["detail"]
     assert initial(client)["tasks"]==[]
+
+
+def test_participant_rsvp_changes_attendance_not_money_or_other_people(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    invitation=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    headers={"Authorization":"Bearer "+invitation}
+    before=initial(client)
+    # Participant can decline without changing budgets or other people's shares.
+    declined=client.post("/api/participant/rsvp",headers=headers,json={"status":"declined"})
+    assert declined.status_code==200,declined.text
+    assert declined.json()["approved"] is False
+    assert declined.json()["payment_changed"] is False
+    assert client.get("/api/participant/overview",headers=headers).json()["rsvp_status"]=="declined"
+    declined_state=initial(client)
+    assert declined_state["total_cents"]==before["total_cents"]
+    assert declined_state["expenses"]==before["expenses"]
+    assert declined_state["people"][0]["share_cents"]==before["people"][0]["share_cents"]
+    assert declined_state["people"][1:]==before["people"][1:]
+    assert client.post("/api/participant/approve",headers=headers).status_code==409
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==409
+    monkeypatch.setattr(paypal,"configured",lambda: True)
+    assert client.post(f"/api/paypal/orders/{eid}/{pid}").status_code==409
+    # Returning to attendance does not auto-approve, but explicitly approving does.
+    assert client.post("/api/participant/rsvp",headers=headers,json={"status":"going"}).status_code==200
+    assert client.post("/api/participant/approve",headers=headers).status_code==200
+    assert initial(client)["people"][0]["approval_source"]=="participant_link"
+    assert initial(client)["people"][0]["rsvp_status"]=="going"
+    assert client.post("/api/participant/rsvp",headers=headers,json={"status":"maybe"}).status_code==200
+
+
+def test_declining_rsvp_revokes_unpaid_approval_but_never_refunds(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    headers={"Authorization":"Bearer "+token}
+    assert client.post("/api/participant/approve",headers=headers).status_code==200
+    assert initial(client)["people"][0]["approved"]==1
+    assert client.post("/api/participant/rsvp",headers=headers,json={"status":"declined"}).status_code==200
+    assert initial(client)["people"][0]["approved"]==0
+    assert initial(client)["people"][0]["approval_source"]==""
+    # A new invitation may be issued only before payments are recorded.
+    assert client.post("/api/participant/rsvp",headers=headers,json={"status":"going"}).status_code==200
+    assert client.post("/api/participant/approve",headers=headers).status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    amount=initial(client)["simulated_cents"]
+    response=client.post("/api/participant/rsvp",headers=headers,json={"status":"declined"})
+    assert response.status_code==200
+    assert response.json()["payment_changed"] is False
+    assert "refund" in response.json()["warning"]
+    assert initial(client)["simulated_cents"]==amount
+    assert initial(client)["people"][0]["status"]=="demo_paid"
+
+
+def test_rsvp_invitation_expiry_scoping_and_authentication(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","test-owner-long-secret-for-hosted")
+    headers={"Authorization":"Bearer "+token}
+    assert client.post("/api/participant/rsvp",json={"status":"going"}).status_code==401
+    assert client.get("/api/participant/rsvp",headers=headers).status_code==401
+    assert client.post("/api/participant/rsvp",headers=headers,json={"status":"pending"}).status_code==422
+    assert client.post("/api/participant/rsvp",headers=headers,json={"status":"going"}).status_code==200
+    assert client.post("/api/events/1/people/1/approve",headers=headers).status_code==401
+    assert client.get("/api/state",headers=headers).status_code==401
+    assert client.get("/api/participant/overview",headers=headers).headers["cache-control"]=="no-store"
+    assert client.post("/api/participant/rsvp",headers=headers,json={"status":"maybe"}).headers["referrer-policy"]=="no-referrer"
+    assert client.post(f"/api/events/{eid}/people/{pid}/invite/revoke",auth=("judge","test-owner-long-secret-for-hosted")).status_code==200
+    assert client.post("/api/participant/rsvp",headers=headers,json={"status":"maybe"}).status_code==404

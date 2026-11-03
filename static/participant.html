@@ -11,7 +11,9 @@ h1{margin:8px 0;font-size:clamp(29px,4vw,39px);letter-spacing:-1px}p{color:var(-
 .amount{font-size:42px;font-weight:850;letter-spacing:-1px;margin:13px 0}
 .row{display:flex;justify-content:space-between;gap:15px;border-bottom:1px solid #edf2f1;padding:12px 0}
 button{border:0;background:var(--teal);color:white;font:inherit;font-weight:800;border-radius:10px;padding:13px 20px;cursor:pointer}
-button:disabled{opacity:.45;cursor:not-allowed}.warn{background:#fff6e7;border:1px solid #f4deae;color:#7d5a26;padding:13px;border-radius:11px;font-size:12px;margin:20px 0}
+button:disabled{opacity:.45;cursor:not-allowed}
+select{font:inherit;border:1px solid var(--line);border-radius:10px;padding:11px;background:#fff;color:var(--ink);min-width:185px}
+.rsvp-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0 8px}.warn{background:#fff6e7;border:1px solid #f4deae;color:#7d5a26;padding:13px;border-radius:11px;font-size:12px;margin:20px 0}
 .message{margin-top:16px;background:#e7f6f1;color:#0d7560;padding:13px;border-radius:11px;display:none}
 .message.error{background:#fceeea;color:#a43f2b}.message.show{display:block}
 footer{margin-top:22px;font-size:12px;color:#84959e}
@@ -24,9 +26,18 @@ footer{margin-top:22px;font-size:12px;color:#84959e}
 <div class="row"><span>Participant</span><strong id="person">—</strong></div>
 <div class="row"><span>Event date</span><strong id="date">—</strong></div>
 <div class="row"><span>Currency</span><strong>USD</strong></div>
+<div class="row"><span>RSVP response</span><strong id="rsvp">Not answered</strong></div>
+<div class="rsvp-actions"><label for="rsvp-choice">Your attendance</label>
+ <select id="rsvp-choice" aria-label="Choose your attendance response">
+  <option value="">Not answered</option><option value="going">Going</option>
+  <option value="maybe">Maybe</option><option value="declined">Can't attend</option>
+ </select>
+ <button id="rsvp-save" type="button">Save RSVP</button>
+</div>
+<p style="font-size:12px">RSVP updates don't automatically change costs or cancel existing sandbox checkouts. If you can't attend, the organizer must review the budget.</p>
 <div class="row"><span>Approval</span><strong id="approval">Pending</strong></div>
 <div class="row"><span>Contribution</span><strong id="payment">Unpaid</strong></div>
-<div class="warn"><strong>Demo approval only.</strong> Approving records acceptance of this fictional share. It does not charge you, verify your identity, or grant access to PayPal. Anyone with this secret invitation URL can approve on your behalf. Do not share it publicly.</div>
+<div class="warn"><strong>Private-link RSVP and demo approval only.</strong> Approving records acceptance of this fictional share. It does not charge you, verify your identity, or grant access to PayPal. Anyone with this secret invitation URL can approve on your behalf. Do not share it publicly.</div>
 <button id="approve" type="button" disabled>I approve this amount</button>
 <p style="font-size:12px">Invitation expires: <strong id="expiry">—</strong></p></div>
 <div class="message" id="message" role="status" aria-live="polite"></div>
@@ -36,9 +47,10 @@ let token="";
 const $=id=>document.getElementById(id);
 const format=n=>"$"+(n/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 function message(s,error){$("message").textContent=s;$("message").className="message show"+(error?" error":"")}
-async function api(path,method){
+async function api(path,method,requestBody){
  const r=await fetch(path,{method:method||"GET",cache:"no-store",
-  headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"}});
+  headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},
+  ...(requestBody ? {body:JSON.stringify(requestBody)} : {})});
  const body=await r.json().catch(()=>({}));
  if(!r.ok)throw Error(body.detail||"Request failed");
  return body;
@@ -51,12 +63,28 @@ async function refresh(){
   $("description").textContent="Review the assigned fictional contribution below.";
   $("amount").textContent=format(d.share_cents);$("person").textContent=d.participant;
   $("date").textContent=d.event_date;$("expiry").textContent=new Date(d.expires_at).toLocaleString();
+  const rsvp=d.rsvp_status||"pending";
+  $("rsvp").textContent={going:"Going",maybe:"Maybe",declined:"Can't attend",pending:"Not answered"}[rsvp]||"Not answered";
+  $("rsvp-choice").value=rsvp==="pending"?"":rsvp;
   $("approval").textContent=d.approved?(d.approval_source==="participant_link"?"Approved via private link":"Previously approved in demo"):"Pending";
   $("payment").textContent=d.status==="sandbox_paid"?"Sandbox captured":d.status==="demo_paid"?"Simulated":"Unpaid";
-  $("approve").disabled=Boolean(d.approved)||d.status!=="unpaid";
+  $("approve").disabled=Boolean(d.approved)||d.status!=="unpaid"||d.rsvp_status==="declined";
   $("approve").textContent=d.approved?"Share approved":"I approve this amount";
  }catch(err){$("details").hidden=true;$("title").textContent="Invitation unavailable";$("description").textContent="The invitation may have expired, been revoked, or changed after the budget was edited.";message(err.message,true);}
 }
+$("rsvp-save").addEventListener("click",async()=>{
+  const status=$("rsvp-choice").value;
+  if(!["going","maybe","declined"].includes(status)){
+    message("Choose Going, Maybe or Can't attend before saving.",true);return;
+  }
+  $("rsvp-save").disabled=true;
+  try{
+    const d=await api("/api/participant/rsvp","POST",{status});
+    await refresh();
+    message("RSVP saved: "+d.rsvp_status+". "+d.warning,false);
+  }catch(err){message("RSVP not saved: "+err.message,true)}
+  finally{$("rsvp-save").disabled=false}
+});
 $("approve").addEventListener("click",async()=>{
  if(!window.confirm("Approve this fictional group contribution? This will not make a payment."))return;
  $("approve").disabled=true;

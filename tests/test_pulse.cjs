@@ -26,3 +26,12 @@ test("progress is never falsely described as payment success",()=>{
 test("event briefing labels sandbox amounts and rejects invoice claims",()=>{
  const b=pulseBriefing(event);
  assert.match(b,/NOT an invoice/);assert.match(b,/Simulated contributions excluded/);assert.match(b,/209\.00 USD/);});
+test("declined RSVP becomes organizer review rather than payment reminder",()=>{
+ const declined={...event,people:[...event.people.map((x,i)=>i===1?{...x,rsvp_status:"declined"}:x)]};
+ const p=pulseEvent(declined,[],d);
+ assert.equal(p.declined,1);
+ assert.equal(p.approval,0);
+ assert.ok(p.actions.some(x=>x.code==="attendance"&&x.tab==="events"));
+ assert.ok(!p.actions.some(x=>x.code==="approval"));
+ assert.equal(p.outstanding,20900); // RSVP never reallocates existing shares.
+});
