@@ -1364,9 +1364,11 @@ async def check_existing_order(order_id: str):
             raise HTTPException(404, "Unknown sandbox order")
         record = dict(row)
     if record["status"] == "completed":
+        if not record["capture_id"]:
+            raise HTTPException(409,"Local payment status lacks a verified capture identifier")
         return {"status":"COMPLETED","action":"done","verified":True}
-    if record["status"] != "created":
-        raise HTTPException(409, "Order not ready for status verification")
+    if record["status"] not in ("created","capturing"):
+        raise HTTPException(409, "Order cannot be verified from this state")
     details = await paypal.details(order_id)
     if details.get("id") != order_id or details.get("intent") != "CAPTURE":
         raise HTTPException(409, "PayPal order reference or intent mismatch")
@@ -1394,7 +1396,11 @@ async def check_existing_order(order_id: str):
                                details={"participant_id":record["person_id"],"amount_cents":record["amount_cents"]})
         return {"status":"COMPLETED","action":"done","verified":True}
     if status == "APPROVED":
-        return {"status":status,"action":"capture","verified":False}
+        # A previous capture may still be in flight or its result ambiguous.
+        # Never suggest a second capture request after we mark it capturing.
+        return {"status":status,"action":"capture" if record["status"]=="created" else "pending",
+                "verified":False,
+                "note":"Capture was already attempted; continue checking this order, never start a second capture." if record["status"]=="capturing" else ""}
     if status in ("CREATED","PAYER_ACTION_REQUIRED"):
         approval_url = paypal.approval_link(details)
         return {"status":status,"action":"approve" if approval_url else "pending",
@@ -1410,9 +1416,19 @@ async def capture_order(data: CaptureInput):
         p = c.execute("SELECT * FROM payments WHERE order_id=?", (data.order_id,)).fetchone()
         if not p: raise HTTPException(404,"Unknown order")
         if p["status"] == "completed":
+            if not p["capture_id"]:
+                raise HTTPException(409,"Local completion lacks a verified capture identifier")
             return {"ok":True,"already_recorded":True,"status":"completed"}
-        if p["status"] != "created": raise HTTPException(409,"Order not ready")
+        if p["status"] != "created":
+            raise HTTPException(409,"Capture already attempted or order not ready; use Check PayPal to reconcile")
+        changed = c.execute(
+            "UPDATE payments SET status='capturing' WHERE id=? AND status='created'",(p["id"],)
+        )
+        if changed.rowcount != 1:
+            raise HTTPException(409,"Capture already initiated; check the existing order")
         record = dict(p)
+    # The state remains 'capturing' if the network call fails or times out.
+    # We cannot safely issue a new capture request without reconciliation.
     result = await paypal.capture(record["order_id"],record["capture_key"])
     verified = paypal.completed_capture(result,record["amount_cents"])
     if not verified:
@@ -1455,6 +1471,63 @@ async def webhook(request: Request):
                                    details={"participant_id":p["person_id"],"amount_cents":p["amount_cents"]})
         c.execute("INSERT INTO webhook_events(id,created) VALUES(?,?)",(event_id,now()))
     return {"ok":True}
+
+@app.get("/api/paypal/recovery")
+def payment_recovery():
+    """Owner-only read-only recovery queue; no new PayPal calls or payments."""
+    current=datetime.now(timezone.utc)
+    with db() as c:
+        total=c.execute("SELECT COUNT(*) FROM payments").fetchone()[0]
+        rows=c.execute(
+            """SELECT p.id,p.event_id,p.person_id,p.status,p.amount_cents,p.created,
+                      p.order_id,p.capture_id,e.name AS event_name,
+                      a.name AS person_name
+               FROM payments p
+               JOIN events e ON p.event_id=e.id
+               JOIN people a ON p.person_id=a.id
+               ORDER BY p.id DESC LIMIT 200"""
+        ).fetchall()
+    items=[]
+    counters={"creating":0,"created":0,"capturing":0,"completed":0,"other":0}
+    for row in rows:
+        status=row["status"]
+        bucket=status if status in counters else "other"
+        counters[bucket]+=1
+        try:
+            created=datetime.fromisoformat(row["created"].replace("Z","+00:00"))
+            age=max(0,int((current-created).total_seconds()//60)) if created.tzinfo else None
+        except (ValueError,TypeError,OverflowError):
+            age=None
+        if status=="creating":
+            action="manual_review"
+            explanation="Order creation response was not recorded. An order may exist at PayPal; do not create another automatically."
+        elif status=="capturing":
+            action="check_existing_order"
+            explanation="A capture request was attempted. Check the existing PayPal order only; never submit another capture."
+        elif status=="created" and row["order_id"]:
+            action="check_existing_order"
+            explanation="Sandbox order created, but its capture has not been recorded. Check the existing order."
+        elif status=="completed" and row["capture_id"]:
+            action="none"
+            explanation="Completed PayPal sandbox capture is recorded locally. No new action is needed."
+        else:
+            action="manual_review"
+            explanation="Inconsistent local payment record; investigate without creating another order."
+        items.append({
+            "id":row["id"],"event_id":row["event_id"],"event_name":row["event_name"],
+            "person_name":row["person_name"],"status":status,
+            "amount_cents":row["amount_cents"],"created":row["created"],
+            "age_minutes":age,"action":action,
+            "order_id":row["order_id"] if action=="check_existing_order" else None,
+            "explanation":explanation,
+        })
+    return {
+        "mode":"PAYPAL_SANDBOX","total_records":total,"returned":len(items),
+        "is_truncated":total>len(items),"summary":counters,
+        "items":items,
+        "notice":"Read-only local recovery queue. No PayPal request is made. Stalled creation and uncertain captures must never be automatically retried."
+    }
+
 
 @app.get("/api/transactions")
 def transactions():

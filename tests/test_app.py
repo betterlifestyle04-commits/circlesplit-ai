@@ -1468,3 +1468,153 @@ def test_closeout_protected_from_public_or_participant_invitation(client,monkeyp
     assert authorized.json()["event_id"]==eid
     assert client.get("/api/events/999999/closeout",
                       auth=("judge","long-closeout-test-owner-password")).status_code==404
+
+
+def test_recovery_queue_is_read_only_and_requires_organizer(client,monkeypatch):
+    import app as api
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    before=client.get("/api/state").json()
+    data=client.get("/api/paypal/recovery")
+    assert data.status_code==200,data.text
+    assert data.json()["mode"]=="PAYPAL_SANDBOX"
+    assert data.json()["total_records"]==0
+    assert data.json()["items"]==[]
+    assert client.get("/api/state").json()==before
+
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","strong-recovery-owner-password")
+    assert client.get("/api/paypal/recovery").status_code==401
+    assert client.get("/api/paypal/recovery",headers={
+        "Authorization":"Bearer "+token
+    }).status_code==401
+    assert client.get("/api/paypal/recovery",
+        auth=("judge","strong-recovery-owner-password")).status_code==200
+
+
+def test_failed_creation_stays_locked_and_is_visible_for_manual_review(client,monkeypatch):
+    from fastapi import HTTPException
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    monkeypatch.setattr(paypal,"configured",lambda:True)
+    count=[]
+    async def ambiguous_order(*args):
+        count.append(args)
+        raise HTTPException(502,"PayPal sandbox request failed")
+    monkeypatch.setattr(paypal,"order",ambiguous_order)
+    failed=client.post(f"/api/paypal/orders/{eid}/{pid}")
+    assert failed.status_code==502
+    assert len(count)==1
+    report=client.get("/api/paypal/recovery").json()
+    assert report["total_records"]==1
+    assert report["summary"]["creating"]==1
+    item=report["items"][0]
+    assert item["status"]=="creating"
+    assert item["action"]=="manual_review"
+    assert item["order_id"] is None
+    assert "do not create another" in item["explanation"]
+    assert client.post(f"/api/paypal/orders/{eid}/{pid}").status_code==409
+    assert len(count)==1
+    assert initial(client)["sandbox_cents"]==0
+    assert client.get(f"/api/events/{eid}/closeout").json()["summary"]["pending_orders"]==1
+
+
+def test_capture_timeout_stays_locked_until_existing_order_is_reconciled(client,monkeypatch):
+    from fastapi import HTTPException
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    amount=e["people"][0]["share_cents"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    monkeypatch.setattr(paypal,"configured",lambda:True)
+    async def fake_order(*args):
+        return {"id":"SAFE-RECOVERY-ORDER-9",
+                "approval_url":"https://www.sandbox.paypal.com/checkoutnow?token=X"}
+    monkeypatch.setattr(paypal,"order",fake_order)
+    assert client.post(f"/api/paypal/orders/{eid}/{pid}").status_code==200
+    captures=[]
+    async def failed_capture(*args):
+        captures.append(args)
+        import app as api
+        with api.db() as conn:
+            assert conn.execute(
+                "SELECT status FROM payments WHERE order_id='SAFE-RECOVERY-ORDER-9'"
+            ).fetchone()["status"]=="capturing"
+        raise HTTPException(502,"PayPal sandbox request failed")
+    monkeypatch.setattr(paypal,"capture",failed_capture)
+    first=client.post("/api/paypal/capture",json={"order_id":"SAFE-RECOVERY-ORDER-9"})
+    assert first.status_code==502
+    again=client.post("/api/paypal/capture",json={"order_id":"SAFE-RECOVERY-ORDER-9"})
+    assert again.status_code==409
+    assert len(captures)==1
+    recovery=client.get("/api/paypal/recovery").json()
+    assert recovery["summary"]["capturing"]==1
+    assert recovery["items"][0]["action"]=="check_existing_order"
+    assert recovery["items"][0]["order_id"]=="SAFE-RECOVERY-ORDER-9"
+    assert initial(client)["sandbox_cents"]==0
+
+    async def fake_details(order_id):
+        return {
+            "id":order_id,"intent":"CAPTURE","status":"APPROVED",
+            "purchase_units":[{"custom_id":f"{eid}:{pid}",
+               "amount":{"currency_code":"USD","value":f"{amount/100:.2f}"}}],
+        }
+    monkeypatch.setattr(paypal,"details",fake_details)
+    check=client.post("/api/paypal/order-status/SAFE-RECOVERY-ORDER-9")
+    assert check.status_code==200
+    assert check.json()["action"]=="pending"
+    assert check.json()["verified"] is False
+    assert len(captures)==1
+
+    async def completed_details(order_id):
+        result=await fake_details(order_id)
+        result["status"]="COMPLETED"
+        result["purchase_units"][0]["payments"]={"captures":[{
+          "id":"SAFE-RECOVERY-CAPTURE-1","status":"COMPLETED",
+          "amount":{"currency_code":"USD","value":f"{amount/100:.2f}"}
+        }]}
+        return result
+    monkeypatch.setattr(paypal,"details",completed_details)
+    result=client.post("/api/paypal/order-status/SAFE-RECOVERY-ORDER-9")
+    assert result.status_code==200,result.text
+    assert result.json()["verified"] is True
+    assert result.json()["action"]=="done"
+    assert len(captures)==1
+    assert initial(client)["sandbox_cents"]==amount
+    assert client.get("/api/paypal/recovery").json()["summary"]["completed"]==1
+    history=client.get(f"/api/events/{eid}/history").json()
+    assert sum(x["action"]=="sandbox_capture_verified" for x in history["entries"])==1
+    assert client.post("/api/paypal/capture",json={"order_id":"SAFE-RECOVERY-ORDER-9"}).json()["already_recorded"] is True
+
+
+def test_completed_payment_without_capture_id_fails_closed(client):
+    import app as api
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    with api.db() as conn:
+        conn.execute(
+            """INSERT INTO payments(event_id,person_id,amount_cents,request_id,capture_key,
+               order_id,status,created) VALUES(?,?,?,?,?,?,?,?)""",
+            (eid,pid,1100,"invalid-rec-req","invalid-rec-cap",
+             "CLOSED-ORDER-MISSING-CAP","completed",api.now())
+        )
+    assert client.post("/api/paypal/capture",json={
+        "order_id":"CLOSED-ORDER-MISSING-CAP"
+    }).status_code==409
+    assert client.post("/api/paypal/order-status/CLOSED-ORDER-MISSING-CAP").status_code==409
+    report=client.get("/api/paypal/recovery").json()
+    assert report["summary"]["completed"]==1
+    assert report["items"][0]["action"]=="manual_review"
+    assert report["items"][0]["order_id"] is None
+
+
+def test_paypal_order_redirect_refuses_external_untrusted_host(monkeypatch):
+    import asyncio
+    async def forged_api(*args):
+        return {"id":"FORGED-ORDER", "links":[{"rel":"payer-action",
+             "href":"https://paypal.com.evil.example/checkoutnow?token=steal"}]}
+    monkeypatch.setattr(paypal,"api",forged_api)
+    with pytest.raises(Exception) as error:
+        asyncio.run(paypal.order(2500,1,2,
+            "https://circlesplit-ai-demo.onrender.com/workspace?payment=return",
+            "fixed-idempotency-key"))
+    assert "trusted sandbox approval link" in str(error.value)
+    assert paypal.approval_link({"links":[{"rel":"approve",
+      "href":"https://www.sandbox.paypal.com/checkoutnow?token=VALID"}]})=="https://www.sandbox.paypal.com/checkoutnow?token=VALID"

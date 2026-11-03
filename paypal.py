@@ -62,10 +62,11 @@ async def order(amount, event_id, person_id, return_url, request_id):
             "cancel_url": return_url.split("?")[0] + "?payment=cancelled"}}}
     }
     response = await api("POST", "/v2/checkout/orders", body, request_id)
-    url = next((a.get("href") for a in response.get("links", [])
-                if a.get("rel") in ("payer-action", "approve")), None)
+    # Never redirect the organizer to an arbitrary URL supplied by a provider
+    # payload or a compromised/misconfigured intermediary.
+    url = approval_link(response)
     if not response.get("id") or not url:
-        raise HTTPException(502, "PayPal did not return an approval link")
+        raise HTTPException(502, "PayPal did not return a trusted sandbox approval link")
     return {"id": response["id"], "approval_url": url}
 
 async def capture(order_id, idempotency_key):

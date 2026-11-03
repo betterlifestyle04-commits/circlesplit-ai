@@ -49,6 +49,18 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Payment recovery and capture retry safety
+
+- The protected **Activity → Safe payment recovery** panel now shows current local PayPal sandbox order states: **creating** (order creation response missing), **created** (existing order can be checked), **capturing** (one capture attempt already made), and **completed** (capture identifier recorded).
+- The new **GET /api/paypal/recovery** endpoint is read-only and organizer-authenticated. It returns the latest 200 local records, a visible truncation warning, safe next-action guidance, and existing PayPal order IDs only for orders with an established ID that can be checked. It does not issue API calls to PayPal or initiate payments.
+- **Capture concurrency guard:** before requesting a sandbox capture, CircleSplit atomically marks the payment **capturing**. Any repeated capture call while that request is in flight—or after its outcome becomes uncertain—fails with HTTP 409. This avoids a second capture request from a browser refresh, duplicate click or network timeout.
+- A failed/timed-out capture remains locked. The organizer can use **Check existing PayPal order**, which queries PayPal's existing order details and validates intent, event/participant reference, currency, amount and captured transaction before updating local records. If PayPal reports **APPROVED** after capture was already attempted, CircleSplit intentionally **does not offer a second capture**.
+- An ambiguous **creating** state with no returned order ID requires *manual PayPal sandbox account review*; CircleSplit does not automatically retry order creation because doing so could create a duplicate order.
+- Completed local payment records with **no capture ID** now fail closed instead of reporting a verified capture. Successful capture history remains idempotent if a webhook or reconciliation completes while a previous capture request is returning.
+- **Provider URL validation:** the PayPal API adapter now accepts checkout redirects only to the explicitly trusted \`www.sandbox.paypal.com\` or \`sandbox.paypal.com\` hosts over HTTPS; other URLs are rejected without sending the browser to the untrusted domain.
+- The manual participant form now preserves user input when the server rejects a save, matching existing expense-form behavior.
+- Tests cover ambiguous order creation, capture timeout, no duplicate capture requests, safe reconciliation of an already attempted capture, malformed local completion, authorization, and forged PayPal redirects. This feature remains sandbox-only, with temporary SQLite; it is *not* an assurance of durable recovery after a Render restart.
+
 ## Protected closeout preview (read-only and sandbox-only)
 
 - New **Closeout preview** workspace tab shows an organizer's **read-only** event closing summary. It uses a protected backend \`GET /api/events/{eid}/closeout\` endpoint and does not mutate the database, create transactions, close an event, create invoices, contact PayPal or send messages.
