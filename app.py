@@ -361,6 +361,46 @@ class PersonInput(BaseModel):
     name: str = Field(min_length=2, max_length=60)
     weight: int = Field(default=1, ge=1, le=10)
 
+class BulkPeopleInput(BaseModel):
+    people: list[PersonInput] = Field(min_length=1, max_length=100)
+
+@app.post("/api/events/{eid}/people/bulk")
+def import_people(eid: int, data: BulkPeopleInput):
+    # All-or-nothing insert; one recalculation and approval reset.
+    normalized = []
+    seen = set()
+    for item in data.people:
+        name = item.name.strip()
+        if len(name) < 2:
+            raise HTTPException(422, "Each participant needs a name of at least 2 characters")
+        key = name.casefold()
+        if key in seen:
+            raise HTTPException(422, "Duplicate participant in batch: " + name)
+        seen.add(key)
+        normalized.append((name,item.weight))
+    with db() as c:
+        event = require_event(c,eid)
+        require_editable(c,eid)
+        existing = {
+            r["name"].casefold() for r in c.execute(
+                "SELECT name FROM people WHERE event_id=?", (eid,)
+            ).fetchall()
+        }
+        if existing & seen:
+            raise HTTPException(409, "Participant already exists in this event")
+        count = c.execute(
+            "SELECT COUNT(*) FROM people WHERE event_id=?", (eid,)
+        ).fetchone()[0]
+        if count + len(normalized) > 200:
+            raise HTTPException(422, "Maximum 200 fictional participants per event")
+        c.executemany(
+            "INSERT INTO people(event_id,name,weight) VALUES(?,?,?)",
+            [(eid,name,weight) for name,weight in normalized]
+        )
+        recalculate(c,eid,event["strategy"])
+    return {"ok":True,"added":len(normalized),"approvals_reset":True}
+
+
 @app.post("/api/events/{eid}/people")
 def add_person(eid: int, data: PersonInput):
     with db() as c:

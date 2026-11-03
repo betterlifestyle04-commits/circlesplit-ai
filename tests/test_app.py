@@ -497,3 +497,49 @@ def test_scenario_and_clone_routes_are_protected(client,monkeypatch):
     monkeypatch.setenv("DEMO_PASSWORD","very-long-owner-password")
     assert client.post(f"/api/events/{eid}/scenario",json={}).status_code==401
     assert client.post(f"/api/events/{eid}/clone",json={}).status_code==401
+
+
+def test_bulk_people_import_is_atomic_and_accurate(client):
+    e=client.post("/api/events",json={"name":"New Team","date":"2026-11-15"}).json()
+    eid=e["id"]
+    client.post(f"/api/events/{eid}/expenses",json={"title":"Court","amount":"10.00"})
+    result=client.post(f"/api/events/{eid}/people/bulk",json={
+        "people":[{"name":"Mina","weight":2},{"name":"Rafa","weight":1},{"name":"Iman","weight":1}]
+    })
+    assert result.status_code==200,result.text
+    assert result.json()["added"]==3
+    event=next(e for e in client.get("/api/state").json()["events"] if e["id"]==eid)
+    assert len(event["people"])==3
+    assert sum(p["share_cents"] for p in event["people"])==1000
+    assert all(not p["approved"] for p in event["people"])
+    assert client.post(f"/api/events/{eid}/allocation",json={"strategy":"weighted"}).status_code==200
+    event=next(e for e in client.get("/api/state").json()["events"] if e["id"]==eid)
+    assert sorted(p["share_cents"] for p in event["people"])==[250,250,500]
+
+
+def test_bulk_people_import_rejects_duplicates_and_does_not_partially_insert(client):
+    e=initial(client);eid=e["id"]
+    before=client.get("/api/state").json()
+    r=client.post(f"/api/events/{eid}/people/bulk",json={
+        "people":[{"name":"Unique","weight":1},{"name":"unique","weight":2}]
+    })
+    assert r.status_code==422
+    r=client.post(f"/api/events/{eid}/people/bulk",json={
+        "people":[{"name":"Unique","weight":1},{"name":"Alex","weight":1}]
+    })
+    assert r.status_code==409
+    assert client.get("/api/state").json()==before
+    r=client.post(f"/api/events/{eid}/people/bulk",json={
+        "people":[{"name":"Unique","weight":11},{"name":"Other","weight":1}]
+    })
+    assert r.status_code==422
+    assert client.get("/api/state").json()==before
+
+
+def test_bulk_people_import_respects_payment_locks(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    client.post(f"/api/events/{eid}/people/{pid}/approve")
+    client.post(f"/api/events/{eid}/people/{pid}/simulate")
+    assert client.post(f"/api/events/{eid}/people/bulk",json={
+        "people":[{"name":"NewOne","weight":1}]
+    }).status_code==409

@@ -62,6 +62,14 @@
      <div class="card"><div class="section-heading"><h2>Participants</h2><span class="pill neutral" id="people-count">0 members</span></div><div id="people-rows"></div>
        <div class="space"></div><form class="inlineform" id="person-form"><input id="person-name" minlength="2" required placeholder="Participant name" aria-label="Participant name"><input id="person-weight" type="number" min="1" max="10" value="1" aria-label="Attendance weight" style="max-width:76px"><button class="btn secondary" type="submit">Add</button></form>
        <p class="notice">Weights affect allocations only when attendance-weighted splitting is selected. Every edit resets approvals. Payment activity locks the budget.</p>
+   <div class="space"></div><details style="border-top:1px solid var(--line);padding-top:15px">
+     <summary style="cursor:pointer;font-weight:800;color:var(--primary)">＋ Import multiple fictional participants</summary>
+     <p class="notice" style="margin-top:10px">Enter one person per line, optionally with a comma and weight (1–10). Example: Alex,1</p>
+     <form id="bulk-people-form"><div class="field"><label for="bulk-people-input">Participants (up to 100 lines)</label>
+       <textarea id="bulk-people-input" placeholder="Alex,1&#10;Taylor,2&#10;Morgan,1" rows="4" required></textarea>
+     </div><div class="space"></div><button class="btn secondary" id="bulk-people-button" type="submit">Import participants</button></form>
+     <p class="notice" style="margin-top:9px">Existing participant names and repeated names are rejected. Imports are atomic; nothing is saved if any line fails.</p>
+   </details>
      </div>
     </div>
     <div class="stack">
@@ -185,6 +193,29 @@ function removeExpense(id){let e=event();if(!e||!window.confirm("Remove this exp
 function removePerson(id){let e=event();if(!e||!window.confirm("Remove this participant and recalculate all shares?"))return;run(function(){return request("/api/events/"+e.id+"/people/"+id,{method:"DELETE"})},"Participant removed; shares recalculated.")}
 function addExpense(evt){evt.preventDefault();let e=event();if(!e)return;run(function(){return post("/api/events/"+e.id+"/expenses",{title:el("expense-title").value,amount:el("expense-amount").value})},"Expense added.");el("expense-title").value="";el("expense-amount").value=""}
 function addPerson(evt){evt.preventDefault();let e=event();if(!e)return;run(function(){return post("/api/events/"+e.id+"/people",{name:el("person-name").value,weight:Number(el("person-weight").value)})},"Participant added.");el("person-name").value=""}
+async function importParticipants(evt){
+ evt.preventDefault();
+ const e=event();if(!e){notice("Create an event first.",true);return;}
+ const raw=el("bulk-people-input").value.trim();
+ const rows=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+ if(!rows.length || rows.length>100){notice("Enter between 1 and 100 participants.",true);return;}
+ const people=[];
+ for(let i=0;i<rows.length;i++){
+   const parts=rows[i].split(",");
+   const name=(parts[0]||"").trim(),weight=parts.length===1?1:Number(parts[1].trim());
+   if(parts.length>2||name.length<2||name.length>60||!Number.isInteger(weight)||weight<1||weight>10){
+     notice("Line "+(i+1)+": use Name,Weight (1–10), or just Name.",true);return;
+   }
+   people.push({name,weight});
+ }
+ const button=el("bulk-people-button");button.disabled=true;button.textContent="Importing…";
+ try{
+   const out=await post("/api/events/"+e.id+"/people/bulk",{people});
+   await load();el("bulk-people-input").value="";
+   notice(out.added+" fictional participants imported. The allocation was recalculated and approvals reset.",false);
+ }catch(err){notice("Import failed: "+err.message+". No rows were added.",true);}
+ finally{button.disabled=false;button.textContent="Import participants";}
+}
 function createEvent(evt){evt.preventDefault();run(async function(){let result=await post("/api/events",{name:el("new-name").value,date:el("new-date").value,note:el("new-note").value});eventId=result.id;el("new-form").reset()},"Event created. Add expenses and participants.")}
 function approvePerson(pid){let e=event();run(function(){return post("/api/events/"+e.id+"/people/"+pid+"/approve")},"Contribution approved.")}
 function simulate(pid){let e=event();run(function(){return post("/api/events/"+e.id+"/people/"+pid+"/simulate")},"SIMULATED contribution recorded — no PayPal transaction.")}
@@ -213,6 +244,7 @@ function render(){
 async function load(){try{state=await request("/api/state");if(!state.events.some(function(e){return e.id===eventId}))eventId=state.events.length?state.events[0].id:null;render();let t=await request("/api/transactions");window.circleTransactions=t.transactions;renderInsights();el("transaction-list").innerHTML=t.transactions.length?'<div class="notice">Order created ≠ payment captured. Click Check PayPal to resume buyer approval or reconcile a previously approved sandbox order.</div><div class="space"></div><div style="overflow-x:auto"><table><thead><tr><th>Person</th><th>Event</th><th>Amount</th><th>Status</th><th>Verify</th></tr></thead><tbody>'+t.transactions.map(function(p){let id=String(p.order_id||"");let canCheck=p.status!=="completed"&&/^[A-Za-z0-9-]{5,50}$/.test(id);return '<tr><td>'+safe(p.person_name)+'</td><td>'+safe(p.event_name)+'</td><td>'+money(p.amount_cents)+'</td><td><span class="pill '+(p.status==="completed"?"":"orange")+'">'+safe(p.status==="completed"?"VERIFIED CAPTURE":p.status==="created"?"ORDER CREATED — NOT PAID":p.status)+'</span></td><td>'+(canCheck?'<button class="btn small secondary" onclick="verifyPayPalOrder(\''+id+'\')">Check PayPal</button>':p.status==="completed"?"Verified":"—")+'</td></tr>'}).join("")+'</tbody></table></div>':'<div class="empty">No real PayPal sandbox orders created yet.</div>'}catch(e){notice(e.message,true)}}
 async function analyze(evt){evt.preventDefault();if(applyingProposal)return;proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").textContent="Analyzing your note...";const target=event();const targetId=target?target.id:null;el("ai-button").disabled=true;try{if(!targetId)throw Error("Select an event before analyzing costs.");let p=await post("/api/ai/parse",{note:el("ai-note").value});if(event()?.id!==targetId)throw Error("Event changed during AI analysis. Re-run for the selected event.");proposal=p;proposalEventId=targetId;el("ai-rationale").textContent=(p.rationale||"Review before applying")+" · Target event: "+target.name;el("ai-proposal").className="stack";el("ai-proposal").innerHTML=p.expenses.map(function(x,i){return '<div class="formgrid"><div class="field"><label>Expense</label><input class="pro-title" value="'+safe(x.title)+'"></div><div class="field"><label>USD</label><input class="pro-amount" value="'+safe(x.amount)+'"></div></div>'}).join("")||'<div class="empty">No explicit prices were identified in the note.</div>';el("ai-apply").disabled=!p.expenses.length}catch(e){el("ai-proposal").className="empty";el("ai-proposal").textContent=e.message;notice(e.message,true)}finally{el("ai-button").disabled=false}}
 async function applyProposal(){let e=event();if(!e||!proposal||applyingProposal)return;if(proposalEventId!==e.id){notice("This proposal belongs to a different event. Analyze the selected event again.",true);return;}let titles=[...document.querySelectorAll(".pro-title")],amounts=[...document.querySelectorAll(".pro-amount")];let expenses=titles.map(function(x,i){return {title:x.value.trim(),amount:amounts[i].value.trim()}});if(expenses.some(x=>!x.title||!/^\d+(\.\d{1,2})?$/.test(x.amount))){notice("Check the expense titles and USD amounts before approving.",true);return;}applyingProposal=true;el("ai-apply").disabled=true;try{await post("/api/events/"+e.id+"/expenses/bulk",{expenses:expenses});proposal=null;proposalEventId=null;await load();el("ai-proposal").className="empty";el("ai-proposal").textContent="Expenses saved successfully to "+e.name+".";notice("AI proposal reviewed and saved for "+e.name+".",false);}catch(err){notice("Not saved: "+err.message+". Review amounts or the event’s payment lock, then retry.",true);}finally{applyingProposal=false;el("ai-apply").disabled=!proposal}}
+el("bulk-people-form").addEventListener("submit",importParticipants);
 el("scenario-form").addEventListener("submit",previewScenario);
 ["scenario-adjustment","scenario-people","scenario-strategy"].forEach(function(id){el(id).addEventListener("input",resetScenario);});
 el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);

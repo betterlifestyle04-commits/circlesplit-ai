@@ -49,6 +49,12 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Batch participant import
+
+- The protected Events page supports one-name-per-line participant imports, with optional attendance weight (1–10), for larger fictional groups.
+- A single `POST /api/events/{id}/people/bulk` request validates the entire batch, rejects case-insensitive duplicate names against the batch and existing event participants, caps groups at 200, and inserts everyone atomically before recalculating exact-cent shares.
+- If an event has a payment order or simulated contribution, the existing budget lock blocks imports. Automated tests cover atomicity, duplicate handling, weighted splits and locks.
+
 ## Scenario Lab and reusable event templates
 
 - **Scenario Lab** in the protected workspace previews budget adjustments, additional fictional attendees, and equal versus attendance-weighted splitting. The server uses the same exact-cent largest-remainder allocation as real event budgets.
