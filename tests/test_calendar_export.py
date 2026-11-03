@@ -64,7 +64,7 @@ def test_escape_text_prevents_calendar_property_injection():
           "title":"Welcome\nEND:VEVENT","note":note}],1,stamp=STAMP)
     text=unfolded(ics)
     assert text.count("BEGIN:VEVENT\r\n")==1
-    assert text.count("END:VEVENT\r\n")==1
+    assert text.split("\r\n").count("END:VEVENT")==1
     assert "\r\nATTENDEE:" not in text
     assert "\r\nSUMMARY:Injected" not in text
     assert "BEGIN:VEVENT\\nSUMMARY:Injected" in text
