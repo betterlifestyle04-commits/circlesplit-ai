@@ -2726,3 +2726,129 @@ def test_changing_event_details_invalidates_previous_schedule_review(client):
     assert client.post("/api/participant/agenda/ack",headers=new_headers,
                        json={"expected_revision":2}).status_code==200
     assert initial(client)["agenda_acknowledged"]==1
+
+
+def test_owner_and_invited_calendar_exports_are_read_only_and_privacy_safe(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    bearer={"Authorization":"Bearer "+token}
+    first=client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"09:00","end_time":"09:30",
+        "title":"Meet at entrance","note":"Court A; bring shoes"
+    })
+    second=client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"09:30","end_time":"10:30",
+        "title":"Group volleyball","note":"Warmup first"
+    })
+    assert first.status_code==200 and second.status_code==200
+    initial_state=initial(client)
+    history_before=client.get(f"/api/events/{eid}/history").json()
+    organizer=client.get(f"/api/events/{eid}/calendar.ics")
+    participant=client.get("/api/participant/calendar.ics",headers=bearer)
+    assert organizer.status_code==200,organizer.text
+    assert participant.status_code==200,participant.text
+    assert organizer.content==participant.content
+    assert organizer.headers["content-type"].startswith("text/calendar")
+    assert organizer.headers["cache-control"].startswith("private, no-store")
+    assert 'attachment;' in organizer.headers["content-disposition"]
+    assert organizer.headers["x-content-type-options"]=="nosniff"
+    calendar=participant.content.decode("utf-8")
+    unfolded=calendar.replace("\r\n ","")
+    assert calendar.count("BEGIN:VEVENT\r\n")==2
+    assert calendar.count("END:VEVENT\r\n")==2
+    assert f"DTSTART:{e['date'].replace('-', '')}T090000" in calendar
+    assert "UID:" in calendar and "SEQUENCE:2" in calendar
+    assert "Court A\\; bring shoes" in unfolded
+    assert "Group volleyball" in calendar
+    assert "DTSTART;TZID=" not in calendar
+    assert "ATTENDEE:" not in calendar and "ORGANIZER:" not in calendar
+    assert "PAYPAL" not in calendar
+    assert token not in calendar
+    assert "Alex" not in calendar
+    assert "share_cents" not in calendar
+    assert "capture_id" not in calendar
+    assert "api_key" not in calendar
+    assert initial(client)==initial_state
+    assert client.get(f"/api/events/{eid}/history").json()==history_before
+
+
+def test_calendar_export_rejects_empty_agenda_and_missing_or_revoked_link(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    assert client.get(f"/api/events/{eid}/calendar.ics").status_code==409
+    assert client.get("/api/participant/calendar.ics").status_code==401
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    headers={"Authorization":"Bearer "+token}
+    assert client.get("/api/participant/calendar.ics",headers=headers).status_code==409
+    assert client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"14:00","end_time":"15:00","title":"Shared activity"
+    }).status_code==200
+    assert client.get("/api/participant/calendar.ics",headers=headers).status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/invite/revoke").status_code==200
+    assert client.get("/api/participant/calendar.ics",headers=headers).status_code==404
+    assert client.get(f"/api/events/{eid}/calendar.ics").status_code==200
+    assert client.get("/api/events/999999/calendar.ics").status_code==404
+
+
+def test_invited_calendar_access_is_limited_to_own_event(client):
+    first=initial(client);a=first["id"];pid=first["people"][0]["id"]
+    second=client.post("/api/events",json={"name":"Separate group","date":"2026-12-13"}).json()["id"]
+    assert client.post(f"/api/events/{a}/agenda",json={
+        "start_time":"11:00","end_time":"12:00","title":"Private event one"
+    }).status_code==200
+    assert client.post(f"/api/events/{second}/agenda",json={
+        "start_time":"13:00","end_time":"14:00","title":"Private event two"
+    }).status_code==200
+    token=client.post(f"/api/events/{a}/people/{pid}/invite").json()["token"]
+    private=client.get("/api/participant/calendar.ics",headers={
+        "Authorization":"Bearer "+token
+    })
+    assert private.status_code==200,private.text
+    ics=private.content.decode("utf-8")
+    assert "Private event one" in ics
+    assert "Private event two" not in ics
+    assert "Separate group" not in ics
+
+
+def test_calendar_export_owner_auth_separates_bearer_and_basic_credentials(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"15:00","end_time":"16:00","title":"Event slot"
+    })
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","strong-calendar-demo-password")
+    owner=f"/api/events/{eid}/calendar.ics"
+    invited="/api/participant/calendar.ics"
+    private_headers={"Authorization":"Bearer "+token}
+    assert client.get(owner).status_code==401
+    assert client.get(owner,headers=private_headers).status_code==401
+    assert client.get(owner,auth=("judge","strong-calendar-demo-password")).status_code==200
+    assert client.get(invited).status_code==401
+    assert client.get(invited,headers=private_headers).status_code==200
+    assert client.get(invited,auth=("judge","strong-calendar-demo-password")).status_code==401
+
+
+def test_calendar_updates_sequence_and_does_not_change_payment_or_rsvp(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    slot=client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"18:00","end_time":"19:00","title":"Main event"
+    }).json()["id"]
+    original=client.get(f"/api/events/{eid}/calendar.ics").text
+    before=initial(client)
+    edited=client.put(f"/api/events/{eid}/agenda/{slot}",json={
+        "start_time":"18:30","end_time":"19:30","title":"Updated main event"
+    })
+    assert edited.status_code==200,edited.text
+    revised=client.get(f"/api/events/{eid}/calendar.ics").text
+    assert "SEQUENCE:1" in original
+    assert "SEQUENCE:2" in revised
+    first_uid=next(line for line in original.split("\r\n") if line.startswith("UID:"))
+    second_uid=next(line for line in revised.split("\r\n") if line.startswith("UID:"))
+    assert first_uid==second_uid
+    after=initial(client)
+    assert after["people"]==before["people"]
+    assert after["simulated_cents"]==before["simulated_cents"]
+    assert after["sandbox_cents"]==before["sandbox_cents"]
+    assert after["total_cents"]==before["total_cents"]

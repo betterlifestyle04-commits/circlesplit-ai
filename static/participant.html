@@ -35,6 +35,8 @@ button:focus-visible,select:focus-visible{outline:3px solid #1ba890;outline-offs
   <strong>Event schedule</strong><button id="agenda-refresh" class="refresh-agenda" type="button">Refresh</button>
  </div>
  <p style="font-size:12px;margin:6px 0">Times are local to the event location, not automatically converted to your timezone. The organizer must tell you about changes.</p>
+ <button id="agenda-calendar-download" type="button" class="refresh-agenda" disabled style="margin:7px 0 12px">↓ Download calendar (.ics)</button>
+ <p style="font-size:12px;margin:0 0 8px">The calendar uses floating local event times. Confirm the timezone with the organizer before importing; later changes require a fresh download.</p>
  <div id="agenda-items" role="list" aria-live="polite"></div>
  <p id="agenda-review-status" style="font-size:13px" role="status" aria-live="polite">Review the current schedule before acknowledging it.</p>
  <button id="agenda-ack" type="button" disabled>I've reviewed this schedule</button>
@@ -78,6 +80,7 @@ async function refresh(){
   $("description").textContent="Review the assigned fictional contribution below.";
   $("amount").textContent=format(d.share_cents);$("person").textContent=d.participant;
   $("date").textContent=d.event_date;$("expiry").textContent=new Date(d.expires_at).toLocaleString();
+  $("agenda-calendar-download").disabled=!Array.isArray(d.agenda)||d.agenda.length===0;
   currentAgendaRevision=Number(d.agenda_revision)||0;
   const agendaReviewed=Boolean(d.agenda_acknowledged);
   $("agenda-review-status").textContent=currentAgendaRevision===0?
@@ -108,8 +111,37 @@ async function refresh(){
   $("payment").textContent=d.status==="sandbox_paid"?"Sandbox captured":d.status==="demo_paid"?"Simulated":"Unpaid";
   $("approve").disabled=Boolean(d.approved)||d.status!=="unpaid"||d.rsvp_status==="declined";
   $("approve").textContent=d.approved?"Share approved":"I approve this amount";
- }catch(err){currentAgendaRevision=0;$("agenda-ack").disabled=true;$("agenda-items").replaceChildren();$("details").hidden=true;$("title").textContent="Invitation unavailable";$("description").textContent="The invitation may have expired, been revoked, or changed after the budget was edited.";message(err.message,true);}
+ }catch(err){$("agenda-calendar-download").disabled=true;currentAgendaRevision=0;$("agenda-ack").disabled=true;$("agenda-items").replaceChildren();$("details").hidden=true;$("title").textContent="Invitation unavailable";$("description").textContent="The invitation may have expired, been revoked, or changed after the budget was edited.";message(err.message,true);}
 }
+$("agenda-calendar-download").addEventListener("click",async()=>{
+ const button=$("agenda-calendar-download");
+ if(!token){message("Missing private invitation link. Ask the organizer for a fresh link.",true);return;}
+ button.disabled=true;
+ try{
+  const response=await fetch("/api/participant/calendar.ics",{
+   method:"GET",cache:"no-store",
+   headers:{"Authorization":"Bearer "+token}
+  });
+  if(!response.ok){
+   const detail=await response.json().catch(()=>({}));
+   throw Error(detail.detail||"Calendar download not available");
+  }
+  if(!(response.headers.get("content-type")||"").includes("text/calendar"))
+   throw Error("Invalid calendar response");
+  const blob=await response.blob();
+  if(blob.size===0||blob.size>250000)throw Error("Unexpected calendar file size");
+  const objectUrl=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=objectUrl;link.download="circlesplit-event-agenda.ics";
+  document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);
+  message("Calendar file downloaded. Confirm the event timezone before importing. Download again after schedule changes.",false);
+ }catch(err){
+  message("Calendar download failed: "+err.message,true);
+ }finally{
+  button.disabled=false;
+ }
+});
 $("agenda-refresh").addEventListener("click",refresh);
 $("agenda-ack").addEventListener("click",async()=>{
  const revision=currentAgendaRevision;

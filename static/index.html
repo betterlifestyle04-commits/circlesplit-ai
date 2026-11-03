@@ -256,6 +256,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
         <div id="agenda-review-people" style="padding:8px 0"></div>
         <p class="small muted">Private-link acknowledgement is not identity verification, RSVP or financial approval. No reminders are automatically sent.</p>
        </details>
+       <div class="row wrap" style="margin:10px 0">
+        <button id="agenda-calendar-download" class="btn secondary" type="button" onclick="downloadAgendaCalendar()" disabled>↓ Download calendar (.ics)</button>
+       </div>
+       <p class="small muted">Calendar times are floating local times. Confirm the location and timezone before importing. An imported file does not update automatically when the schedule changes.</p>
        <div id="agenda-list" aria-live="polite"><div class="empty">No schedule set yet.</div></div>
        <form id="agenda-form" style="margin-top:15px">
         <div class="formgrid">
@@ -892,6 +896,31 @@ async function addStarterTasks(){const e=event();if(!e)return;
  try{const x=await post("/api/events/"+e.id+"/tasks/starter");await load();notice(x.added+" preparation tasks added.",false)}
  catch(err){notice(err.message,true)}
 }
+async function downloadAgendaCalendar(){
+ const e=event(),button=el("agenda-calendar-download");
+ if(!e||!e.agenda?.length){notice("Add at least one agenda activity to download a calendar.",true);return;}
+ button.disabled=true;
+ try{
+  const response=await fetch("/api/events/"+e.id+"/calendar.ics",{
+    method:"GET",cache:"no-store",credentials:"same-origin"
+  });
+  if(!response.ok){
+   const details=await response.json().catch(()=>({}));
+   throw Error(details.detail||"Calendar download unavailable");
+  }
+  const mime=response.headers.get("content-type")||"";
+  if(!mime.includes("text/calendar"))throw Error("The server did not return a calendar file");
+  const file=await response.blob();
+  if(file.size===0||file.size>250000)throw Error("Unexpected calendar file size");
+  const objectUrl=URL.createObjectURL(file);
+  const anchor=document.createElement("a");
+  anchor.href=objectUrl;anchor.download="circlesplit-event-agenda.ics";
+  document.body.appendChild(anchor);anchor.click();anchor.remove();
+  setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);
+  notice("Calendar file downloaded. Confirm the event's local timezone before importing; existing calendar entries do not update automatically.",false);
+ }catch(err){notice("Calendar download failed: "+err.message,true)}
+ finally{button.disabled=false;}
+}
 function resetAgendaEditor(){
  editingAgendaId=null;
  el("agenda-form").reset();
@@ -903,6 +932,7 @@ function showAgenda(e){
  const items=agendaSorted(e?.agenda||[]);
  el("agenda-count").textContent=items.length+" / 20 items";
  el("agenda-submit").disabled=!e;
+ el("agenda-calendar-download").disabled=!e||items.length===0;
  const review=agendaReviewCounts(e);
  el("agenda-review-summary").textContent=review.published?
    "Schedule v"+review.version+" · "+review.reviewed+" of "+review.participants+

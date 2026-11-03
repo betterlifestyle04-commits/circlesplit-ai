@@ -37,4 +37,15 @@ jobs:
           Path("/tmp/circlesplit-inline.js").write_text(scripts[0])
           PY
           node --check /tmp/circlesplit-inline.js
-      - run: python -m compileall -q app.py domain.py paypal.py
+      - name: Validate participant portal inline JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path("static/participant.html").read_text()
+          scripts=re.findall(r"<script>([\s\S]*?)</script>",s)
+          assert len(scripts)==1
+          Path("/tmp/circlesplit-participant-inline.js").write_text(scripts[0])
+          PY
+          node --check /tmp/circlesplit-participant-inline.js
+      - run: python -m compileall -q app.py domain.py paypal.py calendar_export.py

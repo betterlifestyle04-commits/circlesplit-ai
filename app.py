@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
 
 from domain import allocate, cents
+from calendar_export import build_ics
 import paypal
 
 ROOT = Path(__file__).resolve().parent
@@ -44,6 +45,7 @@ async def demo_access_control(request: Request, call_next):
             or (request.url.path == "/api/participant/approve" and request.method == "POST")
             or (request.url.path == "/api/participant/rsvp" and request.method == "POST")
             or (request.url.path == "/api/participant/agenda/ack" and request.method == "POST")
+            or (request.url.path == "/api/participant/calendar.ics" and request.method == "GET")
         )
         if not public_page and not participant_api and request.url.path not in ("/health", "/api/paypal/webhook"):
             user = os.getenv("DEMO_USERNAME", "judge")
@@ -1765,6 +1767,46 @@ def revoke_participant_invites(eid: int,pid: int):
         if result.rowcount:
             record_history(c,eid,"invitation_revoked",details={"participant_id":pid,"count":result.rowcount})
     return {"ok":True,"revoked":result.rowcount}
+
+
+def agenda_ics_response(event_id, name, event_date, revision, rows):
+    """Only export event logistics. Exclude all payments and private metadata."""
+    try:
+        calendar = build_ics(event_id,name,event_date,rows,revision)
+    except ValueError as exc:
+        raise HTTPException(409,str(exc))
+    return Response(
+        content=calendar.encode("utf-8"),
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Cache-Control":"private, no-store, max-age=0",
+            "Content-Disposition":'attachment; filename="circlesplit-event-agenda.ics"',
+            "X-Content-Type-Options":"nosniff",
+            "Referrer-Policy":"no-referrer",
+        },
+    )
+
+
+@app.get("/api/events/{eid}/calendar.ics")
+def organizer_event_calendar(eid:int):
+    """Organizer Basic-auth route on hosted demo; never sends money or invitation data."""
+    with db() as c:
+        event=require_event(c,eid)
+        slots=[dict(row) for row in c.execute(
+            "SELECT id,start_time,end_time,title,note FROM event_agenda WHERE event_id=? ORDER BY start_time,id",(eid,))]
+    return agenda_ics_response(eid,event["name"],event["date"],event["agenda_revision"],slots)
+
+
+@app.get("/api/participant/calendar.ics")
+def invited_participant_calendar(request:Request):
+    """Bearer-only calendar file; token stays in Authorization, never a URL."""
+    with db() as c:
+        invited=participant_from_invite(c,request)
+        rows=[dict(row) for row in c.execute(
+            "SELECT id,start_time,end_time,title,note FROM event_agenda WHERE event_id=? ORDER BY start_time,id",
+            (invited["event_id"],))]
+    return agenda_ics_response(invited["event_id"],invited["event_name"],
+                               invited["event_date"],invited["agenda_revision"],rows)
 
 
 @app.get("/api/participant/overview")
