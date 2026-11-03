@@ -10,7 +10,7 @@ const example={app:"CircleSplit AI",kind:"planning-backup",schema_version:1,curr
 const copy=()=>JSON.parse(JSON.stringify(example));
 test("inspects a planning-only backup without modifying input",()=>{
  const raw=copy(),original=JSON.stringify(raw),p=inspectPlanningBackup(raw);
- assert.deepEqual(p,{events:1,people:2,expenses:1,tasks:1,plannedCents:16000});
+ assert.deepEqual(p,{events:1,people:2,expenses:1,tasks:1,agenda:0,plannedCents:16000});
  assert.equal(JSON.stringify(raw),original);
 });
 test("refuses financial status, invitations, capture identifiers or extra keys",()=>{
@@ -41,4 +41,22 @@ test("limit enforcement and empty events",()=>{
  assert.throws(()=>inspectPlanningBackup(empty),/1–25/);
  const big=copy();big.events=Array.from({length:26},()=>copy().events[0]);
  assert.throws(()=>inspectPlanningBackup(big),/1–25/);
+});
+
+test("new backups preserve validated agenda while older v1 backups remain compatible",()=>{
+ const x=copy();
+ x.events[0].agenda=[
+  {start_time:"09:00",end_time:"10:00",title:"Welcome",note:"Main room"},
+  {start_time:"10:00",end_time:"11:00",title:"Activity",note:""}
+ ];
+ assert.equal(inspectPlanningBackup(x).agenda,2);
+ const overlap=copy();overlap.events[0].agenda=[
+  {start_time:"09:00",end_time:"10:00",title:"Welcome",note:""},
+  {start_time:"09:45",end_time:"10:30",title:"Activity",note:""}
+ ];
+ assert.throws(()=>inspectPlanningBackup(overlap),/overlapping/);
+ const unsafe=copy();
+ unsafe.events[0].agenda=[{start_time:"10:00",end_time:"11:00",title:"Session",note:"",
+  token:"not-allowed"}];
+ assert.throws(()=>inspectPlanningBackup(unsafe),/unsupported field/);
 });

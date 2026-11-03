@@ -17,6 +17,11 @@ select{font:inherit;border:1px solid var(--line);border-radius:10px;padding:11px
 .message{margin-top:16px;background:#e7f6f1;color:#0d7560;padding:13px;border-radius:11px;display:none}
 .message.error{background:#fceeea;color:#a43f2b}.message.show{display:block}
 footer{margin-top:22px;font-size:12px;color:#84959e}
+.agenda-item{padding:12px 0;border-bottom:1px solid #edf2f1}
+.agenda-item strong{display:block}
+.agenda-item small{color:var(--muted)}
+.refresh-agenda{background:#edf8f5;border:1px solid #a9d5ca;color:#075f56;padding:8px 12px;font-size:13px}
+button:focus-visible,select:focus-visible{outline:3px solid #1ba890;outline-offset:3px}
 </style></head><body>
 <header><strong>◉ CircleSplit AI</strong> <span style="opacity:.6;margin-left:10px">Private participant approval</span></header>
 <main><div class="card"><div class="kicker">Your invitation</div>
@@ -25,6 +30,13 @@ footer{margin-top:22px;font-size:12px;color:#84959e}
 <div id="details" hidden><div class="amount" id="amount">—</div>
 <div class="row"><span>Participant</span><strong id="person">—</strong></div>
 <div class="row"><span>Event date</span><strong id="date">—</strong></div>
+<div id="agenda-panel" style="margin-top:19px">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+  <strong>Event schedule</strong><button id="agenda-refresh" class="refresh-agenda" type="button">Refresh</button>
+ </div>
+ <p style="font-size:12px;margin:6px 0">Times are local to the event location, not automatically converted to your timezone. The organizer must tell you about changes.</p>
+ <div id="agenda-items" role="list" aria-live="polite"></div>
+</div>
 <div class="row"><span>Currency</span><strong>USD</strong></div>
 <div class="row"><span>RSVP response</span><strong id="rsvp">Not answered</strong></div>
 <div class="rsvp-actions"><label for="rsvp-choice">Your attendance</label>
@@ -63,6 +75,21 @@ async function refresh(){
   $("description").textContent="Review the assigned fictional contribution below.";
   $("amount").textContent=format(d.share_cents);$("person").textContent=d.participant;
   $("date").textContent=d.event_date;$("expiry").textContent=new Date(d.expires_at).toLocaleString();
+  const agenda=$("agenda-items");
+  agenda.replaceChildren();
+  if(Array.isArray(d.agenda)&&d.agenda.length){
+   for(const slot of d.agenda){
+    const item=document.createElement("div");item.className="agenda-item";item.setAttribute("role","listitem");
+    const title=document.createElement("strong");
+    title.textContent=slot.start_time+"–"+slot.end_time+" · "+slot.title;
+    item.appendChild(title);
+    if(slot.note){const detail=document.createElement("small");detail.textContent=slot.note;item.appendChild(detail);}
+    agenda.appendChild(item);
+   }
+  }else{
+   const empty=document.createElement("p");empty.textContent="The organizer has not added a schedule yet.";
+   agenda.appendChild(empty);
+  }
   const rsvp=d.rsvp_status||"pending";
   $("rsvp").textContent={going:"Going",maybe:"Maybe",declined:"Can't attend",pending:"Not answered"}[rsvp]||"Not answered";
   $("rsvp-choice").value=rsvp==="pending"?"":rsvp;
@@ -70,8 +97,9 @@ async function refresh(){
   $("payment").textContent=d.status==="sandbox_paid"?"Sandbox captured":d.status==="demo_paid"?"Simulated":"Unpaid";
   $("approve").disabled=Boolean(d.approved)||d.status!=="unpaid"||d.rsvp_status==="declined";
   $("approve").textContent=d.approved?"Share approved":"I approve this amount";
- }catch(err){$("details").hidden=true;$("title").textContent="Invitation unavailable";$("description").textContent="The invitation may have expired, been revoked, or changed after the budget was edited.";message(err.message,true);}
+ }catch(err){$("agenda-items").replaceChildren();$("details").hidden=true;$("title").textContent="Invitation unavailable";$("description").textContent="The invitation may have expired, been revoked, or changed after the budget was edited.";message(err.message,true);}
 }
+$("agenda-refresh").addEventListener("click",refresh);
 $("rsvp-save").addEventListener("click",async()=>{
   const status=$("rsvp-choice").value;
   if(!["going","maybe","declined"].includes(status)){

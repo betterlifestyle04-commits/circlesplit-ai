@@ -192,6 +192,15 @@ def initialize():
             created TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS tasks_by_event ON event_tasks(event_id);
+        CREATE TABLE IF NOT EXISTS event_agenda (
+            id INTEGER PRIMARY KEY,
+            event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            title TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS agenda_by_event ON event_agenda(event_id,start_time,id);
         CREATE TABLE IF NOT EXISTS participant_invites (
           id INTEGER PRIMARY KEY,
           person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
@@ -242,11 +251,14 @@ def detailed(c, eid):
     people = [dict(x) for x in c.execute(
         "SELECT * FROM people WHERE event_id=? ORDER BY id", (eid,))]
     tasks = [dict(t) for t in c.execute("SELECT id,title,completed FROM event_tasks WHERE event_id=? ORDER BY id",(eid,))]
+    agenda = [dict(slot) for slot in c.execute(
+        "SELECT id,start_time,end_time,title,note FROM event_agenda WHERE event_id=? ORDER BY start_time,id",
+        (eid,))]
     setting = c.execute("SELECT ceiling_cents,reserve_percent FROM event_planning WHERE event_id=?",(eid,)).fetchone()
     planned_total = sum(x["cents"] for x in expenses)
     planning = planning_forecast(planned_total,setting["ceiling_cents"] if setting else None,
                                  setting["reserve_percent"] if setting else 0)
-    return {**event, "expenses": expenses, "people": people, "tasks":tasks, "planning":planning,
+    return {**event, "expenses": expenses, "people": people, "tasks":tasks, "agenda":agenda, "planning":planning,
         "total_cents": sum(x["cents"] for x in expenses),
         "simulated_cents": sum(x["share_cents"] for x in people if x["status"] == "demo_paid"),
         # Verified sandbox funding must come from completed capture-backed payment
@@ -288,6 +300,9 @@ HISTORY_SUMMARIES = {
     "sandbox_order_started":"PayPal sandbox order initiated",
     "sandbox_order_created":"PayPal sandbox order created; not yet captured",
     "sandbox_capture_verified":"PayPal sandbox capture verified",
+    "agenda_added":"Agenda item added",
+    "agenda_updated":"Agenda item updated",
+    "agenda_removed":"Agenda item removed",
     "task_added":"Preparation task added",
     "tasks_added":"Preparation tasks added",
     "task_updated":"Preparation task status changed",
@@ -577,6 +592,14 @@ class BackupPerson(BaseModel):
     weight: int = Field(ge=1,le=10)
 
 
+class BackupAgendaItem(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    start_time: str=Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    end_time: str=Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    title: str=Field(min_length=3,max_length=100)
+    note: str=Field(default="",max_length=160)
+
+
 class BackupTask(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     title: str = Field(min_length=3,max_length=120)
@@ -597,6 +620,7 @@ class BackupEvent(BaseModel):
     expenses: list[BackupExpense] = Field(max_length=BACKUP_EXPENSE_LIMIT)
     people: list[BackupPerson] = Field(max_length=BACKUP_PERSON_LIMIT)
     tasks: list[BackupTask] = Field(max_length=BACKUP_TASK_LIMIT)
+    agenda: list[BackupAgendaItem] = Field(default_factory=list,max_length=20)
     planning: BackupPlanning = Field(default_factory=BackupPlanning)
 
 
@@ -612,7 +636,7 @@ class PlanningBackup(BaseModel):
 
 def validate_planning_backup(backup: PlanningBackup):
     """Validation before any database write; never trust exported JSON."""
-    counts = {"people":0,"expenses":0,"tasks":0}
+    counts = {"people":0,"expenses":0,"tasks":0,"agenda":0}
     for i,event in enumerate(backup.events,1):
         if len(event.name.strip())<3 or len(event.name.strip())>90:
             raise HTTPException(422,f"Event {i}: invalid name")
@@ -632,12 +656,19 @@ def validate_planning_backup(backup: PlanningBackup):
         tasks=[x.title.strip().casefold() for x in event.tasks]
         if len(tasks)!=len(set(tasks)):
             raise HTTPException(422,f"Event {i}: duplicate preparation tasks")
+        ordered_slots=sorted(event.agenda,key=lambda slot:slot.start_time)
+        for index,slot in enumerate(ordered_slots):
+            if len(slot.title.strip())<3 or slot.start_time>=slot.end_time:
+                raise HTTPException(422,f"Event {i}: invalid agenda item or time")
+            if index and ordered_slots[index-1].end_time>slot.start_time:
+                raise HTTPException(422,f"Event {i}: overlapping agenda items")
         if sum(x.cents for x in event.expenses)>10_000_000:
             raise HTTPException(422,f"Event {i}: budget exceeds the demo limit")
         counts["people"]+=len(event.people)
         counts["expenses"]+=len(event.expenses)
         counts["tasks"]+=len(event.tasks)
-    if (counts["people"]>BACKUP_TOTAL_PERSON_LIMIT or
+        counts["agenda"]+=len(event.agenda)
+    if (counts["agenda"]>250 or counts["people"]>BACKUP_TOTAL_PERSON_LIMIT or
         counts["expenses"]>BACKUP_TOTAL_EXPENSE_LIMIT or
         counts["tasks"]>BACKUP_TOTAL_TASK_LIMIT):
         raise HTTPException(422,"Backup exceeds combined event/participant/expense/task limits")
@@ -664,12 +695,15 @@ def export_planning_backup():
                 "SELECT name,weight FROM people WHERE event_id=? ORDER BY id",(eid,))]
             tasks=[{"title":r["title"]} for r in c.execute(
                 "SELECT title FROM event_tasks WHERE event_id=? ORDER BY id",(eid,))]
+            agenda=[dict(slot) for slot in c.execute(
+                "SELECT start_time,end_time,title,note FROM event_agenda WHERE event_id=? ORDER BY start_time,id",
+                (eid,))]
             p=c.execute("SELECT ceiling_cents,reserve_percent FROM event_planning WHERE event_id=?",
                         (eid,)).fetchone()
             events.append({
                 "name":e["name"],"date":e["date"],"note":e["note"],
                 "strategy":e["strategy"],"expenses":expenses,"people":people,
-                "tasks":tasks,
+                "tasks":tasks,"agenda":agenda,
                 "planning":{"ceiling_cents":p["ceiling_cents"] if p else None,
                             "reserve_percent":p["reserve_percent"] if p else 0}
             })
@@ -724,6 +758,11 @@ async def restore_planning_backup(request: Request):
                     "INSERT INTO event_tasks(event_id,title,completed,created) VALUES(?,?,0,?)",
                     (eid,task.title.strip(),now())
                 )
+            for slot in data.agenda:
+                c.execute(
+                    "INSERT INTO event_agenda(event_id,start_time,end_time,title,note) VALUES(?,?,?,?,?)",
+                    (eid,slot.start_time,slot.end_time,slot.title.strip(),slot.note.strip())
+                )
             if data.planning.ceiling_cents is not None or data.planning.reserve_percent:
                 c.execute(
                     """INSERT INTO event_planning(event_id,ceiling_cents,reserve_percent,updated_at)
@@ -734,7 +773,7 @@ async def restore_planning_backup(request: Request):
                 recalculate(c,eid,data.strategy)
             record_history(c,eid,"planning_restored",actor="system",details={
                 "participants":len(data.people),"expenses":len(data.expenses),
-                "tasks":len(data.tasks)
+                "tasks":len(data.tasks),"agenda":len(data.agenda)
             })
             ids.append(eid)
         c.execute("INSERT INTO planning_restores(fingerprint,restored_at,event_count) VALUES(?,?,?)",
@@ -1084,6 +1123,9 @@ def clone_event(eid: int, data: CloneEventInput):
             "SELECT name,weight FROM people WHERE event_id=? ORDER BY id", (eid,)
         ).fetchall() if data.include_people else []
         task_names = [t["title"] for t in c.execute("SELECT title FROM event_tasks WHERE event_id=? ORDER BY id",(eid,))]
+        agenda_slots = c.execute(
+            "SELECT start_time,end_time,title,note FROM event_agenda WHERE event_id=? ORDER BY start_time,id",
+            (eid,)).fetchall()
         planning_setting=c.execute("SELECT ceiling_cents,reserve_percent FROM event_planning WHERE event_id=?",(eid,)).fetchone()
         if len(people) > 200 or len(expenses) > 200:
             raise HTTPException(422, "Template exceeds demo limits")
@@ -1099,6 +1141,10 @@ def clone_event(eid: int, data: CloneEventInput):
                       (new_id,person["name"],person["weight"]))
         for task_title in task_names:
             c.execute("INSERT INTO event_tasks(event_id,title,created) VALUES(?,?,?)",(new_id,task_title,now()))
+        for slot in agenda_slots:
+            c.execute(
+                "INSERT INTO event_agenda(event_id,start_time,end_time,title,note) VALUES(?,?,?,?,?)",
+                (new_id,slot["start_time"],slot["end_time"],slot["title"],slot["note"]))
         if planning_setting:
             c.execute("INSERT INTO event_planning(event_id,ceiling_cents,reserve_percent,updated_at) VALUES(?,?,?,?)",
                       (new_id,planning_setting["ceiling_cents"],planning_setting["reserve_percent"],now()))
@@ -1110,8 +1156,98 @@ def clone_event(eid: int, data: CloneEventInput):
         })
     return {"id":new_id,"source_event_id":eid,
             "copied_expenses":len(expenses),"copied_people":len(people),"copied_tasks":len(task_names),
-            "planning_copied":bool(planning_setting),
+            "planning_copied":bool(planning_setting),"agenda_copied":len(agenda_slots),
             "approvals_reset":True,"payments_copied":False}
+
+
+# Times are event-location wall-clock times on the event date. No inferred
+# timezone, streaming, notification or financial actions are performed.
+AGENDA_LIMIT=20
+AGENDA_TIME_PATTERN=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+
+
+class AgendaInput(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    start_time: str=Field(pattern=AGENDA_TIME_PATTERN)
+    end_time: str=Field(pattern=AGENDA_TIME_PATTERN)
+    title: str=Field(min_length=3,max_length=100)
+    note: str=Field(default="",max_length=160)
+
+
+def validated_agenda_slot(data: AgendaInput):
+    title=data.title.strip()
+    note=data.note.strip()
+    if len(title)<3:
+        raise HTTPException(422,"Agenda title must contain at least 3 characters")
+    if data.start_time>=data.end_time:
+        raise HTTPException(422,"Agenda end time must be later on the same day")
+    return title,note
+
+
+def ensure_agenda_slot_available(c,eid,start,end,except_id=None):
+    overlap=c.execute(
+        """SELECT 1 FROM event_agenda WHERE event_id=?
+           AND start_time<? AND end_time>? AND (? IS NULL OR id!=?)
+           LIMIT 1""",(eid,end,start,except_id,except_id)
+    ).fetchone()
+    if overlap:
+        raise HTTPException(409,"Agenda time conflicts with an existing item")
+
+
+@app.post("/api/events/{eid}/agenda")
+def create_agenda_slot(eid:int,data:AgendaInput):
+    title,note=validated_agenda_slot(data)
+    with db() as c:
+        require_event(c,eid)
+        if c.execute("SELECT COUNT(*) FROM event_agenda WHERE event_id=?",(eid,)).fetchone()[0]>=AGENDA_LIMIT:
+            raise HTTPException(422,"Maximum 20 agenda items per event")
+        ensure_agenda_slot_available(c,eid,data.start_time,data.end_time)
+        slot_id=c.execute(
+            "INSERT INTO event_agenda(event_id,start_time,end_time,title,note) VALUES(?,?,?,?,?)",
+            (eid,data.start_time,data.end_time,title,note)
+        ).lastrowid
+        record_history(c,eid,"agenda_added",details={"agenda_id":slot_id})
+    return {"id":slot_id,"start_time":data.start_time,"end_time":data.end_time,
+            "title":title,"note":note,"financial_records_changed":False}
+
+
+@app.put("/api/events/{eid}/agenda/{slot_id}")
+def update_agenda_slot(eid:int,slot_id:int,data:AgendaInput):
+    title,note=validated_agenda_slot(data)
+    with db() as c:
+        require_event(c,eid)
+        previous=c.execute(
+            "SELECT start_time,end_time,title,note FROM event_agenda WHERE event_id=? AND id=?",
+            (eid,slot_id)
+        ).fetchone()
+        if not previous:
+            raise HTTPException(404,"Agenda item not found")
+        if all(previous[k]==v for k,v in {
+            "start_time":data.start_time,"end_time":data.end_time,
+            "title":title,"note":note
+        }.items()):
+            return {"ok":True,"changed":False,"financial_records_changed":False}
+        ensure_agenda_slot_available(c,eid,data.start_time,data.end_time,slot_id)
+        c.execute(
+            """UPDATE event_agenda SET start_time=?,end_time=?,title=?,note=?
+               WHERE event_id=? AND id=?""",
+            (data.start_time,data.end_time,title,note,eid,slot_id)
+        )
+        record_history(c,eid,"agenda_updated",details={"agenda_id":slot_id})
+    return {"ok":True,"changed":True,"financial_records_changed":False,
+            "rsvps_changed":False,"approvals_changed":False}
+
+
+@app.delete("/api/events/{eid}/agenda/{slot_id}")
+def delete_agenda_slot(eid:int,slot_id:int):
+    with db() as c:
+        require_event(c,eid)
+        deleted=c.execute("DELETE FROM event_agenda WHERE event_id=? AND id=?",
+                          (eid,slot_id))
+        if deleted.rowcount!=1:
+            raise HTTPException(404,"Agenda item not found")
+        record_history(c,eid,"agenda_removed",details={"agenda_id":slot_id})
+    return {"ok":True,"financial_records_changed":False}
 
 
 class TaskInput(BaseModel):
@@ -1602,6 +1738,10 @@ def participant_overview(request: Request):
         return {
             "event_name":invitation["event_name"],
             "event_date":invitation["event_date"],
+            "agenda":[dict(row) for row in c.execute(
+                """SELECT start_time,end_time,title,note
+                   FROM event_agenda WHERE event_id=? ORDER BY start_time,id""",
+                (invitation["event_id"],))],
             "participant":invitation["person_name"],
             "share_cents":invitation["share_cents"],
             "approved":bool(invitation["approved"]),

@@ -245,6 +245,24 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
        <form class="formgrid" id="new-form"><div class="field full"><label for="new-name">Event name</label><input id="new-name" required minlength="3" placeholder="e.g. Community badminton"></div><div class="field full"><label for="new-date">Date</label><input id="new-date" type="date" required></div><div class="field full"><label for="new-note">Description</label><input id="new-note" placeholder="What are you organizing?"></div><button class="btn primary full" type="submit">Create new event</button></form>
      </div>
      <div class="card"><div class="section-heading"><h2>Event preparation</h2><span class="pill neutral" id="task-counter">0 / 0</span></div><p class="notice">Checklist changes do not affect approvals or payments.</p><div class="progress" style="margin:13px 0"><div class="fill" id="task-meter" style="width:0%"></div></div><div id="task-rows"></div><form id="task-form" class="inlineform" style="margin-top:13px"><input id="task-title" required minlength="3" maxlength="120" placeholder="Preparation task" aria-label="New task"><button class="btn secondary">Add</button></form><div class="space"></div><button class="btn small" onclick="addStarterTasks()">＋ Starter checklist</button><button class="btn small secondary" style="margin-left:8px" onclick="switchTab('assistant');el('ai-plan-note').focus()">✦ Suggest tasks with AI</button></div>
+      <div class="card" id="agenda-card">
+       <div class="section-heading"><h2>Event run of show</h2><span class="pill neutral" id="agenda-count">0 items</span></div>
+       <p class="notice">Add up to 20 non-overlapping same-day activities. Times are local to the event location (no timezone conversion). Agenda updates are visible through valid participant links, but no messages are sent automatically.</p>
+       <div id="agenda-list" aria-live="polite"><div class="empty">No schedule set yet.</div></div>
+       <form id="agenda-form" style="margin-top:15px">
+        <div class="formgrid">
+         <div class="field"><label for="agenda-start">Start time</label><input id="agenda-start" type="time" required value="09:00"></div>
+         <div class="field"><label for="agenda-end">End time</label><input id="agenda-end" type="time" required value="10:00"></div>
+         <div class="field full"><label for="agenda-title">Activity title</label><input id="agenda-title" required minlength="3" maxlength="100" placeholder="Welcome, game, break…"></div>
+         <div class="field full"><label for="agenda-note">Optional details shared with invited participants</label><textarea id="agenda-note" maxlength="160" rows="2" placeholder="Arrival instructions, activity details…"></textarea></div>
+        </div>
+        <div class="row wrap" style="margin-top:12px">
+         <button class="btn primary" type="submit" id="agenda-submit">Add activity</button>
+         <button class="btn secondary" id="agenda-cancel" type="button" style="display:none" onclick="resetAgendaEditor()">Cancel edit</button>
+        </div>
+       </form>
+       <p class="small muted" style="margin-top:12px">Avoid personal details in the agenda: every person with a valid private invitation can see these activities. Changes do not alter budgets, payment records, consent or RSVP status.</p>
+      </div>
       <div class="card"><div class="card-title">Why transparent splitting?</div><p class="muted small">Money is calculated in integer cents so the shares always sum to exactly the total budget, even when a total cannot be divided evenly. No hidden rounding discrepancies.</p><div class="capsule small"><b>Approval is required:</b> no sandbox checkout can be created until the individual approves their assigned share.</div></div>
     </div>
    </div>
@@ -435,6 +453,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/templates.js"></script>
 <script src="/static/editing.js"></script>
 <script src="/static/event-details.js"></script>
+<script src="/static/schedule.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -443,7 +462,7 @@ let directoryQuery="",directoryFilter="all",directorySort="soonest";
 let historyCache=null;
 let closeoutCache=null;
 let selectedPlanningBackup=null;
-let expenseEditing=null,participantEditing=null,eventDetailsEditing=null;
+let expenseEditing=null,participantEditing=null,eventDetailsEditing=null,editingAgendaId=null;
 let eventTemplates=null,selectedTemplateKey=null,templateRequestKey=null,templatesRequestPending=false;
 let eventId = null, currentTab = "overview", proposal = null, proposalEventId=null, applyingProposal=false;
 let taskDraft=null,taskDraftEventId=null,applyingTaskDraft=false;
@@ -750,7 +769,7 @@ function explainMember(id){
  }catch(err){el("split-explanation").textContent="Unable to explain this share: "+err.message}
 }
 function focusNew(){setTimeout(function(){el("new-name").focus()},100)}
-function selectEvent(id){eventId=Number(id);cancelEventDetailsEditor();cancelExpenseEditor();cancelParticipantEditor();clearCloseout();el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();render()}
+function selectEvent(id){eventId=Number(id);resetAgendaEditor();cancelEventDetailsEditor();cancelExpenseEditor();cancelParticipantEditor();clearCloseout();el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();render()}
 async function cloneSelectedEvent(){
  const e=event();if(!e)return;
  const name=window.prompt("New event name (expenses and participants will be copied, payments will not)",("Copy of "+e.name).slice(0,90));
@@ -865,6 +884,70 @@ async function addStarterTasks(){const e=event();if(!e)return;
  try{const x=await post("/api/events/"+e.id+"/tasks/starter");await load();notice(x.added+" preparation tasks added.",false)}
  catch(err){notice(err.message,true)}
 }
+function resetAgendaEditor(){
+ editingAgendaId=null;
+ el("agenda-form").reset();
+ el("agenda-start").value="09:00";el("agenda-end").value="10:00";
+ el("agenda-submit").textContent="Add activity";
+ el("agenda-cancel").style.display="none";
+}
+function showAgenda(e){
+ const items=agendaSorted(e?.agenda||[]);
+ el("agenda-count").textContent=items.length+" / 20 items";
+ el("agenda-submit").disabled=!e;
+ el("agenda-list").innerHTML=items.length?items.map(slot=>
+  '<div style="padding:10px 0;border-bottom:1px solid #edf2f1">'+
+   '<div class="row between"><div><b>'+safe(slot.start_time)+'–'+safe(slot.end_time)+
+    ' · '+safe(slot.title)+'</b>'+
+    (slot.note?'<div class="small muted">'+safe(slot.note)+'</div>':'')+'</div>'+
+   '<div class="row wrap"><button type="button" class="btn small secondary" onclick="editAgenda('+slot.id+')">Edit</button>'+
+   '<button type="button" class="btn small ghost" onclick="deleteAgenda('+slot.id+')" aria-label="Remove activity">✕</button></div></div></div>'
+ ).join(""):'<p class="notice">No activities added. Use the form below to prepare a run of show.</p>';
+}
+function editAgenda(slotId){
+ const e=event(),slot=e?.agenda?.find(x=>x.id===slotId);
+ if(!slot){notice("Agenda item no longer exists. Refresh the event.",true);return;}
+ editingAgendaId=slotId;
+ el("agenda-start").value=slot.start_time;el("agenda-end").value=slot.end_time;
+ el("agenda-title").value=slot.title;el("agenda-note").value=slot.note;
+ el("agenda-submit").textContent="Save activity changes";
+ el("agenda-cancel").style.display="inline-flex";
+ el("agenda-title").focus();
+}
+async function saveAgenda(evt){
+ evt.preventDefault();
+ const e=event();if(!e){notice("Select an event first.",true);return;}
+ const id=editingAgendaId,save=el("agenda-submit");
+ let data;
+ try{
+  data=agendaInput(el("agenda-title").value,el("agenda-start").value,
+   el("agenda-end").value,el("agenda-note").value);
+  if(agendaOverlap(e.agenda,data.start_time,data.end_time,id))
+   throw Error("This time conflicts with another activity.");
+ }catch(err){notice("Agenda item not saved: "+err.message,true);return;}
+ save.disabled=true;
+ try{
+  if(id===null){
+   await post("/api/events/"+e.id+"/agenda",data);
+  }else{
+   await request("/api/events/"+e.id+"/agenda/"+id,{
+    method:"PUT",body:JSON.stringify(data)
+   });
+  }
+  resetAgendaEditor();await load();
+  notice("Agenda updated. Participants can see it through valid private links; tell them about changes manually.",false);
+ }catch(err){notice("Agenda item not saved: "+err.message+". Your entries were kept.",true);}
+ finally{save.disabled=false;}
+}
+async function deleteAgenda(slotId){
+ const e=event();
+ if(!e||!window.confirm("Remove this activity? No payment or RSVP is changed."))return;
+ try{
+  await request("/api/events/"+e.id+"/agenda/"+slotId,{method:"DELETE"});
+  resetAgendaEditor();await load();
+  notice("Activity removed. Notify participants of schedule changes manually.",false);
+ }catch(err){notice("Unable to remove activity: "+err.message,true);}
+}
 function showTasks(e){
  const tasks=e?.tasks||[],p=taskProgress(tasks);
  el("task-counter").textContent=p.done+" / "+p.total+" completed";el("task-meter").style.width=p.percent+"%";
@@ -970,7 +1053,7 @@ async function previewPlanningBackup(){
   field.innerHTML=
    '<b>Valid planning-only format (local preview)</b>'+
    '<div style="margin-top:8px">'+summary.events+' events · '+summary.people+
-   ' participant records · '+summary.expenses+' expenses · '+summary.tasks+' preparation tasks</div>'+
+   ' participant records · '+summary.expenses+' expenses · '+summary.tasks+' preparation tasks · '+summary.agenda+' agenda items</div>'+
    '<div>Combined planned budget: <b>'+money(summary.plannedCents)+'</b> (fictional)</div>'+
    '<p class="small muted" style="margin:8px 0 0">The server will independently validate the file. All restored events will be new, unpaid and unapproved, with fresh IDs.</p>';
   el("backup-restore").disabled=false;
@@ -1275,13 +1358,13 @@ function render(){
  el("ai-indicator").textContent=state.ai_configured?"AI key set · verify with test":"AI not connected";
   const scenarioTarget=el("scenario-target");if(scenarioTarget)scenarioTarget.textContent=e?"Current event: "+e.name+" · "+money(e.total_cents)+" · "+e.people.length+" participants":"No event selected. Create one in Events.";
 
- if(!e){renderPlanning(null);renderEventCategories(null);el("rsvp-summary").textContent="No event selected.";showTasks(null);el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
+ if(!e){renderPlanning(null);renderEventCategories(null);el("rsvp-summary").textContent="No event selected.";showAgenda(null);showTasks(null);el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
  renderPlanning(e);
  el("event-detail").innerHTML='<div class="detail-head"><div><div class="muted small">'+safe(e.date)+'</div><h3 style="margin:4px 0">'+safe(e.name)+'</h3><div class="muted small">'+safe(e.note)+'</div></div><div style="text-align:right"><div class="muted small">Total planned budget</div><div style="font-size:27px;font-weight:850">'+money(e.total_cents)+'</div></div></div>';
  el("equal").classList.toggle("active",e.strategy==="equal");el("weighted").classList.toggle("active",e.strategy==="weighted");
  el("expense-rows").innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Expense</th><th>Category</th><th style="text-align:right">Amount</th><th>Actions</th></tr></thead><tbody>'+e.expenses.map(function(x){return '<tr><td>'+safe(x.title)+'</td><td><select class="select" aria-label="Category for '+safe(x.title)+'" onchange="updateExpenseCategory('+x.id+',this.value)">'+categoryOptions(x.category)+'</select></td><td style="text-align:right;font-weight:700">'+money(x.cents)+'</td><td><button class="btn small secondary" type="button" onclick="openExpenseEditor('+x.id+')" aria-label="Edit '+safe(x.title)+'">Edit</button> <button class="btn small ghost" aria-label="Remove expense" onclick="removeExpense('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table></div>';
  renderEventCategories(e);
- el("people-count").textContent=e.people.length+" members";showTasks(e);
+ el("people-count").textContent=e.people.length+" members";showTasks(e);showAgenda(e);
  el("people-rows").innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Name</th><th>Weight</th><th>Share</th><th>Actions</th></tr></thead><tbody>'+e.people.map(function(x){return '<tr><td>'+safe(x.name)+'</td><td>'+x.weight+'</td><td style="font-weight:750">'+money(x.share_cents)+'</td><td><button class="btn small secondary" type="button" onclick="openParticipantEditor('+x.id+')" aria-label="Edit '+safe(x.name)+'">Edit</button> <button class="btn small secondary" type="button" onclick="explainMember('+x.id+')" aria-label="Explain '+safe(x.name)+' share">Explain</button> <button class="btn small ghost" aria-label="Remove participant" onclick="removePerson('+x.id+')">✕</button></td></tr>'}).join("")+'</tbody></table></div>';
  el("contrib-heading").textContent=e.name;
   const attendance=rsvpStats(e.people);
@@ -1370,6 +1453,7 @@ el("ai-plan-form").addEventListener("submit",generateTaskPlan);
 el("bulk-people-form").addEventListener("submit",importParticipants);
 el("scenario-form").addEventListener("submit",previewScenario);
 ["scenario-adjustment","scenario-people","scenario-strategy"].forEach(function(id){el(id).addEventListener("input",resetScenario);});
+el("agenda-form").addEventListener("submit",saveAgenda);
 el("task-form").addEventListener("submit",createTask);el("backup-file").addEventListener("change",previewPlanningBackup);
 el("planning-form").addEventListener("submit",savePlanning);
 el("planning-ceiling").addEventListener("input",()=>showPlanningForecast(false));

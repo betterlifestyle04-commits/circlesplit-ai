@@ -2263,3 +2263,204 @@ def test_event_details_requires_owner_not_participant_link(client,monkeypatch):
     assert client.put("/api/events/987654/details",json={
         **data,"expected_name":"anything"
     },auth=auth).status_code==404
+
+
+def test_event_agenda_crud_is_read_only_for_financial_and_consent_state(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    client.post(f"/api/events/{eid}/people/{pid}/approve")
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    headers={"Authorization":"Bearer "+token}
+    assert client.post("/api/participant/rsvp",json={"status":"going"},
+                       headers=headers).status_code==200
+    before=initial(client)
+    route=f"/api/events/{eid}/agenda"
+    later=client.post(route,json={
+        "start_time":"10:00","end_time":"11:00",
+        "title":" Group match ","note":" Court two "
+    })
+    assert later.status_code==200,later.text
+    assert later.json()["financial_records_changed"] is False
+    earlier=client.post(route,json={
+        "start_time":"09:00","end_time":"10:00",
+        "title":"Welcome and warmup","note":"Entrance"
+    })
+    assert earlier.status_code==200,earlier.text
+    slot_id=later.json()["id"]
+    after=initial(client)
+    assert after["people"]==before["people"]
+    assert after["expenses"]==before["expenses"]
+    assert after["total_cents"]==before["total_cents"]
+    assert after["sandbox_cents"]==before["sandbox_cents"]
+    assert [x["start_time"] for x in after["agenda"]]==["09:00","10:00"]
+    private=client.get("/api/participant/overview",headers=headers)
+    assert private.status_code==200,private.text
+    agenda=private.json()["agenda"]
+    assert agenda==[
+        {"start_time":"09:00","end_time":"10:00","title":"Welcome and warmup","note":"Entrance"},
+        {"start_time":"10:00","end_time":"11:00","title":"Group match","note":"Court two"},
+    ]
+    assert "people" not in private.json()
+    assert "person_id" not in str(private.json())
+    assert all("id" not in slot for slot in agenda)
+    modified=client.put(f"{route}/{slot_id}",json={
+        "start_time":"10:30","end_time":"11:30",
+        "title":" Final match ","note":" Team briefing "
+    })
+    assert modified.status_code==200,modified.text
+    assert modified.json()["rsvps_changed"] is False
+    assert modified.json()["approvals_changed"] is False
+    assert client.get("/api/participant/overview",headers=headers).json()["agenda"][1]["title"]=="Final match"
+    assert initial(client)["people"]==before["people"]
+    assert client.delete(f"{route}/{earlier.json()['id']}").status_code==200
+    assert len(initial(client)["agenda"])==1
+    assert initial(client)["approved"]==before["approved"]
+    assert client.get("/api/participant/overview",headers=headers).status_code==200
+    history=client.get(f"/api/events/{eid}/history").json()["entries"]
+    assert [x["action"] for x in history[:4]]==[
+        "agenda_removed","agenda_updated","agenda_added","agenda_added"
+    ]
+    assert token not in str(history)
+    assert "Team briefing" not in str(history)
+
+
+def test_event_agenda_validation_overlap_and_noop(client):
+    e=initial(client);eid=e["id"];path=f"/api/events/{eid}/agenda"
+    original=client.get("/api/state").json()
+    for start,end in [("10:00","10:00"),("11:00","09:00"),
+                      ("24:00","23:59"),("10:00","10:60")]:
+        res=client.post(path,json={
+            "start_time":start,"end_time":end,"title":"Meeting"
+        })
+        assert res.status_code==422,(start,end,res.text)
+    assert client.post(path,json={
+        "start_time":"09:00","end_time":"10:00","title":"Hi"
+    }).status_code==422
+    assert client.post(path,json={
+        "start_time":"09:00","end_time":"10:00","title":"Meeting",
+        "capture_id":"forbidden"
+    }).status_code==422
+    assert client.get("/api/state").json()==original
+    r=client.post(path,json={
+        "start_time":"09:00","end_time":"10:00","title":"Welcome"
+    })
+    assert r.status_code==200
+    sid=r.json()["id"]
+    assert client.post(path,json={
+        "start_time":"09:30","end_time":"10:30","title":"Overlap"
+    }).status_code==409
+    assert client.post(path,json={
+        "start_time":"10:00","end_time":"11:00","title":"Adjacent"
+    }).status_code==200
+    history_before=client.get(f"/api/events/{eid}/history").json()["total_actions"]
+    assert client.put(f"{path}/{sid}",json={
+        "start_time":"09:00","end_time":"10:00","title":"Welcome","note":""
+    }).json()["changed"] is False
+    assert client.get(f"/api/events/{eid}/history").json()["total_actions"]==history_before
+    assert client.put(f"{path}/{sid}",json={
+        "start_time":"09:15","end_time":"10:15","title":"Welcome"
+    }).status_code==409
+    assert client.get(f"/api/events/{eid}/history").json()["total_actions"]==history_before
+    assert client.delete(f"{path}/999999").status_code==404
+    assert client.put(f"{path}/999999",json={
+        "start_time":"12:00","end_time":"12:30","title":"Missing"
+    }).status_code==404
+    assert len(initial(client)["agenda"])==2
+
+
+def test_agenda_updates_possible_after_checkout_lock_without_payment_mutation(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    before=initial(client)
+    slot=client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"18:00","end_time":"19:00","title":"Play volleyball"
+    })
+    assert slot.status_code==200,slot.text
+    changed=initial(client)
+    assert changed["people"]==before["people"]
+    assert changed["total_cents"]==before["total_cents"]
+    assert changed["simulated_cents"]==1100
+    assert changed["sandbox_cents"]==0
+    assert changed["agenda"][0]["title"]=="Play volleyball"
+
+
+def test_agenda_scope_and_organizer_authorization(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    data={"start_time":"09:00","end_time":"09:30","title":"Private event briefing"}
+    another=client.post("/api/events",json={"name":"Different event","date":"2026-12-10"}).json()["id"]
+    item=client.post(f"/api/events/{eid}/agenda",json=data).json()
+    assert client.put(f"/api/events/{another}/agenda/{item['id']}",json=data).status_code==404
+    assert client.delete(f"/api/events/{another}/agenda/{item['id']}").status_code==404
+    assert client.get("/api/participant/overview",headers={
+        "Authorization":"Bearer "+token
+    }).json()["agenda"][0]["title"]=="Private event briefing"
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","long-agenda-test-owner-pass")
+    route=f"/api/events/{eid}/agenda"
+    assert client.post(route,json=data).status_code==401
+    assert client.post(route,json=data,headers={
+        "Authorization":"Bearer "+token
+    }).status_code==401
+    assert client.delete(f"{route}/{item['id']}",headers={
+        "Authorization":"Bearer "+token
+    }).status_code==401
+    assert client.post(route,json={
+        "start_time":"10:00","end_time":"11:00","title":"Organizer add"
+    },auth=("judge","long-agenda-test-owner-pass")).status_code==200
+
+
+def test_agenda_clone_and_planning_backup_preserve_schedule_only(client):
+    e=initial(client);eid=e["id"]
+    for start,end,title in [("10:00","10:30","Welcome"),
+                            ("10:30","11:00","Match")]:
+        assert client.post(f"/api/events/{eid}/agenda",json={
+            "start_time":start,"end_time":end,"title":title,"note":"Public"
+        }).status_code==200
+    original=initial(client)
+    cloned=client.post(f"/api/events/{eid}/clone",json={"name":"Repeat event"})
+    assert cloned.status_code==200,cloned.text
+    assert cloned.json()["agenda_copied"]==2
+    copy=next(x for x in client.get("/api/state").json()["events"] if x["id"]==cloned.json()["id"])
+    assert [{k:v for k,v in slot.items() if k!="id"} for slot in copy["agenda"]]==[
+        {k:v for k,v in slot.items() if k!="id"} for slot in original["agenda"]]
+    assert copy["sandbox_cents"]==0 and all(not p["approved"] for p in copy["people"])
+    backup=client.get("/api/planning-backup")
+    assert backup.status_code==200,backup.text
+    draft=next(e for e in backup.json()["events"] if e["name"]==original["name"])
+    assert draft["agenda"]==[
+        {"start_time":"10:00","end_time":"10:30","title":"Welcome","note":"Public"},
+        {"start_time":"10:30","end_time":"11:00","title":"Match","note":"Public"}
+    ]
+    payload=backup.json()
+    res=client.post("/api/planning-backup/restore",json=payload)
+    assert res.status_code==200,res.text
+    assert res.json()["restored_counts"]["agenda"]==4
+    restored_id=res.json()["created_event_ids"][0]
+    restored=next(x for x in client.get("/api/state").json()["events"] if x["id"]==restored_id)
+    assert len(restored["agenda"])==2
+    assert restored["approved"]==0 and restored["sandbox_cents"]==0
+    assert all(p["status"]=="unpaid" for p in restored["people"])
+
+
+def test_legacy_v1_planning_backup_without_agenda_still_restores(client):
+    backup=client.get("/api/planning-backup").json()
+    for event in backup["events"]:
+        del event["agenda"]
+    restored=client.post("/api/planning-backup/restore",json=backup)
+    assert restored.status_code==200,restored.text
+    new_id=restored.json()["created_event_ids"][0]
+    plan=next(e for e in client.get("/api/state").json()["events"] if e["id"]==new_id)
+    assert plan["agenda"]==[]
+
+
+def test_planning_backup_rejects_overlapping_agenda_before_writes(client):
+    backup=client.get("/api/planning-backup").json()
+    backup["events"][0]["agenda"]=[
+        {"start_time":"12:00","end_time":"13:00","title":"Session one","note":""},
+        {"start_time":"12:30","end_time":"13:30","title":"Session two","note":""}
+    ]
+    before=client.get("/api/state").json()
+    res=client.post("/api/planning-backup/restore",json=backup)
+    assert res.status_code==422,res.text
+    assert client.get("/api/state").json()==before

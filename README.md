@@ -49,6 +49,18 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Event run of show & private participant agenda
+
+- The protected **Events → Event run of show** card supports up to **20 activities per event**, with 24-hour start/end times, a short title, and optional participant-visible details. Organizers can add, edit or remove slots. The interface and backend reject invalid times, overnight entries and overlapping activities. Adjacent slots are permitted.
+- Times are **event-location wall-clock time**, not dynamically converted across timezones; the organizer is responsible for making the event location/timezone clear to attendees. This is a single-day agenda tied to the event date, not an actual booking or notification.
+- Participants with a **valid, unexpired, nonrevoked private invitation link** see only the event agenda, their own share and their own RSVP/approval status. The private page has a manual **Refresh** button. No other participants' identities, shares, organizer tasks or payments are returned.
+- Agenda details are intended to be shared with all invitees. Organizers must not enter secrets or sensitive participant information. The participant page uses safe text rendering for all organizer-entered content.
+- **Financial separation:** changing an agenda item never recalculates a budget, alters a payment or clears approval/RSVP responses. Logistics can change after sandbox checkout starts, but **the organizer must manually inform participants**. The system does not send emails, SMS, push alerts or amended calendar invitations.
+- Agenda entries are recorded in privacy-limited event history without storing their free-text contents. Event duplication copies the agenda to the new unpaid plan.
+- Planning backup v1 remains backwards compatible: old JSON files without an \`agenda\` field still restore; new exported backups include validated agenda items and restore them to fresh events. Agenda items contain no invitation or payment history.
+- Python and Node tests cover validation, strict access separation, same-event scoping, overlap handling, exact-cent/payment invariants, invitation-only visibility, backup compatibility and cloning.
+- As elsewhere, the database is temporary on Render Free. The new feature is a sandbox prototype, not a production calendar or messaging service.
+
 ## Guarded event detail editing and stale-change protection
 
 - The protected **Events** page now provides **Edit event details** for the current event's name, calendar date and description. The editor preserves typed values on server errors and asks for confirmation before meaningful changes.

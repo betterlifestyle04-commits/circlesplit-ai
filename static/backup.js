@@ -2,9 +2,11 @@
 /* A local preflight only. Server validation is authoritative. */
 const BACKUP_ALLOWED={
  root:["app","kind","schema_version","currency","exported_at","events"],
- event:["name","date","note","strategy","expenses","people","tasks","planning"],
+ event:["name","date","note","strategy","expenses","people","tasks","agenda","planning"],
  expense:["title","cents","category"],
- person:["name","weight"],task:["title"],planning:["ceiling_cents","reserve_percent"]
+ person:["name","weight"],task:["title"],
+ agenda:["start_time","end_time","title","note"],
+ planning:["ceiling_cents","reserve_percent"]
 };
 function backupRecord(o,allowed,label){
  if(!o||Array.isArray(o)||typeof o!=="object")throw Error(label+" must be an object.");
@@ -35,7 +37,7 @@ function inspectPlanningBackup(data){
  backupString(data.exported_at,10,45,"Export timestamp");
  if(!Array.isArray(data.events)||!data.events.length||data.events.length>25)
   throw Error("Backup must contain 1–25 events.");
- let people=0,expenses=0,tasks=0,plannedCents=0;
+ let people=0,expenses=0,tasks=0,agenda=0,plannedCents=0;
  for(const [i,e] of data.events.entries()){
   const label="Event "+(i+1);
   backupRecord(e,BACKUP_ALLOWED.event,label);
@@ -46,7 +48,8 @@ function inspectPlanningBackup(data){
   if(!["equal","weighted"].includes(e.strategy))throw Error(label+": unknown split strategy.");
   if(!Array.isArray(e.expenses)||e.expenses.length>200||
      !Array.isArray(e.people)||e.people.length>200||
-     !Array.isArray(e.tasks)||e.tasks.length>40)
+     !Array.isArray(e.tasks)||e.tasks.length>40||
+     (e.agenda!==undefined&&(!Array.isArray(e.agenda)||e.agenda.length>20)))
    throw Error(label+": too many expenses, participants or tasks.");
   const names=new Set(),taskNames=new Set();
   let total=0;
@@ -70,14 +73,33 @@ function inspectPlanningBackup(data){
    if(taskNames.has(key))throw Error(label+": duplicate task names.");
    taskNames.add(key);
   }
+  const slots=e.agenda||[];
+  const ordered=[];
+  for(const item of slots){
+   backupRecord(item,BACKUP_ALLOWED.agenda,"Agenda item");
+   backupString(item.title,3,100,"Agenda title");
+   backupString(item.note,0,160,"Agenda note");
+   for(const key of ["start_time","end_time"]){
+    if(typeof item[key]!=="string"||!/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(item[key]))
+     throw Error(label+": invalid agenda time.");
+   }
+   if(item.start_time>=item.end_time)throw Error(label+": agenda end time must be later.");
+   ordered.push(item);
+  }
+  ordered.sort((a,b)=>a.start_time.localeCompare(b.start_time));
+  for(let k=1;k<ordered.length;k++){
+   if(ordered[k-1].end_time>ordered[k].start_time)
+    throw Error(label+": overlapping agenda items.");
+  }
   backupRecord(e.planning,BACKUP_ALLOWED.planning,"Planning target");
   if(e.planning.ceiling_cents!==null)
    backupInteger(e.planning.ceiling_cents,1,10000000,"Spending ceiling");
   backupInteger(e.planning.reserve_percent,0,50,"Reserve percentage");
-  people+=e.people.length;expenses+=e.expenses.length;tasks+=e.tasks.length;plannedCents+=total;
+  people+=e.people.length;expenses+=e.expenses.length;tasks+=e.tasks.length;
+  agenda+=slots.length;plannedCents+=total;
  }
- if(people>1000||expenses>500||tasks>500)throw Error("Backup exceeds combined record limits.");
- return {events:data.events.length,people,expenses,tasks,plannedCents};
+ if(people>1000||expenses>500||tasks>500||agenda>250)throw Error("Backup exceeds combined record limits.");
+ return {events:data.events.length,people,expenses,tasks,agenda,plannedCents};
 }
 if(typeof module!=="undefined"&&module.exports)
  module.exports={inspectPlanningBackup,backupDate};
