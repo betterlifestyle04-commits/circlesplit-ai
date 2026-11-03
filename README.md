@@ -49,6 +49,19 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Event History & Integrity (sandbox-only)
+
+The protected organizer workspace now includes **History & checks**, with a chronological record of key operations and a read-only consistency report for the currently selected fictional event.
+
+- Records event creation/duplication; expense and allocation changes; participant imports, approvals, invitations and RSVP responses; checklist actions; simulated contributions; PayPal sandbox order creation and *verified* captures.
+- Entries use **fixed descriptions and restricted metadata** (IDs, counts, cents, enum states) and do **not** contain participant names, invitation secrets, API credentials, PayPal order IDs, capture IDs, or webhook IDs. The workspace allows a CSV download of this limited history.
+- The consistency report checks exact-cent allocation totals, missing participants, inconsistent local completed-capture statuses, incomplete capture identifiers, payment amount mismatches, unexpected simulated/payment conflicts, duplicate orders and declined-but-unpaid approvals.
+- Pending sandbox checkout orders are displayed separately as **pending**, not as captured payments or necessarily as consistency errors.
+- Capture history records are emitted only once when a payment transitions to `completed` in local SQLite. Verified webhook replay or repeated capture calls do not create duplicate completion entries. Failed mutations never add an audit entry because changes and history use the same SQLite transaction.
+- **Not tamper-proof.** This is a limited in-database history, not a production financial audit log. Records from before the feature are not backfilled and are **not durable** on Render Free's ephemeral SQLite.
+- **Not real-time provider reconciliation.** The consistency report checks the current **local** demo database. It does not call PayPal and cannot prove that real or sandbox funds moved outside the verified integration test.
+- Automated Python tests cover authentication, privacy, atomic event histories, duplicate webhook/capture behavior, seeded-record limitations, corruption detection, and lack of side effects.
+
 ## Private RSVP and organizer communications
 
 - The protected organizer workspace now shows each fictional participant's **Going / Maybe / Can't attend / Awaiting response** RSVP and aggregate counts.

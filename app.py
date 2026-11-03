@@ -157,6 +157,16 @@ def initialize():
           status TEXT NOT NULL, capture_id TEXT, created TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, created TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS event_history (
+            id INTEGER PRIMARY KEY,
+            event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            action TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            details TEXT NOT NULL DEFAULT '{}',
+            created TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS history_event_idx ON event_history(event_id,id);
         CREATE TABLE IF NOT EXISTS event_tasks (
             id INTEGER PRIMARY KEY,
             event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -213,6 +223,150 @@ def detailed(c, eid):
         "simulated_cents": sum(x["share_cents"] for x in people if x["status"] == "demo_paid"),
         "sandbox_cents": sum(x["share_cents"] for x in people if x["status"] == "sandbox_paid"),
         "approved": sum(x["approved"] for x in people)}
+
+
+# History is a convenience trail for the current sandbox database. It is not
+# cryptographically tamper-evident and is not a substitute for durable audit logs.
+HISTORY_SUMMARIES = {
+    "event_created":"Event created",
+    "event_duplicated":"Event duplicated as a new plan",
+    "expense_added":"Expense added; shares recalculated",
+    "expense_removed":"Expense removed; shares recalculated",
+    "expenses_bulk_added":"Reviewed expense proposals added",
+    "participant_added":"Participant added; shares recalculated",
+    "participants_imported":"Participants imported; shares recalculated",
+    "participant_removed":"Participant removed; shares recalculated",
+    "allocation_changed":"Allocation method changed",
+    "organizer_approved":"Organizer demo approval recorded",
+    "participant_approved":"Private-link approval recorded",
+    "participant_rsvp":"Private-link attendance response recorded",
+    "invitation_rotated":"Private invitation replaced",
+    "invitation_revoked":"Private invitation revoked",
+    "payment_simulated":"Fictional contribution simulated",
+    "sandbox_order_started":"PayPal sandbox order initiated",
+    "sandbox_order_created":"PayPal sandbox order created; not yet captured",
+    "sandbox_capture_verified":"PayPal sandbox capture verified",
+    "task_added":"Preparation task added",
+    "tasks_added":"Preparation tasks added",
+    "task_updated":"Preparation task status changed",
+    "task_removed":"Preparation task removed",
+}
+HISTORY_ACTORS = {"organizer_demo","participant_link","paypal_sandbox","system"}
+
+
+def record_history(c, event_id: int, action: str, actor: str = "organizer_demo",
+                   details: dict | None = None):
+    if action not in HISTORY_SUMMARIES or actor not in HISTORY_ACTORS:
+        raise ValueError("Unknown event history action or actor")
+    # Only caller-authored numeric IDs/counts, flags and fixed enumerated values.
+    # Never pass names, URLs, invitation tokens, PayPal order IDs, or free text.
+    metadata = json.dumps(details or {}, ensure_ascii=True, sort_keys=True,
+                          separators=(",",":"))
+    if len(metadata) > 350:
+        raise ValueError("History metadata is too long")
+    c.execute(
+        """INSERT INTO event_history(event_id,action,actor,summary,details,created)
+           VALUES(?,?,?,?,?,?)""",
+        (event_id,action,actor,HISTORY_SUMMARIES[action],metadata,now())
+    )
+
+
+def event_integrity(c, eid: int) -> dict:
+    event = require_event(c,eid)
+    expenses = c.execute("SELECT cents FROM expenses WHERE event_id=?", (eid,)).fetchall()
+    people = c.execute(
+        "SELECT id,share_cents,status,approved,rsvp_status FROM people WHERE event_id=?",
+        (eid,)
+    ).fetchall()
+    payments = c.execute(
+        """SELECT person_id,amount_cents,status,capture_id FROM payments
+           WHERE event_id=?""",(eid,)
+    ).fetchall()
+    budget = sum(int(r["cents"]) for r in expenses)
+    allocated = sum(int(p["share_cents"]) for p in people)
+    issues = []
+    def flag(code, message):
+        issues.append({"code":code,"description":message})
+    if people and allocated != budget:
+        flag("allocation_mismatch","Allocated shares do not equal the event budget.")
+    if not people and budget>0:
+        flag("no_participants","This event has a budget but no participants to share it.")
+    by_id = {p["id"]:p for p in people}
+    by_person = {}
+    capture_ids = set()
+    for pay in payments:
+        pid = pay["person_id"]
+        person = by_id.get(pid)
+        by_person.setdefault(pid,[]).append(pay)
+        if not person:
+            flag("orphan_payment","A payment record has no participant in this event.")
+            continue
+        if pay["amount_cents"] != person["share_cents"]:
+            flag("payment_amount_mismatch","A payment amount differs from the participant's assigned share.")
+        if pay["status"] == "completed":
+            if not pay["capture_id"]:
+                flag("capture_id_missing","A completed payment is missing its capture identifier.")
+            elif pay["capture_id"] in capture_ids:
+                flag("duplicate_capture","A capture identifier appears more than once.")
+            else:
+                capture_ids.add(pay["capture_id"])
+            if person["status"] != "sandbox_paid":
+                flag("capture_status_mismatch","A verified capture and participant payment status disagree.")
+        elif pay["capture_id"]:
+            flag("capture_status_mismatch","An uncompleted payment unexpectedly has a capture identifier.")
+        if person["status"] == "demo_paid":
+            flag("simulation_order_conflict","A simulated contribution also has a PayPal order.")
+    for pid,person in by_id.items():
+        recorded = by_person.get(pid,[])
+        if len(recorded)>1:
+            flag("duplicate_orders","Multiple PayPal orders exist for one participant.")
+        if person["status"] == "sandbox_paid" and not any(
+            p["status"]=="completed" and p["capture_id"] for p in recorded
+        ):
+            flag("paid_without_capture","A participant is marked paid without a verified captured order.")
+        if (person["rsvp_status"]=="declined" and person["status"]=="unpaid"
+                and person["approved"]):
+            flag("declined_approved","An unpaid declined participant remains approved.")
+    pending = sum(1 for p in payments if p["status"] != "completed")
+    return {
+        "status":"needs_review" if issues else "consistent",
+        "issues":issues[:30],
+        "issue_count":len(issues),
+        "checks":{
+            "budget_cents":budget,
+            "allocated_cents":allocated,
+            "participants":len(people),
+            "sandbox_orders":len(payments),
+            "verified_captures":sum(
+                1 for p in payments if p["status"]=="completed" and p["capture_id"]
+            ),
+            "pending_orders":pending,
+        },
+        "limitations":"Local sandbox database consistency only; does not query PayPal in real time, prove identity, or attest to external funds."
+    }
+
+
+@app.get("/api/events/{eid}/history")
+def event_history(eid: int):
+    with db() as c:
+        require_event(c,eid)
+        total = c.execute(
+            "SELECT COUNT(*) FROM event_history WHERE event_id=?",(eid,)
+        ).fetchone()[0]
+        rows = c.execute(
+            """SELECT id,action,actor,summary,details,created
+               FROM event_history WHERE event_id=? ORDER BY id DESC LIMIT 150""",
+            (eid,)
+        ).fetchall()
+        integrity = event_integrity(c,eid)
+    return {
+        "event_id":eid,
+        "total_actions":total,
+        "entries":[{**dict(r),"details":json.loads(r["details"])} for r in rows],
+        "integrity":integrity,
+        "notice":"This is a limited in-database demo history, not a tamper-proof financial audit trail. Records can disappear when Render Free restarts or redeploys."
+    }
+
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def index():
@@ -279,6 +433,7 @@ def new_event(data: EventInput):
     with db() as c:
         row = c.execute("INSERT INTO events(name,date,note,created) VALUES(?,?,?,?)",
                         (data.name,data.date,data.note,now()))
+        record_history(c,row.lastrowid,"event_created",details={"event_id":row.lastrowid})
     return {"id": row.lastrowid}
 
 class CloneEventInput(BaseModel):
@@ -318,6 +473,10 @@ def clone_event(eid: int, data: CloneEventInput):
             c.execute("INSERT INTO event_tasks(event_id,title,created) VALUES(?,?,?)",(new_id,task_title,now()))
         if people:
             recalculate(c,new_id,original["strategy"])
+        record_history(c,new_id,"event_duplicated",details={
+            "source_event_id":eid,"expenses":len(expenses),
+            "participants":len(people),"tasks":len(task_names)
+        })
     return {"id":new_id,"source_event_id":eid,
             "copied_expenses":len(expenses),"copied_people":len(people),"copied_tasks":len(task_names),
             "approvals_reset":True,"payments_copied":False}
@@ -342,6 +501,7 @@ def add_task(eid:int,data:TaskInput):
         if title.casefold() in {t["title"].casefold() for t in items}:
             raise HTTPException(409,"This task already exists")
         tid=c.execute("INSERT INTO event_tasks(event_id,title,created) VALUES(?,?,?)",(eid,title,now())).lastrowid
+        record_history(c,eid,"task_added",details={"task_id":tid})
     return {"id":tid,"title":title,"completed":False}
 
 @app.post("/api/events/{eid}/tasks/starter")
@@ -352,6 +512,8 @@ def starter_tasks(eid:int):
         missing=[x for x in TASK_TEMPLATE if x.casefold() not in names]
         if len(names)+len(missing)>40: raise HTTPException(422,"Not enough checklist capacity")
         c.executemany("INSERT INTO event_tasks(event_id,title,created) VALUES(?,?,?)",[(eid,title,now()) for title in missing])
+        if missing:
+            record_history(c,eid,"tasks_added",details={"count":len(missing),"source":"starter"})
     return {"added":len(missing)}
 
 @app.patch("/api/events/{eid}/tasks/{task_id}")
@@ -360,6 +522,7 @@ def complete_task(eid:int,task_id:int,data:TaskCompletion):
         require_event(c,eid)
         cur=c.execute("UPDATE event_tasks SET completed=? WHERE id=? AND event_id=?",(int(data.completed),task_id,eid))
         if cur.rowcount!=1: raise HTTPException(404,"Task not found")
+        record_history(c,eid,"task_updated",details={"task_id":task_id,"completed":data.completed})
     return {"ok":True,"completed":data.completed}
 
 @app.delete("/api/events/{eid}/tasks/{task_id}")
@@ -368,6 +531,7 @@ def remove_task(eid:int,task_id:int):
         require_event(c,eid)
         cur=c.execute("DELETE FROM event_tasks WHERE id=? AND event_id=?",(task_id,eid))
         if cur.rowcount!=1: raise HTTPException(404,"Task not found")
+        record_history(c,eid,"task_removed",details={"task_id":task_id})
     return {"ok":True}
 
 def task_list_signature(c, eid: int) -> str:
@@ -405,6 +569,7 @@ def apply_task_proposal(eid: int, data: TaskBatchInput):
             raise HTTPException(409, "One or more selected tasks already exist")
         c.executemany("INSERT INTO event_tasks(event_id,title,created) VALUES(?,?,?)",
                       [(eid,t,now()) for t in titles])
+        record_history(c,eid,"tasks_added",details={"count":len(titles),"source":"reviewed_proposal"})
     return {"ok":True,"added":len(titles),"approvals_changed":False,
             "payments_changed":False}
 
@@ -485,6 +650,7 @@ def add_expense(eid: int, data: ExpenseInput):
         c.execute("INSERT INTO expenses(event_id,title,cents) VALUES(?,?,?)",
                   (eid,data.title,amount))
         recalculate(c,eid,event["strategy"])
+        record_history(c,eid,"expense_added",details={"amount_cents":amount})
     return {"ok": True}
 
 
@@ -497,6 +663,7 @@ def delete_expense(eid: int, expense_id: int):
         if cur.rowcount != 1:
             raise HTTPException(404,"Expense not found")
         recalculate(c,eid,event["strategy"])
+        record_history(c,eid,"expense_removed",details={"expense_id":expense_id})
     return {"ok":True}
 
 class PersonInput(BaseModel):
@@ -540,6 +707,7 @@ def import_people(eid: int, data: BulkPeopleInput):
             [(eid,name,weight) for name,weight in normalized]
         )
         recalculate(c,eid,event["strategy"])
+        record_history(c,eid,"participants_imported",details={"count":len(normalized)})
     return {"ok":True,"added":len(normalized),"approvals_reset":True}
 
 
@@ -548,9 +716,10 @@ def add_person(eid: int, data: PersonInput):
     with db() as c:
         event = require_event(c,eid)
         require_editable(c,eid)
-        c.execute("INSERT INTO people(event_id,name,weight) VALUES(?,?,?)",
+        row = c.execute("INSERT INTO people(event_id,name,weight) VALUES(?,?,?)",
                   (eid,data.name,data.weight))
         recalculate(c,eid,event["strategy"])
+        record_history(c,eid,"participant_added",details={"participant_id":row.lastrowid})
     return {"ok": True}
 
 
@@ -563,6 +732,7 @@ def delete_person(eid: int, pid: int):
         if cur.rowcount != 1:
             raise HTTPException(404,"Participant not found")
         recalculate(c,eid,event["strategy"])
+        record_history(c,eid,"participant_removed",details={"participant_id":pid})
     return {"ok":True}
 
 class AllocationInput(BaseModel):
@@ -574,6 +744,7 @@ def change_allocation(eid: int, data: AllocationInput):
         require_event(c,eid)
         require_editable(c,eid)
         recalculate(c,eid,data.strategy)
+        record_history(c,eid,"allocation_changed",details={"strategy":data.strategy})
     return {"ok":True}
 
 @app.post("/api/events/{eid}/people/{pid}/approve")
@@ -585,6 +756,7 @@ def approve(eid: int, pid: int):
         if p["rsvp_status"] == "declined": raise HTTPException(409, "Participant declined attendance; review RSVP first")
         if p["share_cents"] < 1: raise HTTPException(409, "Cannot approve zero amount")
         c.execute("UPDATE people SET approved=1,approval_source='organizer_demo' WHERE id=?", (pid,))
+        record_history(c,eid,"organizer_approved",details={"participant_id":pid,"share_cents":p["share_cents"]})
     return {"ok":True}
 
 def participant_from_invite(c, request: Request):
@@ -637,6 +809,7 @@ def invite_participant(eid: int,pid: int):
             "INSERT INTO participant_invites(person_id,token_hash,expected_cents,expires_at,created_at) VALUES(?,?,?,?,?)",
             (pid,digest,p["share_cents"],expires,now())
         )
+        record_history(c,eid,"invitation_rotated",details={"participant_id":pid})
     return {"token":token,"expires_at":expires,"share_cents":p["share_cents"],
             "note":"Private bearer link; whoever possesses it may approve this fictional share. No identity verification."}
 
@@ -651,6 +824,8 @@ def revoke_participant_invites(eid: int,pid: int):
         result=c.execute(
             "UPDATE participant_invites SET revoked=1 WHERE person_id=? AND revoked=0",(pid,)
         )
+        if result.rowcount:
+            record_history(c,eid,"invitation_revoked",details={"participant_id":pid,"count":result.rowcount})
     return {"ok":True,"revoked":result.rowcount}
 
 
@@ -708,6 +883,9 @@ def participant_rsvp(request: Request, data: RSVPInput):
         updated = c.execute(
             "SELECT approved,status FROM people WHERE id=?",(pid,)
         ).fetchone()
+        if data.status != invitation["rsvp_status"]:
+            record_history(c,invitation["event_id"],"participant_rsvp",actor="participant_link",
+                           details={"participant_id":pid,"status":data.status})
     return {
         "ok":True,"rsvp_status":data.status,"approved":bool(updated["approved"]),
         "payment_changed":False,
@@ -738,6 +916,8 @@ def participant_approve(request: Request):
                     "approval_source":invitation["approval_source"]}
         c.execute("UPDATE people SET approved=1,approval_source='participant_link' WHERE id=?",
                   (invitation["person_id"],))
+        record_history(c,invitation["event_id"],"participant_approved",actor="participant_link",
+                       details={"participant_id":invitation["person_id"],"share_cents":invitation["share_cents"]})
     return {"ok":True,"approved":True,"approval_source":"participant_link",
             "payment_created":False}
 
@@ -753,6 +933,7 @@ def simulate(eid: int, pid: int):
         if c.execute("SELECT 1 FROM payments WHERE person_id=? LIMIT 1", (pid,)).fetchone():
             raise HTTPException(409,"PayPal order exists; simulation prohibited")
         c.execute("UPDATE people SET status='demo_paid' WHERE id=?", (pid,))
+        record_history(c,eid,"payment_simulated",details={"participant_id":pid,"amount_cents":p["share_cents"]})
     return {"ok":True, "mode":"SIMULATED - NOT PAYPAL"}
 
 async def gemini_structured(prompt: str) -> dict:
@@ -891,6 +1072,7 @@ def add_bulk(eid: int, data: BulkInput):
         for name,amount in clean:
             c.execute("INSERT INTO expenses(event_id,title,cents) VALUES(?,?,?)", (eid,name,amount))
         recalculate(c,eid,event["strategy"])
+        record_history(c,eid,"expenses_bulk_added",details={"count":len(clean),"total_cents":sum(x[1] for x in clean)})
     return {"ok":True,"added":len(clean)}
 
 @app.post("/api/paypal/orders/{eid}/{pid}")
@@ -910,6 +1092,8 @@ async def create_order(eid: int, pid: int, request: Request):
         record = c.execute(
             "INSERT INTO payments(event_id,person_id,amount_cents,request_id,capture_key,status,created) VALUES(?,?,?,?,?,?,?)",
             (eid,pid,amount,create_key,capture_key,"creating",now())).lastrowid
+        record_history(c,eid,"sandbox_order_started",actor="paypal_sandbox",
+                       details={"participant_id":pid,"amount_cents":amount})
     base = os.getenv("PUBLIC_BASE_URL") or str(request.base_url).rstrip("/")
     # Network calls occur outside transaction lock. 'creating' remains locked if
     # PayPal times out: reconcile manually rather than risking duplicate checkout.
@@ -917,6 +1101,8 @@ async def create_order(eid: int, pid: int, request: Request):
     with db() as c:
         c.execute("UPDATE payments SET order_id=?,status='created' WHERE id=?",
                   (response["id"],record))
+        record_history(c,eid,"sandbox_order_created",actor="paypal_sandbox",
+                       details={"participant_id":pid,"amount_cents":amount})
     return {"order_id":response["id"],"approval_url":response["approval_url"],
             "mode":"PAYPAL_SANDBOX"}
 
@@ -953,9 +1139,12 @@ async def check_existing_order(order_id: str):
         if not verified:
             raise HTTPException(409, "PayPal reports completion but no matching capture was found")
         with db() as c:
-            c.execute("UPDATE payments SET status='completed',capture_id=? WHERE id=? AND status!='completed'",
+            changed=c.execute("UPDATE payments SET status='completed',capture_id=? WHERE id=? AND status!='completed'",
                       (verified["id"],record["id"]))
             c.execute("UPDATE people SET status='sandbox_paid' WHERE id=?", (record["person_id"],))
+            if changed.rowcount:
+                record_history(c,record["event_id"],"sandbox_capture_verified",actor="paypal_sandbox",
+                               details={"participant_id":record["person_id"],"amount_cents":record["amount_cents"]})
         return {"status":"COMPLETED","action":"done","verified":True}
     if status == "APPROVED":
         return {"status":status,"action":"capture","verified":False}
@@ -982,10 +1171,13 @@ async def capture_order(data: CaptureInput):
     if not verified:
         raise HTTPException(409,"PayPal has not confirmed the exact completed capture")
     with db() as c:
-        c.execute("UPDATE payments SET status='completed',capture_id=? WHERE id=?",
+        changed=c.execute("UPDATE payments SET status='completed',capture_id=? WHERE id=? AND status!='completed'",
                   (verified["id"], record["id"]))
         c.execute("UPDATE people SET status='sandbox_paid' WHERE id=?",
                   (record["person_id"],))
+        if changed.rowcount:
+            record_history(c,record["event_id"],"sandbox_capture_verified",actor="paypal_sandbox",
+                           details={"participant_id":record["person_id"],"amount_cents":record["amount_cents"]})
     return {"ok":True,"status":"completed","mode":"PAYPAL_SANDBOX"}
 
 @app.post("/api/paypal/webhook")
@@ -1008,9 +1200,12 @@ async def webhook(request: Request):
             if (p and resource.get("status")=="COMPLETED" and resource.get("id")
                 and resource.get("amount",{}).get("currency_code")=="USD"
                 and paypal.same_amount(resource.get("amount",{}).get("value"),p["amount_cents"])):
-                c.execute("UPDATE payments SET status='completed',capture_id=? WHERE id=?",
+                changed=c.execute("UPDATE payments SET status='completed',capture_id=? WHERE id=? AND status!='completed'",
                           (resource["id"],p["id"]))
                 c.execute("UPDATE people SET status='sandbox_paid' WHERE id=?", (p["person_id"],))
+                if changed.rowcount:
+                    record_history(c,p["event_id"],"sandbox_capture_verified",actor="paypal_sandbox",
+                                   details={"participant_id":p["person_id"],"amount_cents":p["amount_cents"]})
         c.execute("INSERT INTO webhook_events(id,created) VALUES(?,?)",(event_id,now()))
     return {"ok":True}
 

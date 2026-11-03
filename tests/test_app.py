@@ -885,3 +885,145 @@ def test_rsvp_invitation_expiry_scoping_and_authentication(client,monkeypatch):
     assert client.post("/api/participant/rsvp",headers=headers,json={"status":"maybe"}).headers["referrer-policy"]=="no-referrer"
     assert client.post(f"/api/events/{eid}/people/{pid}/invite/revoke",auth=("judge","test-owner-long-secret-for-hosted")).status_code==200
     assert client.post("/api/participant/rsvp",headers=headers,json={"status":"maybe"}).status_code==404
+
+
+def test_event_history_financial_integrity_and_privacy(client):
+    """History records successful changes without leaking names, secrets or IDs."""
+    import app as api
+    e=initial(client)
+    eid=e["id"]
+    path=f"/api/events/{eid}/history"
+    fresh=client.get(path)
+    assert fresh.status_code==200
+    assert fresh.json()["entries"]==[]  # pre-feature seed is not backfilled
+    assert fresh.json()["integrity"]["status"]=="consistent"
+    assert fresh.json()["integrity"]["checks"]["budget_cents"]==22000
+    assert fresh.json()["integrity"]["checks"]["allocated_cents"]==22000
+    assert fresh.json()["integrity"]["checks"]["verified_captures"]==0
+    assert client.post(f"/api/events/{eid}/expenses",json={
+        "title":"CONFIDENTIAL-EXPENSE-SENTINEL","amount":"2.00"
+    }).status_code==200
+    data=client.get(path).json()
+    assert data["total_actions"]==1
+    assert data["entries"][0]["action"]=="expense_added"
+    assert data["entries"][0]["details"]=={"amount_cents":200}
+    assert data["integrity"]["status"]=="consistent"
+    assert "CONFIDENTIAL-EXPENSE-SENTINEL" not in str(data)
+    assert "Alex" not in str(data)
+    assert "API_KEY" not in str(data)
+    count=data["total_actions"]
+    assert client.delete(f"/api/events/{eid}/expenses/9999999").status_code==404
+    assert client.get(path).json()["total_actions"]==count
+    new=client.post("/api/events",json={
+        "name":"New fictional event", "date":"2026-11-19"
+    })
+    assert new.status_code==200
+    new_id=new.json()["id"]
+    created=client.get(f"/api/events/{new_id}/history").json()
+    assert len(created["entries"])==1
+    assert created["entries"][0]["action"]=="event_created"
+    # Event history stays separated by event ID.
+    assert all(entry["action"]=="event_created" for entry in created["entries"])
+
+
+def test_history_tracks_private_approval_and_rsvp_without_exposing_bearer(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    path=f"/api/events/{eid}/history"
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    headers={"Authorization":"Bearer "+token}
+    assert client.post("/api/participant/rsvp",headers=headers,json={"status":"going"}).status_code==200
+    assert client.post("/api/participant/rsvp",headers=headers,json={"status":"going"}).status_code==200
+    assert client.post("/api/participant/approve",headers=headers).status_code==200
+    assert client.post("/api/participant/approve",headers=headers).status_code==200
+    history=client.get(path).json()
+    actions=[x["action"] for x in history["entries"]]
+    assert actions.count("invitation_rotated")==1
+    assert actions.count("participant_rsvp")==1
+    assert actions.count("participant_approved")==1
+    assert all(x["actor"]=="participant_link" for x in history["entries"]
+               if x["action"] in ("participant_rsvp","participant_approved"))
+    assert token not in str(history)
+    assert "Alex" not in str(history)
+    assert client.get(path).json()["integrity"]["status"]=="consistent"
+
+
+def test_history_tracks_one_verified_capture_and_no_duplicate_webhook(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    client.post(f"/api/events/{eid}/people/{pid}/approve")
+    monkeypatch.setattr(paypal,"configured",lambda:True)
+    order_id="TEST-HISTORY-ORDER"
+    async def fake_order(*args):
+        return {"id":order_id,"approval_url":"https://www.sandbox.paypal.com/checkoutnow?token=FAKE"}
+    async def fake_capture(*args):
+        return {"purchase_units":[{"payments":{"captures":[{
+            "id":"FAKE-CAPTURE-SECRET","status":"COMPLETED",
+            "amount":{"currency_code":"USD","value":f"{e['people'][0]['share_cents']/100:.2f}"},
+        }]}}]}
+    async def verified_webhook(*args): return True
+    monkeypatch.setattr(paypal,"order",fake_order)
+    monkeypatch.setattr(paypal,"capture",fake_capture)
+    monkeypatch.setattr(paypal,"verify_webhook",verified_webhook)
+    assert client.post(f"/api/paypal/orders/{eid}/{pid}").status_code==200
+    path=f"/api/events/{eid}/history"
+    created=client.get(path).json()
+    assert created["integrity"]["checks"]["pending_orders"]==1
+    assert created["integrity"]["checks"]["verified_captures"]==0
+    assert client.post("/api/paypal/capture",json={"order_id":order_id}).status_code==200
+    assert client.post("/api/paypal/capture",json={"order_id":order_id}).json()["already_recorded"] is True
+    webhook={"id":"WEBHOOK-HISTORY-1","event_type":"PAYMENT.CAPTURE.COMPLETED",
+             "resource":{"id":"FAKE-CAPTURE-SECRET","status":"COMPLETED",
+                "amount":{"currency_code":"USD","value":"11.00"},
+                "supplementary_data":{"related_ids":{"order_id":order_id}}}}
+    assert client.post("/api/paypal/webhook",json=webhook).status_code==200
+    assert client.post("/api/paypal/webhook",json=webhook).json()["duplicate"] is True
+    history=client.get(path).json()
+    codes=[x["action"] for x in history["entries"]]
+    assert codes.count("sandbox_order_started")==1
+    assert codes.count("sandbox_order_created")==1
+    assert codes.count("sandbox_capture_verified")==1
+    assert history["integrity"]["status"]=="consistent"
+    assert history["integrity"]["checks"]["verified_captures"]==1
+    assert history["integrity"]["checks"]["pending_orders"]==0
+    assert order_id not in str(history)
+    assert "FAKE-CAPTURE-SECRET" not in str(history)
+    assert "WEBHOOK-HISTORY-1" not in str(history)
+
+
+def test_integrity_detects_corrupted_allocations_and_payment_state(client):
+    import app as api
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    with api.db() as conn:
+        conn.execute("UPDATE people SET share_cents=share_cents+1 WHERE id=?",(pid,))
+    report=client.get(f"/api/events/{eid}/history").json()
+    assert report["integrity"]["status"]=="needs_review"
+    assert "allocation_mismatch" in [x["code"] for x in report["integrity"]["issues"]]
+    assert report["integrity"]["checks"]["allocated_cents"]==22001
+    # Even if the demo database is inconsistent, checking it never mutates it.
+    same=client.get(f"/api/events/{eid}/history").json()
+    assert same["integrity"]==report["integrity"]
+
+
+def test_history_scope_and_hosted_auth(client,monkeypatch):
+    eid=initial(client)["id"]
+    assert client.get(f"/api/events/987654/history").status_code==404
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_USERNAME","judge")
+    monkeypatch.setenv("DEMO_PASSWORD","long-protected-demo-credentials")
+    assert client.get(f"/api/events/{eid}/history").status_code==401
+    assert client.get(f"/api/events/{eid}/history",
+                      auth=("judge","long-protected-demo-credentials")).status_code==200
+    assert client.get("/api/events/987654/history",
+                      auth=("judge","long-protected-demo-credentials")).status_code==404
+    token="a"*43
+    assert client.get(f"/api/events/{eid}/history",
+                      headers={"Authorization":"Bearer "+token}).status_code==401
+
+
+def test_integrity_finds_unverified_sandbox_status_without_leaking_ids(client):
+    import app as api
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    with api.db() as conn:
+        conn.execute("UPDATE people SET status='sandbox_paid' WHERE id=?",(pid,))
+    report=client.get(f"/api/events/{eid}/history").json()
+    assert report["integrity"]["status"]=="needs_review"
+    assert "paid_without_capture" in [x["code"] for x in report["integrity"]["issues"]
