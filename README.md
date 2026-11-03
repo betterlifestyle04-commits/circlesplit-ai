@@ -49,6 +49,17 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Planning backup & safe restore (manual, private, non-financial)
+
+- The protected organizer workspace now includes **Backup & restore**. The owner can explicitly download a versioned `planning-backup` JSON and inspect a selected backup file locally before any restore is requested.
+- Backups contain **event names, dates, descriptions, equal/weighted strategy, planned expense titles/categories and integer cents, participant names and weights, preparation task titles, and advisory spending ceilings/contingency preferences**. Because participant names are included, treat these JSON files as private; CircleSplit does not automatically email or upload them to external storage.
+- The backup **never includes participant IDs, existing share amounts, approvals, RSVP answers, payment statuses, PayPal orders/captures, webhook identifiers, invitation URLs or bearer secrets, or historical activity**. The older **read-only sandbox demonstration snapshot** under Insights remains separate and **cannot** be imported.
+- Restoring is an **explicit, confirmed** action. Every event is created **as a brand-new unpaid plan with fresh IDs**. Splits are recomputed with exact cents. All restored participants begin unpaid/unapproved with pending RSVP; task completion resets to unchecked; no invitation or payment is created.
+- The server validates a strict versioned schema (`schema_version: 1`, USD), forbids unexpected nested fields, checks real calendar dates, participant/task uniqueness, weights, categories, amounts, and limits of 25 events / 700 KB / bounded combined record totals. Invalid multi-event requests are rejected **before writes** and all inserts share a single SQLite transaction.
+- **Double-submit safety:** the server hashes normalized planning content and records the fingerprint in `planning_restores` in the same transaction. Re-importing identical planning contents into the current database returns HTTP 409 without creating duplicate events. This protection resets if the ephemeral database itself is erased.
+- **API:** authenticated `GET /api/planning-backup` (download) and `POST /api/planning-backup/restore` (validated import), both inaccessible to public visitors and participant-link holders.
+- **Important:** This mitigates *planning data loss only if the owner regularly downloads and securely retains the file*. It does not provide continuous backups, preserve payment history, restore approvals or guarantee recovery of PayPal activity. Durable database storage and individual authentication are still required before production use.
+
 ## Payment recovery and capture retry safety
 
 - The protected **Activity → Safe payment recovery** panel now shows current local PayPal sandbox order states: **creating** (order creation response missing), **created** (existing order can be checked), **capturing** (one capture attempt already made), and **completed** (capture identifier recorded).

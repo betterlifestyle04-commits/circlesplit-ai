@@ -30,6 +30,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   <button class="active" data-tab="overview"><span>▦</span> Overview</button>
   <button data-tab="pulse"><span>◈</span> Operations pulse</button>
   <button data-tab="events"><span>◫</span> Events</button>
+  <button data-tab="backup"><span>⇣</span> Backup & restore</button>
   <button data-tab="contributions"><span>⇄</span> Contributions</button>
   <button data-tab="assistant"><span>✦</span> AI assistant</button>
   <button data-tab="activity"><span>▤</span> Activity</button>
@@ -92,7 +93,36 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
     </div>
    </div>
   </section>
-  <section id="events" class="tabpan">
+    <section id="backup" class="tabpan">
+   <div class="title"><div><div class="eyebrow">EVENT PLANNING CONTINUITY</div>
+    <h1>Protect your plans between demo restarts.</h1>
+    <p class="sub">Download a planning-only JSON backup, then restore it as brand-new unpaid events when necessary.</p></div></div>
+   <div class="banner"><b>Important:</b> Render Free stores this demo's SQLite records temporarily. A restart may erase them. CircleSplit does not keep your downloaded backup on another server. Store the file yourself in a private, secure location.</div>
+   <div class="space"></div>
+   <div class="grid2">
+    <div class="card">
+     <div class="section-heading"><h2>1. Export a planning backup</h2><span class="pill neutral">Private JSON</span></div>
+     <p>Download all supported fictional events, expenses and categories, participant names and weights, task titles, and budget targets.</p>
+     <p class="notice"><b>Excluded:</b> PayPal orders and captures, simulated payments, share approvals, RSVP responses, private invitations, access tokens and event history. Existing planning tasks are backed up by title, not completion state.</p>
+     <button class="btn primary" type="button" id="backup-export" onclick="downloadPlanningBackup()">↓ Download planning backup</button>
+     <p class="small muted" style="margin-top:14px">Maximum 25 events per file, subject to record and file-size safety limits. This file contains participant names; don't publish it or send it to judges.</p>
+    </div>
+    <div class="card">
+     <div class="section-heading"><h2>2. Review and restore</h2><span class="pill neutral">Fresh unpaid copies</span></div>
+     <div class="field"><label for="backup-file">Select a CircleSplit planning-backup JSON file</label>
+      <input id="backup-file" type="file" accept=".json,application/json" aria-describedby="backup-help"></div>
+     <p class="small muted" id="backup-help">Select a file to preview it. Nothing will be uploaded or created until you explicitly confirm restore.</p>
+     <div id="backup-preview" class="notice" style="margin:14px 0" aria-live="polite">No backup selected.</div>
+     <button class="btn primary" type="button" id="backup-restore" disabled onclick="restorePlanningBackup()">Restore as new unpaid events</button>
+     <p class="notice" style="margin-top:12px"><b>No financial replay:</b> Restore creates new event IDs and recalculates shares. Every approval, payment, RSVP and invitation starts empty. Preparation tasks return as unchecked.</p>
+    </div>
+   </div>
+   <div class="space"></div>
+   <div class="card"><h2>What happens to the original events?</h2>
+    <p class="small muted">Nothing. Import never overwrites or edits an existing event. Importing the same planning contents again into the same active database is blocked to prevent accidental duplicates. A backup does not provide a recoverable PayPal ledger—payment issues still require the separate PayPal sandbox account and recovery workflow.</p>
+   </div>
+  </section>
+<section id="events" class="tabpan">
    <div class="title"><div><div class="eyebrow">EVENT MANAGEMENT</div><h1>Plan & split</h1><p class="sub">Set up your event, estimate costs and decide how to divide them fairly.</p></div></div>
    <div class="card" id="event-directory" style="margin-bottom:20px">
     <div class="section-heading"><h2>Find an event</h2><span class="pill neutral" id="directory-count">0 events</span></div>
@@ -336,6 +366,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/categories.js"></script>
 <script src="/static/planning.js"></script>
 <script src="/static/closeout.js"></script>
+<script src="/static/backup.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -343,6 +374,7 @@ let pulseQuery="",pulseLevel="all";
 let directoryQuery="",directoryFilter="all",directorySort="soonest";
 let historyCache=null;
 let closeoutCache=null;
+let selectedPlanningBackup=null;
 let eventId = null, currentTab = "overview", proposal = null, proposalEventId=null, applyingProposal=false;
 let taskDraft=null,taskDraftEventId=null,applyingTaskDraft=false;
 window.circleTransactions=[];
@@ -628,6 +660,64 @@ async function loadRecovery(){
 async function paypalCheckout(pid){let e=event();try{let result=await post("/api/paypal/orders/"+e.id+"/"+pid);if(!result.approval_url||!result.approval_url.startsWith("https://"))throw Error("Invalid PayPal redirect");window.location.assign(result.approval_url)}catch(err){if(/already exists/i.test(err.message)){switchTab("activity");notice("An order already exists for this participant. Use Check PayPal on the Activity page to resume or verify it.",true)}else notice(err.message,true)}}
 async function verifyPayPalOrder(id){try{let result=await post("/api/paypal/order-status/"+encodeURIComponent(id));await load();if(result.verified){notice("Verified PayPal sandbox capture. Contribution recorded.",false)}else if(result.action==="approve"&&result.approval_url){if(window.confirm("PayPal is still waiting for sandbox buyer approval. Resume this existing checkout?"))window.location.assign(result.approval_url);else notice("Order not yet approved. No payment has been captured.",true)}else if(result.action==="capture"){if(window.confirm("PayPal confirms the sandbox buyer approved this order. Capture the approved test payment now?")){await post("/api/paypal/capture",{order_id:id});await load();notice("PayPal sandbox capture verified and recorded.",false)}else notice("PayPal approved the order; capture not requested.",true)}else notice("PayPal reports "+result.status+". "+(result.note||"No completed capture was verified. Do not start another payment while the result is uncertain."),true)}catch(err){notice("PayPal status check: "+err.message,true)}}
 async function paymentReturn(){let p=new URLSearchParams(window.location.search);if(p.get("payment")==="cancelled"){history.replaceState(null,"",location.pathname);switchTab("activity");notice("Buyer cancelled PayPal sandbox checkout. No confirmed capture. Use Check PayPal to resume the existing order if appropriate.",true);return;}if(p.get("payment")!=="return"||!p.get("token"))return;let token=p.get("token");history.replaceState(null,"",location.pathname);switchTab("activity");await run(function(){return post("/api/paypal/capture",{order_id:token})},"PayPal sandbox capture verified and recorded.")}
+async function downloadPlanningBackup(){
+ const button=el("backup-export");button.disabled=true;
+ try{
+  const backup=await request("/api/planning-backup");
+  const totals=inspectPlanningBackup(backup);
+  offerDownload("circlesplit-private-planning-backup-"+new Date().toISOString().slice(0,10)+".json",
+    JSON.stringify(backup,null,2),"application/json;charset=utf-8");
+  notice("Private planning backup downloaded: "+totals.events+" event(s). Save the JSON securely. No payment records or invitation links are included.",false);
+ }catch(err){notice("Planning backup not downloaded: "+err.message,true)}
+ finally{button.disabled=false}
+}
+async function previewPlanningBackup(){
+ selectedPlanningBackup=null;
+ el("backup-restore").disabled=true;
+ const field=el("backup-preview"),file=el("backup-file").files?.[0];
+ if(!file){field.textContent="No backup selected.";return}
+ if(file.size>700000){field.textContent="File exceeds the 700 KB safety limit.";return}
+ try{
+  const data=JSON.parse(await file.text());
+  const summary=inspectPlanningBackup(data);
+  selectedPlanningBackup=data;
+  field.innerHTML=
+   '<b>Valid planning-only format (local preview)</b>'+
+   '<div style="margin-top:8px">'+summary.events+' events · '+summary.people+
+   ' participant records · '+summary.expenses+' expenses · '+summary.tasks+' preparation tasks</div>'+
+   '<div>Combined planned budget: <b>'+money(summary.plannedCents)+'</b> (fictional)</div>'+
+   '<p class="small muted" style="margin:8px 0 0">The server will independently validate the file. All restored events will be new, unpaid and unapproved, with fresh IDs.</p>';
+  el("backup-restore").disabled=false;
+ }catch(err){
+  field.textContent="Backup cannot be restored: "+err.message;
+ }
+}
+async function restorePlanningBackup(){
+ if(!selectedPlanningBackup){notice("Review a valid planning backup first.",true);return}
+ let preflight;
+ try{preflight=inspectPlanningBackup(selectedPlanningBackup)}
+ catch(err){notice("Backup preview is invalid: "+err.message,true);return}
+ const approved=window.confirm(
+   "Create "+preflight.events+" NEW unpaid events and recalculate their shares?\n\n"+
+   "Existing events will remain unchanged. No payments, consent, RSVPs or invitations will be restored. "+
+   "Repeated imports of the same planning backup are blocked."
+ );
+ if(!approved)return;
+ const button=el("backup-restore");button.disabled=true;
+ try{
+  const result=await post("/api/planning-backup/restore",selectedPlanningBackup);
+  selectedPlanningBackup=null;el("backup-file").value="";
+  el("backup-preview").textContent=
+   result.restored_events+" planning events restored with fresh IDs. No payment history, approvals or invitations imported.";
+  eventId=result.created_event_ids?.[0]||eventId;
+  await load();
+  notice("Created "+result.restored_events+" NEW unpaid events. Existing plans and financial records were not changed.",false);
+  switchTab("events");
+ }catch(err){
+  notice("Backup restore failed: "+err.message+". If this file was already restored, no duplicate events were created.",true);
+  button.disabled=false;
+ }
+}
 function clearCloseout(){
  closeoutCache=null;
  el("closeout-copy").disabled=true;el("closeout-csv").disabled=true;
@@ -994,7 +1084,8 @@ el("ai-plan-form").addEventListener("submit",generateTaskPlan);
 el("bulk-people-form").addEventListener("submit",importParticipants);
 el("scenario-form").addEventListener("submit",previewScenario);
 ["scenario-adjustment","scenario-people","scenario-strategy"].forEach(function(id){el(id).addEventListener("input",resetScenario);});
-el("task-form").addEventListener("submit",createTask);el("planning-form").addEventListener("submit",savePlanning);
+el("task-form").addEventListener("submit",createTask);el("backup-file").addEventListener("change",previewPlanningBackup);
+el("planning-form").addEventListener("submit",savePlanning);
 el("planning-ceiling").addEventListener("input",()=>showPlanningForecast(false));
 el("planning-reserve").addEventListener("input",()=>showPlanningForecast(false));
 el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);

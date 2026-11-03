@@ -1618,3 +1618,166 @@ def test_paypal_order_redirect_refuses_external_untrusted_host(monkeypatch):
     assert "trusted sandbox approval link" in str(error.value)
     assert paypal.approval_link({"links":[{"rel":"approve",
       "href":"https://www.sandbox.paypal.com/checkoutnow?token=VALID"}]})=="https://www.sandbox.paypal.com/checkoutnow?token=VALID"
+
+
+def test_planning_backup_round_trip_creates_fresh_unpaid_events(client):
+    import app as api
+    original=initial(client);eid=original["id"];pid=original["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    invitation=client.post(f"/api/events/{eid}/people/{original['people'][1]['id']}/invite").json()["token"]
+    assert client.post(f"/api/events/{eid}/tasks/starter").status_code==200
+    assert client.put(f"/api/events/{eid}/planning",json={
+        "ceiling":"300.00","reserve_percent":12
+    }).status_code==200
+    report=client.get("/api/planning-backup")
+    assert report.status_code==200,report.text
+    backup=report.json()
+    assert backup["app"]=="CircleSplit AI"
+    assert backup["kind"]=="planning-backup"
+    assert backup["schema_version"]==1
+    assert backup["currency"]=="USD"
+    assert len(backup["events"])==1
+    event=backup["events"][0]
+    assert event["strategy"]=="equal"
+    assert len(event["people"])==20
+    assert len(event["expenses"])==3
+    assert event["planning"]=={"ceiling_cents":30000,"reserve_percent":12}
+    assert event["tasks"] and all(set(t)=={"title"} for t in event["tasks"])
+    assert all(set(p)=={"name","weight"} for p in event["people"])
+    assert all(set(x)=={"title","cents","category"} for x in event["expenses"])
+    dumped=str(backup).lower()
+    for forbidden in ["share_cents","approved","rsvp","order_id",
+                      "capture_id","request_id","capture_key","simulated_cents"]:
+        assert forbidden not in dumped
+    assert invitation not in str(backup)
+    restored=client.post("/api/planning-backup/restore",json=backup)
+    assert restored.status_code==200,restored.text
+    result=restored.json()
+    assert result["restored_events"]==1
+    assert result["payments_restored"] is False
+    assert result["approvals_restored"] is False
+    assert result["invitations_restored"] is False
+    assert result["rsvp_restored"] is False
+    assert result["tasks_reset"] is True
+    new_id=result["created_event_ids"][0]
+    assert new_id!=eid
+    state=client.get("/api/state").json()["events"]
+    source=next(x for x in state if x["id"]==eid)
+    target=next(x for x in state if x["id"]==new_id)
+    assert source["simulated_cents"]==1100
+    assert source["people"][0]["status"]=="demo_paid"
+    assert target["simulated_cents"]==0 and target["sandbox_cents"]==0
+    assert target["total_cents"]==source["total_cents"]
+    assert target["planning"]==source["planning"]
+    assert all(p["approved"]==0 and p["status"]=="unpaid"
+               and p["rsvp_status"]=="pending" for p in target["people"])
+    assert sum(p["share_cents"] for p in target["people"])==target["total_cents"]
+    assert all(not t["completed"] for t in target["tasks"])
+    with api.db() as c:
+        assert c.execute("SELECT COUNT(*) FROM payments WHERE event_id=?",(new_id,)).fetchone()[0]==0
+        assert c.execute("""SELECT COUNT(*) FROM participant_invites
+                           WHERE person_id IN (SELECT id FROM people WHERE event_id=?)""",(new_id,)).fetchone()[0]==0
+    history=client.get(f"/api/events/{new_id}/history").json()
+    assert history["entries"][0]["action"]=="planning_restored"
+    assert history["entries"][0]["actor"]=="system"
+
+
+def test_planning_restore_is_idempotent_even_if_export_time_changes(client):
+    backup=client.get("/api/planning-backup").json()
+    first=client.post("/api/planning-backup/restore",json=backup)
+    assert first.status_code==200,first.text
+    before=client.get("/api/state").json()["events"]
+    backup["exported_at"]="2026-11-20T05:00:00+00:00"
+    second=client.post("/api/planning-backup/restore",json=backup)
+    assert second.status_code==409,second.text
+    assert "already restored" in second.json()["detail"]
+    assert client.get("/api/state").json()["events"]==before
+
+
+@pytest.mark.parametrize("path,value",[
+    (("events",0,"people",0,"approved"),True),
+    (("events",0,"payments"),[{"amount_cents":1100}]),
+    (("events",0,"expenses",0,"capture_id"),"forged"),
+    (("events",0,"tasks",0,"completed"),True),
+    (("events",0,"rsvp_status"),"going"),
+    (("transactions",),[]),
+])
+def test_planning_restore_rejects_financial_or_unapproved_fields(client,path,value):
+    backup=client.get("/api/planning-backup").json()
+    if path[0]=="events" and "tasks" in path:
+        assert client.post(f"/api/events/{initial(client)['id']}/tasks/starter").status_code==200
+        backup=client.get("/api/planning-backup").json()
+    current=backup
+    for key in path[:-1]:
+        current=current[key]
+    current[path[-1]]=value
+    before=client.get("/api/state").json()
+    response=client.post("/api/planning-backup/restore",json=backup)
+    assert response.status_code==422,response.text
+    assert "unsupported fields" in response.json()["detail"]
+    assert client.get("/api/state").json()==before
+
+
+def test_planning_restore_rejects_invalid_amounts_dates_and_names_atomically(client):
+    import copy
+    original=client.get("/api/planning-backup").json()
+    baseline=client.get("/api/state").json()
+    mutations=[
+        ("bad date", lambda b:b["events"][0].update({"date":"2026-02-30"})),
+        ("negative amount", lambda b:b["events"][0]["expenses"][0].update({"cents":-1})),
+        ("float cents", lambda b:b["events"][0]["expenses"][0].update({"cents":1.5})),
+        ("bad currency", lambda b:b.update({"currency":"NOK"})),
+        ("unsupported version", lambda b:b.update({"schema_version":2})),
+        ("duplicate person", lambda b:b["events"][0]["people"][1].update(
+            {"name":b["events"][0]["people"][0]["name"].upper()})),
+        ("huge total", lambda b:b["events"][0]["expenses"].extend([
+            {"title":"Huge extra","cents":10_000_000,"category":"other"}
+        ])),
+    ]
+    for label,fn in mutations:
+        backup=copy.deepcopy(original)
+        fn(backup)
+        r=client.post("/api/planning-backup/restore",json=backup)
+        assert r.status_code==422,(label,r.text)
+        assert client.get("/api/state").json()==baseline,(label,"unexpected mutation")
+
+
+def test_restore_multiple_events_is_atomic_if_later_event_invalid(client):
+    import copy
+    backup=client.get("/api/planning-backup").json()
+    clone=copy.deepcopy(backup["events"][0])
+    clone["name"]="Second event with invalid date"
+    clone["date"]="2026-13-99"
+    backup["events"].append(clone)
+    baseline=client.get("/api/state").json()
+    res=client.post("/api/planning-backup/restore",json=backup)
+    assert res.status_code==422
+    assert client.get("/api/state").json()==baseline
+
+
+def test_planning_backup_hosted_auth_and_participant_separation(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    invitation=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    backup=client.get("/api/planning-backup").json()
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","owner-planning-backup-secret")
+    assert client.get("/api/planning-backup").status_code==401
+    assert client.post("/api/planning-backup/restore",json=backup).status_code==401
+    assert client.get("/api/planning-backup",
+        headers={"Authorization":"Bearer "+invitation}).status_code==401
+    assert client.post("/api/planning-backup/restore",json=backup,
+        headers={"Authorization":"Bearer "+invitation}).status_code==401
+    owner=("judge","owner-planning-backup-secret")
+    assert client.get("/api/planning-backup",auth=owner).status_code==200
+    assert client.post("/api/planning-backup/restore",json=backup,auth=owner).status_code==200
+
+
+def test_planning_backup_size_limit_and_schema_version(client):
+    data=client.get("/api/planning-backup").json()
+    huge=" "*700_100
+    response=client.post("/api/planning-backup/restore",
+        content=huge,headers={"Content-Type":"application/json"})
+    assert response.status_code==413
+    data["events"]=[]
+    assert client.post("/api/planning-backup/restore",json=data).status_code==422

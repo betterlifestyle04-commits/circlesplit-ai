@@ -11,7 +11,7 @@ import os
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date as CalendarDate
 from pathlib import Path
 from typing import Literal
 
@@ -19,7 +19,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from domain import allocate, cents
 import paypal
@@ -157,6 +157,11 @@ def initialize():
           status TEXT NOT NULL, capture_id TEXT, created TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, created TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS planning_restores (
+            fingerprint TEXT PRIMARY KEY,
+            restored_at TEXT NOT NULL,
+            event_count INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS event_history (
             id INTEGER PRIMARY KEY,
             event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -257,6 +262,7 @@ HISTORY_SUMMARIES = {
     "expense_added":"Expense added; shares recalculated",
     "expense_recategorized":"Expense category updated without changing the budget",
     "planning_target_updated":"Planning ceiling and contingency reserve changed",
+    "planning_restored":"Planning template restored as a new unpaid event",
     "expense_removed":"Expense removed; shares recalculated",
     "expenses_bulk_added":"Reviewed expense proposals added",
     "participant_added":"Participant added; shares recalculated",
@@ -535,6 +541,203 @@ def state():
     return {"events": events, "paypal_configured": paypal.configured(),
             "ai_configured": bool(os.getenv("GEMINI_API_KEY")),
             "environment": "SANDBOX ONLY", "currency": "USD"}
+
+# A planning backup deliberately excludes every funding, consent, RSVP and
+# invitation field. Do not expand these models to include payment records.
+BACKUP_EVENT_LIMIT = 25
+BACKUP_PERSON_LIMIT = 200
+BACKUP_EXPENSE_LIMIT = 200
+BACKUP_TASK_LIMIT = 40
+BACKUP_TOTAL_PERSON_LIMIT = 1000
+BACKUP_TOTAL_EXPENSE_LIMIT = 500
+BACKUP_TOTAL_TASK_LIMIT = 500
+BACKUP_MAX_BODY_BYTES = 700_000
+
+
+class BackupExpense(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    title: str = Field(min_length=2,max_length=120)
+    cents: int = Field(ge=1,le=10_000_000)
+    category: Literal["venue","equipment","food","travel","services","other"] = "other"
+
+
+class BackupPerson(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str = Field(min_length=2,max_length=60)
+    weight: int = Field(ge=1,le=10)
+
+
+class BackupTask(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    title: str = Field(min_length=3,max_length=120)
+
+
+class BackupPlanning(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    ceiling_cents: int | None = Field(default=None,ge=1,le=10_000_000)
+    reserve_percent: int = Field(default=0,ge=0,le=50)
+
+
+class BackupEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str = Field(min_length=3,max_length=90)
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    note: str = Field(default="",max_length=180)
+    strategy: Literal["equal","weighted"] = "equal"
+    expenses: list[BackupExpense] = Field(max_length=BACKUP_EXPENSE_LIMIT)
+    people: list[BackupPerson] = Field(max_length=BACKUP_PERSON_LIMIT)
+    tasks: list[BackupTask] = Field(max_length=BACKUP_TASK_LIMIT)
+    planning: BackupPlanning = Field(default_factory=BackupPlanning)
+
+
+class PlanningBackup(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    app: Literal["CircleSplit AI"]
+    kind: Literal["planning-backup"]
+    schema_version: Literal[1]
+    currency: Literal["USD"]
+    exported_at: str = Field(min_length=10,max_length=45)
+    events: list[BackupEvent] = Field(min_length=1,max_length=BACKUP_EVENT_LIMIT)
+
+
+def validate_planning_backup(backup: PlanningBackup):
+    """Validation before any database write; never trust exported JSON."""
+    counts = {"people":0,"expenses":0,"tasks":0}
+    for i,event in enumerate(backup.events,1):
+        if len(event.name.strip())<3 or len(event.name.strip())>90:
+            raise HTTPException(422,f"Event {i}: invalid name")
+        try:
+            CalendarDate.fromisoformat(event.date)
+        except ValueError:
+            raise HTTPException(422,f"Event {i}: invalid calendar date")
+        if not all(2<=len(x.title.strip())<=120 for x in event.expenses):
+            raise HTTPException(422,f"Event {i}: expense titles must be 2–120 characters")
+        if not all(2<=len(x.name.strip())<=60 for x in event.people):
+            raise HTTPException(422,f"Event {i}: participant names must be 2–60 characters")
+        if not all(3<=len(x.title.strip())<=120 for x in event.tasks):
+            raise HTTPException(422,f"Event {i}: task titles must be 3–120 characters")
+        participants=[x.name.strip().casefold() for x in event.people]
+        if len(participants)!=len(set(participants)):
+            raise HTTPException(422,f"Event {i}: duplicate participant names")
+        tasks=[x.title.strip().casefold() for x in event.tasks]
+        if len(tasks)!=len(set(tasks)):
+            raise HTTPException(422,f"Event {i}: duplicate preparation tasks")
+        if sum(x.cents for x in event.expenses)>10_000_000:
+            raise HTTPException(422,f"Event {i}: budget exceeds the demo limit")
+        counts["people"]+=len(event.people)
+        counts["expenses"]+=len(event.expenses)
+        counts["tasks"]+=len(event.tasks)
+    if (counts["people"]>BACKUP_TOTAL_PERSON_LIMIT or
+        counts["expenses"]>BACKUP_TOTAL_EXPENSE_LIMIT or
+        counts["tasks"]>BACKUP_TOTAL_TASK_LIMIT):
+        raise HTTPException(422,"Backup exceeds combined event/participant/expense/task limits")
+    return counts
+
+
+@app.get("/api/planning-backup")
+def export_planning_backup():
+    """Explicit owner action. Contains names, not financial evidence or secrets."""
+    with db() as c:
+        ids=[row["id"] for row in c.execute("SELECT id FROM events ORDER BY id")]
+        if not ids:
+            raise HTTPException(422,"No events to back up")
+        if len(ids)>BACKUP_EVENT_LIMIT:
+            raise HTTPException(422,f"Backup supports up to {BACKUP_EVENT_LIMIT} events; reduce or partition your event plans")
+        events=[]
+        for eid in ids:
+            e=require_event(c,eid)
+            expenses=[{"title":r["title"],"cents":r["cents"],
+                       "category":r["category"] if r["category"] in EXPENSE_CATEGORIES else "other"}
+                      for r in c.execute(
+                          "SELECT title,cents,category FROM expenses WHERE event_id=? ORDER BY id",(eid,))]
+            people=[{"name":r["name"],"weight":r["weight"]} for r in c.execute(
+                "SELECT name,weight FROM people WHERE event_id=? ORDER BY id",(eid,))]
+            tasks=[{"title":r["title"]} for r in c.execute(
+                "SELECT title FROM event_tasks WHERE event_id=? ORDER BY id",(eid,))]
+            p=c.execute("SELECT ceiling_cents,reserve_percent FROM event_planning WHERE event_id=?",
+                        (eid,)).fetchone()
+            events.append({
+                "name":e["name"],"date":e["date"],"note":e["note"],
+                "strategy":e["strategy"],"expenses":expenses,"people":people,
+                "tasks":tasks,
+                "planning":{"ceiling_cents":p["ceiling_cents"] if p else None,
+                            "reserve_percent":p["reserve_percent"] if p else 0}
+            })
+    payload={"app":"CircleSplit AI","kind":"planning-backup","schema_version":1,
+             "currency":"USD","exported_at":now(),"events":events}
+    try:
+        backup=PlanningBackup.model_validate(payload)
+    except ValueError:
+        raise HTTPException(422,"Current events cannot be exported in the supported planning backup format")
+    validate_planning_backup(backup)
+    if len(json.dumps(payload,ensure_ascii=False).encode("utf-8"))>BACKUP_MAX_BODY_BYTES:
+        raise HTTPException(413,"Planning backup is too large for one export")
+    return payload
+
+
+@app.post("/api/planning-backup/restore")
+async def restore_planning_backup(request: Request):
+    """Atomic and repeat-safe: creates brand-new unpaid event plans only."""
+    raw=await request.body()
+    if len(raw)>BACKUP_MAX_BODY_BYTES:
+        raise HTTPException(413,"Planning backup exceeds the 700 KB safety limit")
+    try:
+        backup=PlanningBackup.model_validate_json(raw)
+    except ValueError:
+        raise HTTPException(422,"Invalid planning backup format or unsupported fields; payment and approval data must not be included")
+    totals=validate_planning_backup(backup)
+    canonical=json.dumps([e.model_dump() for e in backup.events],
+                         ensure_ascii=False,sort_keys=True,separators=(",",":"))
+    digest=hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    ids=[]
+    with db() as c:
+        if c.execute("SELECT 1 FROM planning_restores WHERE fingerprint=?",(digest,)).fetchone():
+            raise HTTPException(409,"This planning backup is already restored in the current database; no duplicates were created")
+        for data in backup.events:
+            eid=c.execute(
+                "INSERT INTO events(name,date,note,strategy,created) VALUES(?,?,?,?,?)",
+                (data.name.strip(),data.date,data.note,data.strategy,now())
+            ).lastrowid
+            for ex in data.expenses:
+                c.execute(
+                    "INSERT INTO expenses(event_id,title,cents,category) VALUES(?,?,?,?)",
+                    (eid,ex.title.strip(),ex.cents,ex.category)
+                )
+            for person in data.people:
+                c.execute(
+                    """INSERT INTO people(event_id,name,weight,approved,status)
+                       VALUES(?,?,?,0,'unpaid')""",
+                    (eid,person.name.strip(),person.weight)
+                )
+            for task in data.tasks:
+                c.execute(
+                    "INSERT INTO event_tasks(event_id,title,completed,created) VALUES(?,?,0,?)",
+                    (eid,task.title.strip(),now())
+                )
+            if data.planning.ceiling_cents is not None or data.planning.reserve_percent:
+                c.execute(
+                    """INSERT INTO event_planning(event_id,ceiling_cents,reserve_percent,updated_at)
+                       VALUES(?,?,?,?)""",
+                    (eid,data.planning.ceiling_cents,data.planning.reserve_percent,now())
+                )
+            if data.people:
+                recalculate(c,eid,data.strategy)
+            record_history(c,eid,"planning_restored",actor="system",details={
+                "participants":len(data.people),"expenses":len(data.expenses),
+                "tasks":len(data.tasks)
+            })
+            ids.append(eid)
+        c.execute("INSERT INTO planning_restores(fingerprint,restored_at,event_count) VALUES(?,?,?)",
+                  (digest,now(),len(ids)))
+    return {
+        "ok":True,"created_event_ids":ids,"restored_events":len(ids),
+        "restored_counts":totals,"currency":"USD",
+        "payments_restored":False,"approvals_restored":False,
+        "invitations_restored":False,"rsvp_restored":False,
+        "tasks_reset":True,
+        "message":"Planning events restored as new unpaid drafts. Existing events, payments and approvals were not modified."
+    }
+
 
 def planning_forecast(total_cents: int, ceiling_cents: int | None,
                       reserve_percent: int) -> dict:
