@@ -49,6 +49,13 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Scenario Lab and reusable event templates
+
+- **Scenario Lab** in the protected workspace previews budget adjustments, additional fictional attendees, and equal versus attendance-weighted splitting. The server uses the same exact-cent largest-remainder allocation as real event budgets.
+- Hypothetical changes show per-person before/after shares but **never change approved amounts, payment records, or PayPal orders**. Input is bounded and invalid or excessive scenarios are rejected.
+- **Duplicate as new event** copies an existing event's expense lines, attendance weights and fictional participant names as a new reusable template, even if the original event has payment history. It resets all approvals and paid statuses and intentionally does not copy payment objects.
+- Backend pytest covers mathematical invariants, preview immutability, secured routes, invalid input and cloning paid events.
+
 ## New Insight Center and safer AI review
 
 - Protected workspace **Insights & exports** provides live fictional group funding KPIs, outstanding shares, exact-cent allocation validation, and per-event PayPal sandbox progress.

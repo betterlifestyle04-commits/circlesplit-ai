@@ -3,6 +3,7 @@ import base64
 import binascii
 import hmac
 import json
+from decimal import Decimal, InvalidOperation
 import os
 import sqlite3
 import uuid
@@ -226,6 +227,107 @@ def new_event(data: EventInput):
         row = c.execute("INSERT INTO events(name,date,note,created) VALUES(?,?,?,?)",
                         (data.name,data.date,data.note,now()))
     return {"id": row.lastrowid}
+
+class CloneEventInput(BaseModel):
+    # Copy expenses and optional fictional participants, not approvals or payments.
+    name: str = Field(default="", max_length=90)
+    date: str = Field(default="", max_length=20)
+    include_people: bool = True
+
+@app.post("/api/events/{eid}/clone")
+def clone_event(eid: int, data: CloneEventInput):
+    with db() as c:
+        original = require_event(c, eid)
+        title = data.name.strip() or ("Copy of " + original["name"])[:90]
+        date = data.date.strip() or original["date"]
+        if len(title) < 3 or not (8 <= len(date) <= 20):
+            raise HTTPException(422, "Provide an event name and valid event date")
+        expenses = c.execute(
+            "SELECT title,cents FROM expenses WHERE event_id=? ORDER BY id", (eid,)
+        ).fetchall()
+        people = c.execute(
+            "SELECT name,weight FROM people WHERE event_id=? ORDER BY id", (eid,)
+        ).fetchall() if data.include_people else []
+        if len(people) > 200 or len(expenses) > 200:
+            raise HTTPException(422, "Template exceeds demo limits")
+        new_id = c.execute(
+            "INSERT INTO events(name,date,note,strategy,created) VALUES(?,?,?,?,?)",
+            (title,date,original["note"],original["strategy"],now())
+        ).lastrowid
+        for expense in expenses:
+            c.execute("INSERT INTO expenses(event_id,title,cents) VALUES(?,?,?)",
+                      (new_id,expense["title"],expense["cents"]))
+        for person in people:
+            c.execute("INSERT INTO people(event_id,name,weight,approved,status) VALUES(?,?,?,0,'unpaid')",
+                      (new_id,person["name"],person["weight"]))
+        if people:
+            recalculate(c,new_id,original["strategy"])
+    return {"id":new_id,"source_event_id":eid,
+            "copied_expenses":len(expenses),"copied_people":len(people),
+            "approvals_reset":True,"payments_copied":False}
+
+
+class ScenarioInput(BaseModel):
+    adjustment: str = Field(default="0.00", min_length=1, max_length=25)
+    additional_people: int = Field(default=0, ge=0, le=50)
+    strategy: Literal["equal","weighted"] | None = None
+
+@app.post("/api/events/{eid}/scenario")
+def preview_scenario(eid: int, data: ScenarioInput):
+    # A what-if calculation, NOT a new order or a budget mutation.
+    try:
+        dec = Decimal(data.adjustment)
+    except (InvalidOperation, ValueError, TypeError):
+        raise HTTPException(422, "Enter a valid signed USD adjustment")
+    if (not dec.is_finite() or dec.as_tuple().exponent < -2
+        or abs(dec) > Decimal("100000")):
+        raise HTTPException(422, "Adjustment must be within +/- $100,000.00 and have at most two decimals")
+    delta = int(dec * 100)
+    with db() as c:
+        e = require_event(c,eid)
+        existing = [dict(p) for p in c.execute(
+            "SELECT id,name,weight,share_cents FROM people WHERE event_id=? ORDER BY id", (eid,)
+        ).fetchall()]
+        base_total = c.execute(
+            "SELECT COALESCE(SUM(cents),0) FROM expenses WHERE event_id=?", (eid,)
+        ).fetchone()[0]
+    new_total = base_total + delta
+    if new_total < 0:
+        raise HTTPException(422, "Adjustment cannot reduce the budget below $0.00")
+    if len(existing) + data.additional_people > 200:
+        raise HTTPException(422, "Too many participants for the demo")
+    if not existing and data.additional_people == 0:
+        raise HTTPException(422, "Add at least one participant to preview an allocation")
+    max_id = max((p["id"] for p in existing),default=0)
+    added = [
+        {"id":max_id+i+1,"name":f"New attendee {i+1}","weight":1,"share_cents":0}
+        for i in range(data.additional_people)
+    ]
+    strategy = data.strategy or e["strategy"]
+    all_people = existing + added
+    try:
+        projected = allocate(new_total,all_people,strategy)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc))
+    shares = []
+    for person in all_people:
+        old = person["share_cents"] if person in existing else 0
+        new = projected[person["id"]]
+        shares.append({
+            "name":person["name"],"weight":person["weight"],"new_person":person in added,
+            "before_cents":old,"after_cents":new,"change_cents":new-old
+        })
+    return {
+        "event_id":eid,"event_name":e["name"],
+        "base_total_cents":base_total,"adjustment_cents":delta,
+        "scenario_total_cents":new_total,"strategy":strategy,
+        "current_people":len(existing),"added_people":len(added),
+        "scenario_people":len(all_people),
+        "average_per_person_cents":new_total//len(all_people),
+        "shares":shares,"read_only":True,
+        "warning":"Preview only. No approvals, payments, allocations, or budgets were modified."
+    }
+
 
 class ExpenseInput(BaseModel):
     title: str = Field(min_length=2, max_length=120)

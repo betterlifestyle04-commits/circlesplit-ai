@@ -394,3 +394,105 @@ def test_public_guide_and_homepage_need_no_secret(client,monkeypatch):
     assert client.get("/judge").status_code == 200
     assert client.get("/workspace").status_code == 401
     assert client.post("/api/ai/parse",json={"note":"Court 180 dollars, equipment 25 dollars"}).status_code == 401
+
+
+def test_clone_event_copies_budget_but_not_payments(client,monkeypatch):
+    """Event templates must never duplicate approvals, simulated or real money."""
+    e=initial(client);eid=e["id"];first=e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{first}/approve").status_code==200
+    assert client.post(f"/api/events/{eid}/people/{first}/simulate").status_code==200
+    result=client.post(f"/api/events/{eid}/clone",json={
+        "name":"Second Friday Volleyball","date":"2026-11-13","include_people":True
+    })
+    assert result.status_code==200,result.text
+    info=result.json()
+    assert info["copied_expenses"]==3
+    assert info["copied_people"]==20
+    assert info["payments_copied"] is False
+    cloned=next(x for x in client.get("/api/state").json()["events"] if x["id"]==info["id"])
+    assert cloned["name"]=="Second Friday Volleyball"
+    assert cloned["total_cents"]==22000
+    assert sum(x["share_cents"] for x in cloned["people"])==22000
+    assert all(x["approved"]==0 and x["status"]=="unpaid" for x in cloned["people"])
+    assert cloned["sandbox_cents"]==0 and cloned["simulated_cents"]==0
+    assert initial(client)["simulated_cents"]==1100
+
+
+def test_clone_without_people_and_original_payment_lock(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    client.post(f"/api/events/{eid}/people/{pid}/approve")
+    client.post(f"/api/events/{eid}/people/{pid}/simulate")
+    r=client.post(f"/api/events/{eid}/clone",json={"include_people":False})
+    assert r.status_code==200
+    cloned=next(x for x in client.get("/api/state").json()["events"] if x["id"]==r.json()["id"])
+    assert cloned["people"]==[]
+    assert cloned["total_cents"]==e["total_cents"]
+    assert r.json()["copied_people"]==0
+    assert client.post(f"/api/events/{eid}/allocation",json={"strategy":"weighted"}).status_code==409
+    assert client.post(f"/api/events/{cloned['id']}/people",json={"name":"New person"}).status_code==200
+
+
+def test_scenario_preview_is_exact_and_read_only(client):
+    e=initial(client);eid=e["id"]
+    current=client.get("/api/state").json()
+    r=client.post(f"/api/events/{eid}/scenario",json={
+        "adjustment":"10.00","additional_people":1,"strategy":"equal"
+    })
+    assert r.status_code==200,r.text
+    d=r.json()
+    assert d["read_only"] is True
+    assert d["scenario_total_cents"]==23000
+    assert d["current_people"]==20 and d["scenario_people"]==21
+    assert sum(x["after_cents"] for x in d["shares"])==23000
+    assert sum(x["before_cents"] for x in d["shares"])==22000
+    assert sum(x["change_cents"] for x in d["shares"])==1000
+    assert d["added_people"]==1
+    assert client.get("/api/state").json()==current
+    assert client.get("/api/transactions").json()["transactions"]==[]
+
+
+def test_scenario_weighted_discount_and_lock_are_read_only(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    client.post(f"/api/events/{eid}/people/{pid}/approve")
+    client.post(f"/api/events/{eid}/people/{pid}/simulate")
+    before=client.get("/api/state").json()
+    r=client.post(f"/api/events/{eid}/scenario",json={
+        "adjustment":"-20.00","additional_people":2,"strategy":"weighted"
+    })
+    assert r.status_code==200,r.text
+    d=r.json()
+    assert d["scenario_total_cents"]==20000
+    assert d["strategy"]=="weighted"
+    assert sum(p["after_cents"] for p in d["shares"])==20000
+    assert d["read_only"] is True
+    assert client.get("/api/state").json()==before
+
+
+@pytest.mark.parametrize("payload",[
+    {"adjustment":"-300.00"},
+    {"adjustment":"NaN"},
+    {"adjustment":"0.001"},
+    {"adjustment":"1000000.00"},
+    {"additional_people":51},
+    {"additional_people":-1},
+    {"strategy":"random"},
+])
+def test_scenario_rejects_bad_input(client,payload):
+    eid=initial(client)["id"]
+    assert client.post(f"/api/events/{eid}/scenario",json=payload).status_code==422
+
+
+def test_scenario_requires_participants(client):
+    created=client.post("/api/events",json={"name":"Empty Event","date":"2026-11-13"}).json()
+    assert client.post(f"/api/events/{created['id']}/scenario",json={}).status_code==422
+    r=client.post(f"/api/events/{created['id']}/scenario",json={"additional_people":3})
+    assert r.status_code==200
+    assert sum(x["after_cents"] for x in r.json()["shares"])==0
+
+
+def test_scenario_and_clone_routes_are_protected(client,monkeypatch):
+    eid=initial(client)["id"]
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","very-long-owner-password")
+    assert client.post(f"/api/events/{eid}/scenario",json={}).status_code==401
+    assert client.post(f"/api/events/{eid}/clone",json={}).status_code==401

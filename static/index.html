@@ -21,6 +21,7 @@
   <button data-tab="assistant"><span>✦</span> AI assistant</button>
   <button data-tab="activity"><span>▤</span> Activity</button>
    <button data-tab="insights"><span>▥</span> Insights & exports</button>
+   <button data-tab="scenario"><span>◇</span> Scenario lab</button>
    <a href="/judge" style="display:block;color:#7ee0cd;text-decoration:none;font-size:13px;font-weight:750;padding:11px 15px">✓ Judge testing guide ↗</a>
  </nav>
  <div class="side-note"><b>◉ Safe testing environment</b>All PayPal calls use Sandbox only. Demo payments are simulations and never move money. AI never authorizes a charge.</div>
@@ -53,7 +54,7 @@
    <div class="grid2">
     <div class="stack">
      <div class="card"><div class="section-heading"><h2>Event budget</h2><select id="event-select" class="select choose" aria-label="Select event" onchange="selectEvent(this.value)"></select></div>
-       <div id="event-detail"></div><div class="space"></div><button class="btn small secondary" onclick="exportSelectedShares()">↓ Export this event’s shares (CSV)</button><div class="space"></div>
+       <div id="event-detail"></div><div class="space"></div><div class="row wrap"><button class="btn small secondary" onclick="exportSelectedShares()">↓ Export this event’s shares (CSV)</button><button class="btn small" onclick="cloneSelectedEvent()">⧉ Duplicate as new event</button></div><div class="space"></div>
        <div class="row wrap"><button id="equal" class="split-label" onclick="setAllocation('equal')">Equal split</button><button id="weighted" class="split-label" onclick="setAllocation('weighted')">Attendance-weighted</button></div>
        <div class="space"></div><div id="expense-rows"></div>
        <div class="space"></div><form id="expense-form" class="inlineform"><input id="expense-title" required minlength="2" placeholder="Expense (e.g. venue fee)" aria-label="Expense name"><input id="expense-amount" required inputmode="decimal" style="max-width:95px" placeholder="$" aria-label="Expense amount"><button class="btn secondary" type="submit">Add</button></form>
@@ -84,7 +85,37 @@
    </div>
   </section>
   <section id="insights" class="tabpan"><div class="title"><div><div class="eyebrow">INSIGHT CENTER</div><h1>Know where every share stands.</h1><p class="sub">Clear funding progress, outstanding contributions and portable demo reports. No real money is collected.</p></div></div><div class="metrics" id="insights-metrics"></div><div class="space"></div><div class="card"><div class="section-heading"><h2>Event funding overview</h2><div class="row wrap"><button class="btn small secondary" onclick="exportFundingReport()">↓ Export funding CSV</button><button class="btn small" onclick="exportDemoSnapshot()">↓ Download JSON snapshot</button></div></div><p class="notice" id="insights-note" aria-live="polite">Calculating…</p><div style="overflow-x:auto"><table><thead><tr><th>Event</th><th>People</th><th>Budget</th><th>Confirmed sandbox</th><th>Outstanding</th><th>Allocation</th></tr></thead><tbody id="insights-events"></tbody></table></div></div><div class="banner" style="margin-top:16px"><b>Data safety:</b> Reports are read-only and contain fictional demo participants. Render Free can reset its SQLite database after a restart or redeploy. JSON snapshots are NOT restorable backups and omit PayPal transaction identifiers.</div></section>
-<section id="activity" class="tabpan"><div class="title"><div><div class="eyebrow">PAYMENT LEDGER</div><h1>Payment activity</h1><p class="sub">A transparent record of sandbox Orders v2 payment requests. The ledger does not show simulated transactions as confirmed money.</p></div></div><div class="card"><div class="section-heading"><h2>PayPal sandbox orders</h2><button class="btn small" onclick="load()">Refresh</button></div><div id="transaction-list"></div></div></section>
+<section id="scenario" class="tabpan">
+    <div class="title"><div><div class="eyebrow">SCENARIO LAB</div><h1>See the impact before you commit.</h1>
+    <p class="sub">Explore extra attendees, costs and allocation methods without changing the event, approvals or PayPal records.</p></div></div>
+    <div class="grid2">
+      <div class="card">
+        <div class="section-heading"><h2>Build a what-if scenario</h2><span class="pill neutral">Read only</span></div>
+        <p class="muted small" id="scenario-target">Select an event from Events first.</p>
+        <form id="scenario-form" class="formgrid">
+          <div class="field"><label for="scenario-adjustment">Budget adjustment (USD)</label>
+            <input id="scenario-adjustment" value="0.00" placeholder="e.g. 25.00 or -10.00" inputmode="decimal" required></div>
+          <div class="field"><label for="scenario-people">Extra fictional participants</label>
+            <input id="scenario-people" type="number" min="0" max="50" step="1" value="0" required></div>
+          <div class="field full"><label for="scenario-strategy">Allocation method</label>
+            <select id="scenario-strategy" class="select"><option value="equal">Equal cost splitting</option><option value="weighted">Attendance weighted</option></select></div>
+          <button class="btn primary full" id="scenario-run" type="submit">◇ Calculate scenario</button>
+        </form>
+        <p class="notice" style="margin-top:16px">Negative adjustments represent hypothetical discounts. New participants use weight 1. Any current payment remains untouched. A scenario does not create orders or charge anyone.</p>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Comparison</div><h2 style="margin-top:10px">Current vs. proposed budget</h2>
+        <div id="scenario-results" class="empty">Choose your assumptions and calculate to preview the result.</div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:20px">
+      <div class="section-heading"><h2>Participant impact</h2><span class="pill neutral">Exact-cent preview</span></div>
+      <p class="small muted">Positive changes mean a larger hypothetical share; negative changes mean a smaller one. No existing approval is modified.</p>
+      <div style="overflow-x:auto"><table><thead><tr><th>Participant</th><th>Weight</th><th>Current</th><th>Projected</th><th>Change</th></tr></thead>
+      <tbody id="scenario-shares"><tr><td colspan="5" class="muted">Run a scenario to see participant impacts.</td></tr></tbody></table></div>
+    </div>
+  </section>
+  <section id="activity" class="tabpan"><div class="title"><div><div class="eyebrow">PAYMENT LEDGER</div><h1>Payment activity</h1><p class="sub">A transparent record of sandbox Orders v2 payment requests. The ledger does not show simulated transactions as confirmed money.</p></div></div><div class="card"><div class="section-heading"><h2>PayPal sandbox orders</h2><button class="btn small" onclick="load()">Refresh</button></div><div id="transaction-list"></div></div></section>
  </div>
 </div></div>
 <script src="/static/insights.js"></script>
@@ -103,7 +134,52 @@ function post(path,body){return request(path,{method:"POST",body:JSON.stringify(
 async function run(action,msg){try{await action();await load();if(msg)notice(msg,false)}catch(e){notice(e.message,true)}}
 function switchTab(tab){currentTab=tab;document.querySelectorAll(".tabpan").forEach(function(x){x.classList.toggle("active",x.id===tab)});document.querySelectorAll("[data-tab]").forEach(function(x){x.classList.toggle("active",x.dataset.tab===tab)});el("crumb").textContent=tab.charAt(0).toUpperCase()+tab.slice(1);render()}
 function focusNew(){setTimeout(function(){el("new-name").focus()},100)}
-function selectEvent(id){eventId=Number(id);proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";render()}
+function selectEvent(id){eventId=Number(id);proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";resetScenario();render()}
+async function cloneSelectedEvent(){
+ const e=event();if(!e)return;
+ const name=window.prompt("New event name (expenses and participants will be copied, payments will not)",("Copy of "+e.name).slice(0,90));
+ if(name===null)return;
+ const title=name.trim();
+ if(title.length<3||title.length>90){notice("Enter a name between 3 and 90 characters.",true);return;}
+ const date=el("new-date").value||new Date().toISOString().slice(0,10);
+ try {
+   const cloned=await post("/api/events/"+e.id+"/clone",{name:title,date:date,include_people:true});
+   eventId=cloned.id;await load();switchTab("events");
+   notice("New event created. "+cloned.copied_expenses+" costs and "+cloned.copied_people+
+      " fictional participants copied. All approvals and payments reset.",false);
+ }catch(err){notice("Could not duplicate event: "+err.message,true);}
+}
+function resetScenario(){
+ const result=el("scenario-results"),table=el("scenario-shares");
+ if(result){result.className="empty";result.textContent="Choose assumptions and click Calculate scenario.";}
+ if(table)table.innerHTML='<tr><td colspan="5" class="muted">No scenario calculated.</td></tr>';
+}
+function signedMoney(v){return (v>0?"+":v<0?"−":"")+money(Math.abs(v));}
+async function previewScenario(evt){
+ evt.preventDefault();const e=event();
+ if(!e){notice("Create an event before using Scenario lab.",true);return;}
+ const button=el("scenario-run");button.disabled=true;button.textContent="Calculating…";
+ try{
+   const d=await post("/api/events/"+e.id+"/scenario",{
+     adjustment:el("scenario-adjustment").value.trim(),
+     additional_people:Number(el("scenario-people").value),
+     strategy:el("scenario-strategy").value
+   });
+   if(event()?.id!==d.event_id){resetScenario();throw Error("Selected event changed. Recalculate the scenario.");}
+   const result=el("scenario-results");result.className="";
+   result.innerHTML='<div class="row between" style="margin:15px 0"><span class="muted">Current budget</span><b>'+money(d.base_total_cents)+'</b></div>'+
+      '<div class="row between" style="margin:15px 0"><span class="muted">Hypothetical adjustment</span><b>'+signedMoney(d.adjustment_cents)+'</b></div>'+
+      '<div class="row between" style="margin:15px 0"><span class="muted">Participant count</span><b>'+d.current_people+' → '+d.scenario_people+'</b></div>'+
+      '<div class="row between" style="margin:15px 0"><span class="muted">Split method</span><b>'+safe(d.strategy)+'</b></div>'+
+      '<div class="capsule" style="margin-top:18px"><div class="muted small">Projected total</div><div style="font-size:29px;font-weight:850">'+money(d.scenario_total_cents)+'</div><div class="muted small">Approx. per person: '+money(d.average_per_person_cents)+'</div></div>'+
+      '<p class="small muted" style="margin-top:15px">'+safe(d.warning)+'</p>';
+   el("scenario-shares").innerHTML=d.shares.map(function(p){
+      return '<tr><td>'+safe(p.name)+(p.new_person?' <span class="pill neutral">New</span>':'')+'</td><td>'+p.weight+'</td><td>'+money(p.before_cents)+'</td><td><b>'+money(p.after_cents)+'</b></td><td>'+signedMoney(p.change_cents)+'</td></tr>';
+   }).join("");
+   notice("Scenario calculated from server-side exact-cent allocation. Nothing has changed in your event.",false);
+ }catch(err){notice("Scenario failed: "+err.message,true);}
+ finally{button.disabled=false;button.textContent="◇ Calculate scenario";}
+}
 function setAllocation(strategy){let e=event();if(!e)return;run(function(){return post("/api/events/"+e.id+"/allocation",{strategy:strategy})},"Allocation recalculated. Existing approvals reset.")}
 function removeExpense(id){let e=event();if(!e||!window.confirm("Remove this expense and recalculate all shares?"))return;run(function(){return request("/api/events/"+e.id+"/expenses/"+id,{method:"DELETE"})},"Expense removed; approvals reset.")}
 function removePerson(id){let e=event();if(!e||!window.confirm("Remove this participant and recalculate all shares?"))return;run(function(){return request("/api/events/"+e.id+"/people/"+id,{method:"DELETE"})},"Participant removed; shares recalculated.")}
@@ -121,6 +197,8 @@ function render(){
  el("event-summary").innerHTML=events.length?events.map(function(x){return '<div class="row between" style="padding:15px 0;border-bottom:1px solid #edf0f1"><div><div class="event-name">'+safe(x.name)+'</div><div class="muted small">'+safe(x.date)+' • '+x.people.length+' members</div></div><div style="text-align:right"><b>'+money(x.total_cents)+'</b><div class="small muted">'+x.approved+' approved</div></div></div>'}).join(""):'<div class="empty">No events yet.</div>';
  let select=el("event-select");select.innerHTML=events.map(function(x){return '<option value="'+x.id+'">'+safe(x.name)+'</option>'}).join("");if(e)select.value=e.id;
  el("ai-indicator").textContent=state.ai_configured?"AI key set · verify with test":"AI not connected";
+  const scenarioTarget=el("scenario-target");if(scenarioTarget)scenarioTarget.textContent=e?"Current event: "+e.name+" · "+money(e.total_cents)+" · "+e.people.length+" participants":"No event selected. Create one in Events.";
+
  if(!e){el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
  el("event-detail").innerHTML='<div class="detail-head"><div><div class="muted small">'+safe(e.date)+'</div><h3 style="margin:4px 0">'+safe(e.name)+'</h3><div class="muted small">'+safe(e.note)+'</div></div><div style="text-align:right"><div class="muted small">Total planned budget</div><div style="font-size:27px;font-weight:850">'+money(e.total_cents)+'</div></div></div>';
  el("equal").classList.toggle("active",e.strategy==="equal");el("weighted").classList.toggle("active",e.strategy==="weighted");
@@ -135,6 +213,8 @@ function render(){
 async function load(){try{state=await request("/api/state");if(!state.events.some(function(e){return e.id===eventId}))eventId=state.events.length?state.events[0].id:null;render();let t=await request("/api/transactions");window.circleTransactions=t.transactions;renderInsights();el("transaction-list").innerHTML=t.transactions.length?'<div class="notice">Order created ≠ payment captured. Click Check PayPal to resume buyer approval or reconcile a previously approved sandbox order.</div><div class="space"></div><div style="overflow-x:auto"><table><thead><tr><th>Person</th><th>Event</th><th>Amount</th><th>Status</th><th>Verify</th></tr></thead><tbody>'+t.transactions.map(function(p){let id=String(p.order_id||"");let canCheck=p.status!=="completed"&&/^[A-Za-z0-9-]{5,50}$/.test(id);return '<tr><td>'+safe(p.person_name)+'</td><td>'+safe(p.event_name)+'</td><td>'+money(p.amount_cents)+'</td><td><span class="pill '+(p.status==="completed"?"":"orange")+'">'+safe(p.status==="completed"?"VERIFIED CAPTURE":p.status==="created"?"ORDER CREATED — NOT PAID":p.status)+'</span></td><td>'+(canCheck?'<button class="btn small secondary" onclick="verifyPayPalOrder(\''+id+'\')">Check PayPal</button>':p.status==="completed"?"Verified":"—")+'</td></tr>'}).join("")+'</tbody></table></div>':'<div class="empty">No real PayPal sandbox orders created yet.</div>'}catch(e){notice(e.message,true)}}
 async function analyze(evt){evt.preventDefault();if(applyingProposal)return;proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").textContent="Analyzing your note...";const target=event();const targetId=target?target.id:null;el("ai-button").disabled=true;try{if(!targetId)throw Error("Select an event before analyzing costs.");let p=await post("/api/ai/parse",{note:el("ai-note").value});if(event()?.id!==targetId)throw Error("Event changed during AI analysis. Re-run for the selected event.");proposal=p;proposalEventId=targetId;el("ai-rationale").textContent=(p.rationale||"Review before applying")+" · Target event: "+target.name;el("ai-proposal").className="stack";el("ai-proposal").innerHTML=p.expenses.map(function(x,i){return '<div class="formgrid"><div class="field"><label>Expense</label><input class="pro-title" value="'+safe(x.title)+'"></div><div class="field"><label>USD</label><input class="pro-amount" value="'+safe(x.amount)+'"></div></div>'}).join("")||'<div class="empty">No explicit prices were identified in the note.</div>';el("ai-apply").disabled=!p.expenses.length}catch(e){el("ai-proposal").className="empty";el("ai-proposal").textContent=e.message;notice(e.message,true)}finally{el("ai-button").disabled=false}}
 async function applyProposal(){let e=event();if(!e||!proposal||applyingProposal)return;if(proposalEventId!==e.id){notice("This proposal belongs to a different event. Analyze the selected event again.",true);return;}let titles=[...document.querySelectorAll(".pro-title")],amounts=[...document.querySelectorAll(".pro-amount")];let expenses=titles.map(function(x,i){return {title:x.value.trim(),amount:amounts[i].value.trim()}});if(expenses.some(x=>!x.title||!/^\d+(\.\d{1,2})?$/.test(x.amount))){notice("Check the expense titles and USD amounts before approving.",true);return;}applyingProposal=true;el("ai-apply").disabled=true;try{await post("/api/events/"+e.id+"/expenses/bulk",{expenses:expenses});proposal=null;proposalEventId=null;await load();el("ai-proposal").className="empty";el("ai-proposal").textContent="Expenses saved successfully to "+e.name+".";notice("AI proposal reviewed and saved for "+e.name+".",false);}catch(err){notice("Not saved: "+err.message+". Review amounts or the event’s payment lock, then retry.",true);}finally{applyingProposal=false;el("ai-apply").disabled=!proposal}}
+el("scenario-form").addEventListener("submit",previewScenario);
+["scenario-adjustment","scenario-people","scenario-strategy"].forEach(function(id){el(id).addEventListener("input",resetScenario);});
 el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);
 document.querySelectorAll("[data-tab]").forEach(function(x){x.addEventListener("click",function(){switchTab(x.dataset.tab)})});
 async function checkReadiness(){
