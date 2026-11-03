@@ -669,3 +669,12 @@ def test_task_scoping_and_hosted_access(client,monkeypatch):
     assert client.post(f"/api/events/{eid}/tasks",json={"title":"Forbidden"}).status_code==401
     assert client.patch(f"/api/events/{eid}/tasks/{tid}",json={"completed":True}).status_code==401
     assert client.delete(f"/api/events/{eid}/tasks/{tid}").status_code==401
+
+
+def test_public_head_probe_does_not_trigger_auth(client,monkeypatch):
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","long-owner-demo-test-password")
+    assert client.head("/").status_code==200
+    assert client.head("/health").status_code==200
+    assert client.get("/health").json()["status"]=="ok"
+    assert client.head("/workspace").status_code==401
