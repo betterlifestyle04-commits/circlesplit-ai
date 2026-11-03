@@ -160,7 +160,7 @@ def test_mocked_ai_proposal_is_review_only(client, monkeypatch):
     assert response.status_code==200
     body=response.json()
     assert body["requires_approval"] is True
-    assert body["expenses"]==[{"title":"Court","amount":"19.95"}]
+    assert body["expenses"]==[{"title":"Court","amount":"19.95","category":"other"}]
     assert body["strategy"]=="weighted"
     assert initial(client)["total_cents"]==original
 
@@ -906,7 +906,7 @@ def test_event_history_financial_integrity_and_privacy(client):
     data=client.get(path).json()
     assert data["total_actions"]==1
     assert data["entries"][0]["action"]=="expense_added"
-    assert data["entries"][0]["details"]=={"amount_cents":200}
+    assert data["entries"][0]["details"]=={"amount_cents":200,"category":"other"}
     assert data["integrity"]["status"]=="consistent"
     assert "CONFIDENTIAL-EXPENSE-SENTINEL" not in str(data)
     assert "Alex" not in str(data)
