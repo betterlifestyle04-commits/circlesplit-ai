@@ -36,6 +36,9 @@ button:focus-visible,select:focus-visible{outline:3px solid #1ba890;outline-offs
  </div>
  <p style="font-size:12px;margin:6px 0">Times are local to the event location, not automatically converted to your timezone. The organizer must tell you about changes.</p>
  <div id="agenda-items" role="list" aria-live="polite"></div>
+ <p id="agenda-review-status" style="font-size:13px" role="status" aria-live="polite">Review the current schedule before acknowledging it.</p>
+ <button id="agenda-ack" type="button" disabled>I've reviewed this schedule</button>
+ <p style="font-size:12px">This records a private-link acknowledgement only. It does not approve a contribution, confirm identity or send money.</p>
 </div>
 <div class="row"><span>Currency</span><strong>USD</strong></div>
 <div class="row"><span>RSVP response</span><strong id="rsvp">Not answered</strong></div>
@@ -55,7 +58,7 @@ button:focus-visible,select:focus-visible{outline:3px solid #1ba890;outline-offs
 <div class="message" id="message" role="status" aria-live="polite"></div>
 </div><footer>CircleSplit AI hackathon prototype · No live money movement or personal identity verification</footer></main>
 <script>"use strict";
-let token="";
+let token="",currentAgendaRevision=0;
 const $=id=>document.getElementById(id);
 const format=n=>"$"+(n/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 function message(s,error){$("message").textContent=s;$("message").className="message show"+(error?" error":"")}
@@ -75,6 +78,14 @@ async function refresh(){
   $("description").textContent="Review the assigned fictional contribution below.";
   $("amount").textContent=format(d.share_cents);$("person").textContent=d.participant;
   $("date").textContent=d.event_date;$("expiry").textContent=new Date(d.expires_at).toLocaleString();
+  currentAgendaRevision=Number(d.agenda_revision)||0;
+  const agendaReviewed=Boolean(d.agenda_acknowledged);
+  $("agenda-review-status").textContent=currentAgendaRevision===0?
+   "No schedule published yet.":
+   agendaReviewed?"You've acknowledged schedule version "+currentAgendaRevision+".":
+   "Schedule version "+currentAgendaRevision+" needs your review. It may have changed since your last visit.";
+  $("agenda-ack").disabled=currentAgendaRevision===0||agendaReviewed;
+  $("agenda-ack").textContent=agendaReviewed?"Schedule reviewed":"I've reviewed schedule v"+currentAgendaRevision;
   const agenda=$("agenda-items");
   agenda.replaceChildren();
   if(Array.isArray(d.agenda)&&d.agenda.length){
@@ -97,9 +108,25 @@ async function refresh(){
   $("payment").textContent=d.status==="sandbox_paid"?"Sandbox captured":d.status==="demo_paid"?"Simulated":"Unpaid";
   $("approve").disabled=Boolean(d.approved)||d.status!=="unpaid"||d.rsvp_status==="declined";
   $("approve").textContent=d.approved?"Share approved":"I approve this amount";
- }catch(err){$("agenda-items").replaceChildren();$("details").hidden=true;$("title").textContent="Invitation unavailable";$("description").textContent="The invitation may have expired, been revoked, or changed after the budget was edited.";message(err.message,true);}
+ }catch(err){currentAgendaRevision=0;$("agenda-ack").disabled=true;$("agenda-items").replaceChildren();$("details").hidden=true;$("title").textContent="Invitation unavailable";$("description").textContent="The invitation may have expired, been revoked, or changed after the budget was edited.";message(err.message,true);}
 }
 $("agenda-refresh").addEventListener("click",refresh);
+$("agenda-ack").addEventListener("click",async()=>{
+ const revision=currentAgendaRevision;
+ if(revision<1){message("No published agenda is ready for review.",true);return;}
+ $("agenda-ack").disabled=true;
+ try{
+  const result=await api("/api/participant/agenda/ack","POST",{expected_revision:revision});
+  await refresh();
+  message(result.already_acknowledged?
+   "You had already acknowledged this schedule version.":
+   "Schedule review acknowledged. No RSVP, payment or financial approval was changed.",false);
+ }catch(err){
+  await refresh();
+  message("Could not acknowledge this schedule: "+err.message+
+   ". Review the refreshed schedule and try again.",true);
+ }
+});
 $("rsvp-save").addEventListener("click",async()=>{
   const status=$("rsvp-choice").value;
   if(!["going","maybe","declined"].includes(status)){

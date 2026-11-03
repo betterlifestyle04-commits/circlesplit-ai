@@ -248,6 +248,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
       <div class="card" id="agenda-card">
        <div class="section-heading"><h2>Event run of show</h2><span class="pill neutral" id="agenda-count">0 items</span></div>
        <p class="notice">Add up to 20 non-overlapping same-day activities. Times are local to the event location (no timezone conversion). Agenda updates are visible through valid participant links, but no messages are sent automatically.</p>
+       <div id="agenda-review-summary" class="capsule small" role="status" aria-live="polite" style="margin-bottom:12px">
+        No published schedule to acknowledge.
+       </div>
+       <details id="agenda-review-details" style="margin:10px 0 14px">
+        <summary style="cursor:pointer;font-weight:700">Participant review status</summary>
+        <div id="agenda-review-people" style="padding:8px 0"></div>
+        <p class="small muted">Private-link acknowledgement is not identity verification, RSVP or financial approval. No reminders are automatically sent.</p>
+       </details>
        <div id="agenda-list" aria-live="polite"><div class="empty">No schedule set yet.</div></div>
        <form id="agenda-form" style="margin-top:15px">
         <div class="formgrid">
@@ -895,6 +903,20 @@ function showAgenda(e){
  const items=agendaSorted(e?.agenda||[]);
  el("agenda-count").textContent=items.length+" / 20 items";
  el("agenda-submit").disabled=!e;
+ const review=agendaReviewCounts(e);
+ el("agenda-review-summary").textContent=review.published?
+   "Schedule v"+review.version+" · "+review.reviewed+" of "+review.participants+
+   " participants acknowledged the current agenda · "+review.pending+" awaiting review.":
+   "No agenda has been published yet; acknowledgements are not requested.";
+ const reviewRoot=el("agenda-review-people");
+ reviewRoot.innerHTML=review.published&&e?.people?.length?
+   e.people.map(p=>'<div class="row between" style="padding:5px 0">'+
+     '<span>'+safe(p.name)+'</span><span class="pill '+
+     (Number(p.agenda_ack_revision)===review.version?"neutral":"orange")+'">'+
+     (Number(p.agenda_ack_revision)===review.version?"Reviewed v"+review.version:"Awaiting review")+
+     '</span></div>').join(""):
+   '<p class="small muted">'+(review.published?"No participants have been added.":"Add agenda items to track review acknowledgements.")+'</p>';
+ el("agenda-review-details").hidden=!e||!review.published;
  el("agenda-list").innerHTML=items.length?items.map(slot=>
   '<div style="padding:10px 0;border-bottom:1px solid #edf2f1">'+
    '<div class="row between"><div><b>'+safe(slot.start_time)+'–'+safe(slot.end_time)+

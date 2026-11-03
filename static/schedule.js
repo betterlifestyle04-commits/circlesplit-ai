@@ -21,5 +21,12 @@ function agendaSorted(slots){
  return [...(Array.isArray(slots)?slots:[])].sort((a,b)=>
    minutes(a.start_time)-minutes(b.start_time)||Number(a.id||0)-Number(b.id||0));
 }
+function agendaReviewCounts(event){
+ const version=Number(event?.agenda_revision)||0;
+ const people=Array.isArray(event?.people)?event.people:[];
+ const reviewed=version>0?people.filter(person=>Number(person.agenda_ack_revision)===version).length:0;
+ return {version,participants:people.length,reviewed,pending:version>0?people.length-reviewed:0,
+         published:version>0};
+}
 if(typeof module!=="undefined"&&module.exports)
- module.exports={minutes,agendaInput,agendaOverlap,agendaSorted};
+ module.exports={minutes,agendaInput,agendaOverlap,agendaSorted,agendaReviewCounts};

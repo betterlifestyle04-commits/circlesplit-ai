@@ -49,6 +49,16 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Agenda change acknowledgements — review tracking, not financial consent
+
+- **Private participant portal**: a participant who holds a valid, unexpired invitation link can see the latest event schedule revision and explicitly press **I've reviewed this schedule**. The private page shows whether the current revision was acknowledged, without exposing any other participant's name, RSVP, contribution, or review status.
+- **Organizer Events page**: the Run of Show section displays the current agenda version, how many participants have acknowledged it, how many are pending, and an expandable per-person review status list. This uses the same fictional participant records as the rest of the protected workspace and does not constitute real-world identity proof.
+- Creating, changing or deleting an agenda slot **increments the agenda revision**. A no-op edit does not. An acknowledgement is valid **only for that exact current revision**; a stale browser returns HTTP 409 and must refresh/review before retrying. Duplicate acknowledgements are idempotent and create no duplicate history entries.
+- A meaningful change to event name/date/description also advances the agenda revision if a schedule has been published, preventing a newly issued invitation from treating the old schedule as acknowledged.
+- A new **POST /api/participant/agenda/ack** endpoint accepts \`{"expected_revision":1}\` and requires the existing bearer invitation. It is scoped to that invitation's participant and event; it cannot change RSVPs, consent, simulated contributions, PayPal sandbox records, or any other participant's acknowledgement. It does not automatically notify people about edits.
+- **Database migration** adds an agenda revision/timestamp to events and acknowledged revision/timestamp to participants. Pre-existing events with an agenda start at revision 1, not already acknowledged. Cloning and planning-only restoring a schedule starts at revision 1 with zero acknowledgements; no old acknowledgements or private invitation tokens are copied.
+- This is a private-link **self-reported review**, not proof that an identified person read the details. Timezone handling remains event-local and unspecified, so the organizer should communicate the location and timezone clearly. All new data remains on Render Free's temporary SQLite until durable hosting is implemented.
+
 ## Event run of show & private participant agenda
 
 - The protected **Events → Event run of show** card supports up to **20 activities per event**, with 24-hour start/end times, a short title, and optional participant-visible details. Organizers can add, edit or remove slots. The interface and backend reject invalid times, overnight entries and overlapping activities. Adjacent slots are permitted.

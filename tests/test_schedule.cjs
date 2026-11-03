@@ -1,5 +1,5 @@
 const {test}=require("node:test"),assert=require("node:assert/strict");
-const {minutes,agendaInput,agendaOverlap,agendaSorted}=require("../static/schedule.js");
+const {minutes,agendaInput,agendaOverlap,agendaSorted,agendaReviewCounts}=require("../static/schedule.js");
 test("24 hour local time validated",()=>{
  assert.equal(minutes("00:00"),0);assert.equal(minutes("23:59"),1439);
  for(const x of ["24:00","9:30","12:60","12:5","-1:30","11:99"]){
@@ -25,4 +25,16 @@ test("sorting is deterministic and leaves original unchanged",()=>{
  const x=[{id:3,start_time:"13:00"},{id:1,start_time:"09:00"},{id:2,start_time:"09:00"}];
  assert.deepEqual(agendaSorted(x).map(e=>e.id),[1,2,3]);
  assert.equal(x[0].id,3);
+});
+
+test("review totals only count acknowledgements for latest schedule revision",()=>{
+ const first={agenda_revision:3,people:[
+  {id:1,agenda_ack_revision:3},{id:2,agenda_ack_revision:2},
+  {id:3,agenda_ack_revision:0}]};
+ assert.deepEqual(agendaReviewCounts(first),
+  {version:3,participants:3,reviewed:1,pending:2,published:true});
+ assert.deepEqual(agendaReviewCounts({...first,agenda_revision:0}),
+  {version:0,participants:3,reviewed:0,pending:0,published:false});
+ assert.deepEqual(agendaReviewCounts({agenda_revision:1,people:[]}),
+  {version:1,participants:0,reviewed:0,pending:0,published:true});
 });

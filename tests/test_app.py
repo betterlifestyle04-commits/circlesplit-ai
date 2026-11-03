@@ -563,7 +563,8 @@ def test_participant_invitation_is_private_and_approves_only_own_share(client,mo
     assert detail.status_code==200
     d=detail.json()
     assert set(d)=={"event_name","event_date","participant","share_cents","approved",
-                    "approval_source","status","rsvp_status","expires_at","currency","payment_mode","identity_verified","agenda"}
+                    "approval_source","status","rsvp_status","expires_at","currency","payment_mode","identity_verified","agenda",
+                    "agenda_revision","agenda_changed_at","agenda_acknowledged","agenda_ack_updated"}
     assert d["participant"]=="Alex" and d["share_cents"]==1100
     assert d["rsvp_status"]=="pending"
     assert d["identity_verified"] is False and d["payment_mode"]=="NONE"
@@ -2464,3 +2465,264 @@ def test_planning_backup_rejects_overlapping_agenda_before_writes(client):
     res=client.post("/api/planning-backup/restore",json=backup)
     assert res.status_code==422,res.text
     assert client.get("/api/state").json()==before
+
+
+def test_private_agenda_review_acknowledgement_does_not_touch_finances(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    created=client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"09:00","end_time":"10:00","title":"Welcome","note":"Main hall"
+    })
+    assert created.status_code==200,created.text
+    invite=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    bearer={"Authorization":"Bearer "+invite}
+    assert client.post("/api/participant/rsvp",headers=bearer,
+                       json={"status":"going"}).status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    before=initial(client)
+    overview=client.get("/api/participant/overview",headers=bearer)
+    assert overview.status_code==200,overview.text
+    data=overview.json()
+    assert data["agenda_revision"]==1
+    assert data["agenda_changed_at"]
+    assert data["agenda_acknowledged"] is False
+    assert data["agenda_ack_updated"] is None
+    assert "people" not in data
+    history_before=client.get(f"/api/events/{eid}/history").json()["total_actions"]
+    result=client.post("/api/participant/agenda/ack",headers=bearer,
+                       json={"expected_revision":1})
+    assert result.status_code==200,result.text
+    assert result.json()["already_acknowledged"] is False
+    for field in ("payment_changed","approval_changed","rsvp_changed"):
+        assert result.json()[field] is False
+    after=initial(client)
+    assert after["people"][0]["agenda_ack_revision"]==1
+    assert after["people"][0]["agenda_ack_updated"]
+    assert after["agenda_acknowledged"]==1
+    assert after["people"][0]["approved"]==before["people"][0]["approved"]
+    assert after["people"][0]["rsvp_status"]==before["people"][0]["rsvp_status"]
+    assert after["people"][0]["status"]==before["people"][0]["status"]
+    assert after["expenses"]==before["expenses"]
+    assert after["sandbox_cents"]==before["sandbox_cents"]
+    assert after["simulated_cents"]==before["simulated_cents"]
+    assert after["total_cents"]==before["total_cents"]
+    assert client.get("/api/participant/overview",headers=bearer).json()["agenda_acknowledged"] is True
+    assert client.post("/api/participant/agenda/ack",headers=bearer,
+                       json={"expected_revision":1}).json()["already_acknowledged"] is True
+    history=client.get(f"/api/events/{eid}/history").json()
+    assert history["total_actions"]==history_before+1
+    assert history["entries"][0]["action"]=="agenda_acknowledged"
+    assert history["entries"][0]["actor"]=="participant_link"
+    assert history["entries"][0]["details"]=={"participant_id":pid,"agenda_revision":1}
+    assert invite not in str(history)
+
+
+def test_agenda_revision_invalidates_prior_reviews_only_for_meaningful_changes(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    created=client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"09:00","end_time":"10:00","title":"Welcome","note":"Main hall"
+    })
+    sid=created.json()["id"]
+    invite=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    headers={"Authorization":"Bearer "+invite}
+    assert client.post("/api/participant/agenda/ack",headers=headers,
+                       json={"expected_revision":1}).status_code==200
+    previous=initial(client)
+    assert previous["agenda_revision"]==1
+    assert previous["agenda_acknowledged"]==1
+    changed=client.put(f"/api/events/{eid}/agenda/{sid}",json={
+        "start_time":"09:00","end_time":"10:00","title":"Welcome","note":"Main hall"
+    })
+    assert changed.status_code==200 and changed.json()["changed"] is False
+    unchanged=initial(client)
+    assert unchanged["agenda_revision"]==1
+    assert unchanged["agenda_acknowledged"]==1
+    edited=client.put(f"/api/events/{eid}/agenda/{sid}",json={
+        "start_time":"09:15","end_time":"10:15","title":"Welcome","note":"Main hall"
+    })
+    assert edited.status_code==200,edited.text
+    updated=initial(client)
+    assert updated["agenda_revision"]==2
+    assert updated["agenda_acknowledged"]==0
+    assert updated["people"][0]["agenda_ack_revision"]==1
+    assert updated["people"][0]["approved"]==previous["people"][0]["approved"]
+    overview=client.get("/api/participant/overview",headers=headers).json()
+    assert overview["agenda_revision"]==2
+    assert overview["agenda_acknowledged"] is False
+    count_before=client.get(f"/api/events/{eid}/history").json()["total_actions"]
+    stale=client.post("/api/participant/agenda/ack",headers=headers,
+                      json={"expected_revision":1})
+    assert stale.status_code==409
+    assert "refresh" in stale.json()["detail"].lower()
+    assert client.get(f"/api/events/{eid}/history").json()["total_actions"]==count_before
+    assert client.post("/api/participant/agenda/ack",headers=headers,
+                       json={"expected_revision":2}).status_code==200
+    assert initial(client)["agenda_acknowledged"]==1
+    assert client.delete(f"/api/events/{eid}/agenda/{sid}").status_code==200
+    final=initial(client)
+    assert final["agenda"]==[]
+    assert final["agenda_revision"]==3
+    assert final["agenda_acknowledged"]==0
+
+
+def test_agenda_acknowledgement_is_link_scoped_and_rejects_invalid_requests(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    url="/api/participant/agenda/ack"
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    headers={"Authorization":"Bearer "+token}
+    assert client.post(url,headers=headers,json={"expected_revision":1}).status_code==409
+    for invalid in [0,-1,2_000_000_001,"1",True]:
+        assert client.post(url,headers=headers,
+                           json={"expected_revision":invalid}).status_code==422
+    assert client.post(url,headers=headers,json={
+        "expected_revision":1,"approved":True
+    }).status_code==422
+    assert client.post(url,json={"expected_revision":1}).status_code==401
+    assert client.post(url,headers={"Authorization":"Bearer invalid"},
+                       json={"expected_revision":1}).status_code==401
+    second=client.post("/api/events",json={
+        "name":"Another event","date":"2026-12-08"
+    }).json()
+    assert client.post(f"/api/events/{second['id']}/agenda",json={
+        "start_time":"11:00","end_time":"12:00","title":"Second event activity"
+    }).status_code==200
+    assert client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"09:00","end_time":"09:30","title":"First event activity"
+    }).status_code==200
+    assert client.post(url,headers=headers,json={"expected_revision":1}).status_code==200
+    first=next(x for x in client.get("/api/state").json()["events"] if x["id"]==eid)
+    other=next(x for x in client.get("/api/state").json()["events"] if x["id"]==second["id"])
+    assert first["agenda_acknowledged"]==1
+    assert other["agenda_acknowledged"]==0
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","long-agenda-review-secret")
+    # Participant endpoint is public at the middleware layer, but requires a valid bearer token.
+    assert client.post(url,headers=headers,
+                       json={"expected_revision":1}).status_code==200
+    assert client.post(url,json={"expected_revision":1}).status_code==401
+    # Organizer-only API cannot be accessed via the private invite bearer.
+    assert client.post(f"/api/events/{eid}/agenda",headers=headers,json={
+        "start_time":"10:00","end_time":"10:30","title":"Not allowed"
+    }).status_code==401
+    monkeypatch.delenv("CIRCLESPLIT_HOSTED")
+    assert client.post(f"/api/events/{eid}/people/{pid}/invite/revoke").status_code==200
+    assert client.post(url,headers=headers,
+                       json={"expected_revision":1}).status_code==404
+
+
+def test_agenda_acknowledgement_works_after_simulated_contribution(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    assert client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"13:00","end_time":"13:30","title":"Activity after contribution"
+    }).status_code==200
+    before=initial(client)
+    res=client.post("/api/participant/agenda/ack",headers={
+        "Authorization":"Bearer "+token
+    },json={"expected_revision":1})
+    assert res.status_code==200,res.text
+    after=initial(client)
+    assert after["people"][0]["status"]==before["people"][0]["status"]=="demo_paid"
+    assert after["people"][0]["approved"]==before["people"][0]["approved"]
+    assert after["simulated_cents"]==before["simulated_cents"]
+    assert after["sandbox_cents"]==before["sandbox_cents"]
+    assert after["people"][0]["agenda_ack_revision"]==1
+
+
+def test_cloned_or_restored_agendas_need_fresh_private_link_acknowledgements(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"14:00","end_time":"15:00","title":"Event activity"
+    }).status_code==200
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    assert client.post("/api/participant/agenda/ack",headers={
+        "Authorization":"Bearer "+token
+    },json={"expected_revision":1}).status_code==200
+    duplicate=client.post(f"/api/events/{eid}/clone",json={
+        "name":"Duplicated schedule"
+    })
+    assert duplicate.status_code==200,duplicate.text
+    copied=next(x for x in client.get("/api/state").json()["events"] if x["id"]==duplicate.json()["id"])
+    assert copied["agenda_revision"]==1
+    assert copied["agenda_acknowledged"]==0
+    assert all(x["agenda_ack_revision"]==0 and x["agenda_ack_updated"] is None for x in copied["people"])
+    backup=client.get("/api/planning-backup").json()
+    assert all("agenda_ack_revision" not in str(x) for x in backup["events"])
+    result=client.post("/api/planning-backup/restore",json=backup)
+    assert result.status_code==200,result.text
+    restored_id=result.json()["created_event_ids"][0]
+    restored=next(x for x in client.get("/api/state").json()["events"] if x["id"]==restored_id)
+    assert restored["agenda_revision"]==1
+    assert restored["agenda_acknowledged"]==0
+    assert all(p["agenda_ack_revision"]==0 for p in restored["people"])
+
+
+def test_agenda_revision_migration_preserves_preexisting_schedule(monkeypatch,tmp_path):
+    import sqlite3
+    import app as api
+    legacy=tmp_path/"agenda-before-revisions.sqlite3"
+    with sqlite3.connect(str(legacy)) as conn:
+        conn.executescript("""
+            CREATE TABLE events(
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL, date TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                strategy TEXT NOT NULL DEFAULT 'equal',
+                created TEXT NOT NULL
+            );
+            CREATE TABLE event_agenda(
+                id INTEGER PRIMARY KEY,
+                event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                start_time TEXT NOT NULL,end_time TEXT NOT NULL,
+                title TEXT NOT NULL,note TEXT NOT NULL DEFAULT ''
+            );
+        """)
+        conn.execute("INSERT INTO events(id,name,date,note,created) VALUES(1,'Legacy trip','2026-12-10','','2026-11-03')")
+        conn.execute("""INSERT INTO event_agenda(event_id,start_time,end_time,title,note)
+                        VALUES(1,'09:00','10:00','Legacy arrival','')""")
+    monkeypatch.setattr(api,"DB",legacy)
+    api.initialize()
+    with api.db() as c:
+        row=c.execute("SELECT agenda_revision FROM events WHERE id=1").fetchone()
+        assert row["agenda_revision"]==1
+        agenda=c.execute("SELECT title FROM event_agenda WHERE event_id=1").fetchall()
+        assert [x["title"] for x in agenda]==["Legacy arrival"]
+    api.initialize()
+    with api.db() as c:
+        assert c.execute("SELECT agenda_revision FROM events WHERE id=1").fetchone()[0]==1
+
+
+def test_changing_event_details_invalidates_previous_schedule_review(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    created=client.post(f"/api/events/{eid}/agenda",json={
+        "start_time":"17:00","end_time":"18:00","title":"Opening activity"
+    })
+    assert created.status_code==200
+    old_token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    old_headers={"Authorization":"Bearer "+old_token}
+    assert client.post("/api/participant/agenda/ack",headers=old_headers,
+                       json={"expected_revision":1}).status_code==200
+    assert initial(client)["agenda_acknowledged"]==1
+    before=initial(client)
+    res=client.put(f"/api/events/{eid}/details",json={
+        "name":e["name"],"date":"2026-12-15","note":"Updated arrival date",
+        "expected_name":e["name"],"expected_date":e["date"],"expected_note":e["note"]
+    })
+    assert res.status_code==200,res.text
+    after=initial(client)
+    assert after["agenda_revision"]==2
+    assert after["agenda_acknowledged"]==0
+    assert after["total_cents"]==before["total_cents"]
+    assert after["people"][0]["agenda_ack_revision"]==1
+    assert client.get("/api/participant/overview",headers=old_headers).status_code==404
+    new_token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    new_headers={"Authorization":"Bearer "+new_token}
+    latest=client.get("/api/participant/overview",headers=new_headers).json()
+    assert latest["agenda_revision"]==2
+    assert latest["agenda_acknowledged"] is False
+    assert client.post("/api/participant/agenda/ack",headers=new_headers,
+                       json={"expected_revision":1}).status_code==409
+    assert client.post("/api/participant/agenda/ack",headers=new_headers,
+                       json={"expected_revision":2}).status_code==200
+    assert initial(client)["agenda_acknowledged"]==1

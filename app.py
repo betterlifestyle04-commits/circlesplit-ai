@@ -43,6 +43,7 @@ async def demo_access_control(request: Request, call_next):
             (request.url.path == "/api/participant/overview" and request.method == "GET")
             or (request.url.path == "/api/participant/approve" and request.method == "POST")
             or (request.url.path == "/api/participant/rsvp" and request.method == "POST")
+            or (request.url.path == "/api/participant/agenda/ack" and request.method == "POST")
         )
         if not public_page and not participant_api and request.url.path not in ("/health", "/api/paypal/webhook"):
             user = os.getenv("DEMO_USERNAME", "judge")
@@ -220,6 +221,21 @@ def initialize():
             c.execute("ALTER TABLE people ADD COLUMN rsvp_status TEXT NOT NULL DEFAULT 'pending'")
         if "rsvp_updated" not in columns:
             c.execute("ALTER TABLE people ADD COLUMN rsvp_updated TEXT")
+        if "agenda_ack_revision" not in columns:
+            c.execute("ALTER TABLE people ADD COLUMN agenda_ack_revision INTEGER NOT NULL DEFAULT 0")
+        if "agenda_ack_updated" not in columns:
+            c.execute("ALTER TABLE people ADD COLUMN agenda_ack_updated TEXT")
+        event_columns = {row["name"] for row in c.execute("PRAGMA table_info(events)")}
+        if "agenda_revision" not in event_columns:
+            c.execute("ALTER TABLE events ADD COLUMN agenda_revision INTEGER NOT NULL DEFAULT 0")
+        if "agenda_changed_at" not in event_columns:
+            c.execute("ALTER TABLE events ADD COLUMN agenda_changed_at TEXT")
+        # Existing populated agendas predate revision tracking. Treat them as v1
+        # without implying that anybody has reviewed the schedule.
+        c.execute("""UPDATE events SET agenda_revision=1
+                     WHERE agenda_revision=0 AND EXISTS (
+                        SELECT 1 FROM event_agenda a WHERE a.event_id=events.id
+                     )""")
         expense_columns = {row["name"] for row in c.execute("PRAGMA table_info(expenses)")}
         if "category" not in expense_columns:
             c.execute("ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'")
@@ -259,6 +275,8 @@ def detailed(c, eid):
     planning = planning_forecast(planned_total,setting["ceiling_cents"] if setting else None,
                                  setting["reserve_percent"] if setting else 0)
     return {**event, "expenses": expenses, "people": people, "tasks":tasks, "agenda":agenda, "planning":planning,
+        "agenda_acknowledged":sum(1 for p in people if event["agenda_revision"]>0 and
+                                  p["agenda_ack_revision"]==event["agenda_revision"]),
         "total_cents": sum(x["cents"] for x in expenses),
         "simulated_cents": sum(x["share_cents"] for x in people if x["status"] == "demo_paid"),
         # Verified sandbox funding must come from completed capture-backed payment
@@ -303,6 +321,7 @@ HISTORY_SUMMARIES = {
     "agenda_added":"Agenda item added",
     "agenda_updated":"Agenda item updated",
     "agenda_removed":"Agenda item removed",
+    "agenda_acknowledged":"Latest event agenda acknowledged via private link",
     "task_added":"Preparation task added",
     "tasks_added":"Preparation tasks added",
     "task_updated":"Preparation task status changed",
@@ -763,6 +782,8 @@ async def restore_planning_backup(request: Request):
                     "INSERT INTO event_agenda(event_id,start_time,end_time,title,note) VALUES(?,?,?,?,?)",
                     (eid,slot.start_time,slot.end_time,slot.title.strip(),slot.note.strip())
                 )
+            if data.agenda:
+                c.execute("UPDATE events SET agenda_revision=1,agenda_changed_at=? WHERE id=?",(now(),eid))
             if data.planning.ceiling_cents is not None or data.planning.reserve_percent:
                 c.execute(
                     """INSERT INTO event_planning(event_id,ceiling_cents,reserve_percent,updated_at)
@@ -1080,6 +1101,11 @@ def update_event_details(eid: int,data: EventDetailsUpdate):
         ).fetchone()[0]
         c.execute("UPDATE events SET name=?,date=?,note=? WHERE id=?",
                   (name,data.date,note,eid))
+        # Event identity/date changes invalidate schedule acknowledgements too.
+        # New private links must not present the old event plan as reviewed.
+        c.execute("""UPDATE events SET agenda_revision=agenda_revision+1,
+                     agenda_changed_at=? WHERE id=? AND agenda_revision>0""",
+                  (now(),eid))
         c.execute(
             """UPDATE people SET approved=0,approval_source='',
                rsvp_status='pending',rsvp_updated=NULL WHERE event_id=?""",(eid,)
@@ -1145,6 +1171,8 @@ def clone_event(eid: int, data: CloneEventInput):
             c.execute(
                 "INSERT INTO event_agenda(event_id,start_time,end_time,title,note) VALUES(?,?,?,?,?)",
                 (new_id,slot["start_time"],slot["end_time"],slot["title"],slot["note"]))
+        if agenda_slots:
+            c.execute("UPDATE events SET agenda_revision=1,agenda_changed_at=? WHERE id=?",(now(),new_id))
         if planning_setting:
             c.execute("INSERT INTO event_planning(event_id,ceiling_cents,reserve_percent,updated_at) VALUES(?,?,?,?)",
                       (new_id,planning_setting["ceiling_cents"],planning_setting["reserve_percent"],now()))
@@ -1206,6 +1234,8 @@ def create_agenda_slot(eid:int,data:AgendaInput):
             "INSERT INTO event_agenda(event_id,start_time,end_time,title,note) VALUES(?,?,?,?,?)",
             (eid,data.start_time,data.end_time,title,note)
         ).lastrowid
+        c.execute("UPDATE events SET agenda_revision=agenda_revision+1,agenda_changed_at=? WHERE id=?",
+                  (now(),eid))
         record_history(c,eid,"agenda_added",details={"agenda_id":slot_id})
     return {"id":slot_id,"start_time":data.start_time,"end_time":data.end_time,
             "title":title,"note":note,"financial_records_changed":False}
@@ -1233,6 +1263,8 @@ def update_agenda_slot(eid:int,slot_id:int,data:AgendaInput):
                WHERE event_id=? AND id=?""",
             (data.start_time,data.end_time,title,note,eid,slot_id)
         )
+        c.execute("UPDATE events SET agenda_revision=agenda_revision+1,agenda_changed_at=? WHERE id=?",
+                  (now(),eid))
         record_history(c,eid,"agenda_updated",details={"agenda_id":slot_id})
     return {"ok":True,"changed":True,"financial_records_changed":False,
             "rsvps_changed":False,"approvals_changed":False}
@@ -1246,6 +1278,8 @@ def delete_agenda_slot(eid:int,slot_id:int):
                           (eid,slot_id))
         if deleted.rowcount!=1:
             raise HTTPException(404,"Agenda item not found")
+        c.execute("UPDATE events SET agenda_revision=agenda_revision+1,agenda_changed_at=? WHERE id=?",
+                  (now(),eid))
         record_history(c,eid,"agenda_removed",details={"agenda_id":slot_id})
     return {"ok":True,"financial_records_changed":False}
 
@@ -1670,7 +1704,9 @@ def participant_from_invite(c, request: Request):
     row = c.execute(
         """SELECT l.*,p.id AS person_id,p.event_id,p.name AS person_name,
                   p.share_cents,p.approved,p.approval_source,p.status,p.rsvp_status,
-                  e.name AS event_name,e.date AS event_date
+                  p.agenda_ack_revision,p.agenda_ack_updated,
+                  e.name AS event_name,e.date AS event_date,
+                  e.agenda_revision,e.agenda_changed_at
            FROM participant_invites l
            JOIN people p ON p.id=l.person_id
            JOIN events e ON e.id=p.event_id
@@ -1738,6 +1774,11 @@ def participant_overview(request: Request):
         return {
             "event_name":invitation["event_name"],
             "event_date":invitation["event_date"],
+            "agenda_revision":invitation["agenda_revision"],
+            "agenda_changed_at":invitation["agenda_changed_at"],
+            "agenda_acknowledged":(invitation["agenda_revision"]>0 and
+                                    invitation["agenda_ack_revision"]==invitation["agenda_revision"]),
+            "agenda_ack_updated":invitation["agenda_ack_updated"],
             "agenda":[dict(row) for row in c.execute(
                 """SELECT start_time,end_time,title,note
                    FROM event_agenda WHERE event_id=? ORDER BY start_time,id""",
@@ -1753,6 +1794,34 @@ def participant_overview(request: Request):
             "payment_mode":"NONE",
             "identity_verified":False,
         }
+
+
+class AgendaAcknowledgementInput(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    expected_revision: int=Field(ge=1,le=2_000_000_000)
+
+
+@app.post("/api/participant/agenda/ack")
+def participant_acknowledge_agenda(request:Request,data:AgendaAcknowledgementInput):
+    """Private bearer-link acknowledgement of currently visible logistics, not payment consent."""
+    with db() as c:
+        invited=participant_from_invite(c,request)
+        current=int(invited["agenda_revision"])
+        if current==0:
+            raise HTTPException(409,"No event schedule has been published for review")
+        if data.expected_revision!=current:
+            raise HTTPException(409,"The event schedule changed; refresh and review it before acknowledging")
+        if invited["agenda_ack_revision"]==current:
+            return {"ok":True,"already_acknowledged":True,"agenda_revision":current,
+                    "payment_changed":False,"approval_changed":False,"rsvp_changed":False}
+        c.execute("""UPDATE people SET agenda_ack_revision=?,agenda_ack_updated=?
+                     WHERE id=? AND event_id=?""",
+                  (current,now(),invited["person_id"],invited["event_id"]))
+        record_history(c,invited["event_id"],"agenda_acknowledged",actor="participant_link",
+                       details={"participant_id":invited["person_id"],"agenda_revision":current})
+    return {"ok":True,"already_acknowledged":False,"agenda_revision":current,
+            "payment_changed":False,"approval_changed":False,"rsvp_changed":False,
+            "notice":"Private-link acknowledgement only. No identity verification or financial approval."}
 
 
 class RSVPInput(BaseModel):
