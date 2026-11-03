@@ -16,6 +16,7 @@
  <small>WORKSPACE</small>
  <nav class="nav" aria-label="Primary navigation">
   <button class="active" data-tab="overview"><span>▦</span> Overview</button>
+  <button data-tab="pulse"><span>◈</span> Operations pulse</button>
   <button data-tab="events"><span>◫</span> Events</button>
   <button data-tab="contributions"><span>⇄</span> Contributions</button>
   <button data-tab="assistant"><span>✦</span> AI assistant</button>
@@ -48,6 +49,34 @@
     <div class="hero"><div class="eyebrow" style="color:#66d8bd">MEET YOUR FINANCE COPILOT</div><h2>Better group plans start with clarity.</h2><p>Turn a cost note into a reviewable budget. Your group stays in control of every amount.</p><button class="btn" onclick="switchTab('assistant')">Explore AI assistant ↗</button></div>
    </div>
    <div class="footer">CircleSplit AI · Hackathon prototype · Demo data is fictional · Not a bank or escrow service</div>
+  </section>
+  <section id="pulse" class="tabpan">
+   <div class="title"><div><div class="eyebrow">OPERATIONS PULSE</div><h1>Focus on what matters next.</h1>
+   <p class="sub">Prioritized event preparation, approvals and sandbox payment checks. No real invoices or debts.</p></div>
+   <button class="btn secondary" onclick="copyEventBrief()">Copy event brief</button></div>
+   <div class="metrics">
+    <div class="card"><div class="metric-label">Needs event setup</div><div class="metric-value" id="pulse-setup">—</div><div class="metric-foot">Missing people, budget or valid split</div></div>
+    <div class="card"><div class="metric-label">Needs approval</div><div class="metric-value" id="pulse-approvals">—</div><div class="metric-foot">Unapproved fictional contributions</div></div>
+    <div class="card"><div class="metric-label">Pending PayPal orders</div><div class="metric-value" id="pulse-orders">—</div><div class="metric-foot">Capture still unverified</div></div>
+    <div class="card"><div class="metric-label">Planning progressing</div><div class="metric-value" id="pulse-progressing">—</div><div class="metric-foot">Does not imply paid in full</div></div>
+   </div>
+   <div class="space"></div>
+   <div class="grid2">
+    <div class="card"><div class="section-heading"><h2>Action queue</h2><span class="pill neutral" id="pulse-count">—</span></div>
+     <div class="row wrap" style="margin-bottom:14px">
+      <input type="search" id="pulse-search" aria-label="Search event actions" placeholder="Search events or actions" style="flex:1;min-width:150px;border:1px solid var(--line);border-radius:9px;padding:10px">
+      <select id="pulse-level" aria-label="Filter by urgency" style="border:1px solid var(--line);border-radius:9px;padding:10px">
+       <option value="all">All priorities</option><option value="blocker">Must resolve</option>
+       <option value="attention">Approvals</option><option value="planning">Preparation</option>
+      </select>
+     </div>
+     <div id="pulse-actions" aria-live="polite"></div>
+    </div>
+    <div class="card"><div class="section-heading"><h2>Event health</h2><span class="pill neutral">Sandbox only</span></div>
+     <div id="pulse-events"></div>
+     <p class="notice" style="margin-top:12px">Only captured PayPal SANDBOX payments are included as verified. Simulation amounts never count as funding.</p>
+    </div>
+   </div>
   </section>
   <section id="events" class="tabpan">
    <div class="title"><div><div class="eyebrow">EVENT MANAGEMENT</div><h1>Plan & split</h1><p class="sub">Set up your event, estimate costs and decide how to divide them fairly.</p></div></div>
@@ -135,9 +164,11 @@
 </div></div>
 <script src="/static/insights.js"></script>
 <script src="/static/operations.js"></script>
+<script src="/static/pulse.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
+let pulseQuery="",pulseLevel="all";
 let eventId = null, currentTab = "overview", proposal = null, proposalEventId=null, applyingProposal=false;
 window.circleTransactions=[];
 function el(id){return document.getElementById(id)}
@@ -149,6 +180,50 @@ async function request(path,opts){let r=await fetch(path,Object.assign({headers:
 function post(path,body){return request(path,{method:"POST",body:JSON.stringify(body||{})})}
 async function run(action,msg){try{await action();await load();if(msg)notice(msg,false)}catch(e){notice(e.message,true)}}
 function switchTab(tab){currentTab=tab;document.querySelectorAll(".tabpan").forEach(function(x){x.classList.toggle("active",x.id===tab)});document.querySelectorAll("[data-tab]").forEach(function(x){x.classList.toggle("active",x.dataset.tab===tab)});el("crumb").textContent=tab.charAt(0).toUpperCase()+tab.slice(1);render()}
+function openPulseAction(id,tab){
+ if(!state.events.some(e=>e.id===id)){notice("Event not available. Refresh the dashboard.",true);return;}
+ selectEvent(id);switchTab(tab);
+ if(tab==="activity")load();
+}
+function pulseActionRow(a){
+ const tag=a.level==="blocker"?"orange":a.level==="attention"?"neutral":"";
+ const label=a.level==="blocker"?"Resolve":a.level==="attention"?"Follow up":"Plan";
+ return '<div style="border-bottom:1px solid #edf2f1;padding:13px 0">'+
+ '<div class="row wrap"><span class="pill '+tag+'">'+label+'</span><b>'+safe(a.eventName)+'</b></div>'+
+ '<b style="display:block;margin-top:7px">'+safe(a.title)+'</b>'+
+ '<p class="small muted" style="margin:4px 0 9px">'+safe(a.detail)+'</p>'+
+ '<button class="btn small secondary" onclick="openPulseAction('+Number(a.eventId)+',\''+a.tab+'\')">Open event →</button></div>';
+}
+function renderPulse(){
+ const p=pulseSummary(state.events,window.circleTransactions||[],pulseLocalDay());
+ el("pulse-setup").textContent=p.setup;el("pulse-approvals").textContent=p.approvals;
+ el("pulse-orders").textContent=p.orders;el("pulse-progressing").textContent=p.progressing;
+ const needle=pulseQuery.toLocaleLowerCase();
+ const actions=p.actions.filter(a=>(pulseLevel==="all"||a.level===pulseLevel)&&
+ (a.title+" "+a.detail+" "+a.eventName).toLocaleLowerCase().includes(needle));
+ el("pulse-count").textContent=actions.length+" open";
+ el("pulse-actions").innerHTML=actions.length?actions.slice(0,35).map(pulseActionRow).join(""):
+ '<div class="empty">No matching actions.</div>';
+ el("pulse-events").innerHTML=p.items.length?p.items.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(e=>{
+  const tasks=e.tasksTotal?Math.round(100*e.tasksDone/e.tasksTotal):0;
+  const funds=e.budget?Math.min(100,Math.round(100*e.verified/e.budget)):0;
+  return '<div style="padding:14px 0;border-bottom:1px solid #edf2f1">'+
+  '<div class="row between"><b>'+safe(e.name)+'</b><span class="pill '+(e.blockers?"orange":"neutral")+'">'+safe(e.status)+'</span></div>'+
+  '<p class="small muted" style="margin:6px 0">'+safe(e.date)+' · '+e.people+' people · '+e.approval+' awaiting approval</p>'+
+  '<p class="small muted" style="margin:8px 0 4px">Preparation: '+e.tasksDone+'/'+e.tasksTotal+'</p>'+
+  '<div class="progress"><div class="fill" style="width:'+tasks+'%"></div></div>'+
+  '<p class="small muted" style="margin:9px 0 4px">Verified sandbox: '+money(e.verified)+' / '+money(e.budget)+'</p>'+
+  '<div class="progress"><div class="fill" style="width:'+funds+'%"></div></div></div>';
+ }).join(""):'<div class="empty">No events yet. Create one to see its operational status.</div>';
+}
+function copyEventBrief(){
+ const e=event();if(!e){notice("Create an event before copying a briefing.",true);return;}
+ const brief=pulseBriefing(e);
+ if(navigator.clipboard&&navigator.clipboard.writeText)
+ navigator.clipboard.writeText(brief).then(()=>notice("Fictional sandbox event briefing copied.",false))
+ .catch(()=>window.prompt("Copy the event briefing:",brief));
+ else window.prompt("Copy the event briefing:",brief);
+}
 function focusNew(){setTimeout(function(){el("new-name").focus()},100)}
 function selectEvent(id){eventId=Number(id);proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";resetScenario();render()}
 async function cloneSelectedEvent(){
@@ -283,7 +358,7 @@ async function verifyPayPalOrder(id){try{let result=await post("/api/paypal/orde
 async function paymentReturn(){let p=new URLSearchParams(window.location.search);if(p.get("payment")==="cancelled"){history.replaceState(null,"",location.pathname);switchTab("activity");notice("Buyer cancelled PayPal sandbox checkout. No confirmed capture. Use Check PayPal to resume the existing order if appropriate.",true);return;}if(p.get("payment")!=="return"||!p.get("token"))return;let token=p.get("token");history.replaceState(null,"",location.pathname);switchTab("activity");await run(function(){return post("/api/paypal/capture",{order_id:token})},"PayPal sandbox capture verified and recorded.")}
 function render(){
  let events=state.events,e=event(),people=events.reduce(function(n,x){return n+x.people.length},0),budget=events.reduce(function(n,x){return n+x.total_cents},0),paid=events.reduce(function(n,x){return n+x.sandbox_cents},0);
- el("kpi-events").textContent=events.length;el("kpi-budget").textContent=money(budget);el("kpi-real").textContent=money(paid);el("kpi-people").textContent=people;renderInsights();
+ el("kpi-events").textContent=events.length;el("kpi-budget").textContent=money(budget);el("kpi-real").textContent=money(paid);el("kpi-people").textContent=people;renderInsights();renderPulse();
  el("event-summary").innerHTML=events.length?events.map(function(x){return '<div class="row between" style="padding:15px 0;border-bottom:1px solid #edf0f1"><div><div class="event-name">'+safe(x.name)+'</div><div class="muted small">'+safe(x.date)+' • '+x.people.length+' members</div></div><div style="text-align:right"><b>'+money(x.total_cents)+'</b><div class="small muted">'+x.approved+' approved</div></div></div>'}).join(""):'<div class="empty">No events yet.</div>';
  let select=el("event-select");select.innerHTML=events.map(function(x){return '<option value="'+x.id+'">'+safe(x.name)+'</option>'}).join("");if(e)select.value=e.id;
  el("ai-indicator").textContent=state.ai_configured?"AI key set · verify with test":"AI not connected";
@@ -300,9 +375,11 @@ function render(){
  el("contrib-progress").innerHTML='<div class="row between small"><span>Sandbox confirmed: <b>'+money(e.sandbox_cents)+'</b></span><span>Simulated separately: <b>'+money(e.simulated_cents)+'</b></span></div><div class="space"></div><div class="progress"><div class="fill" style="width:'+pct+'%"></div></div>';
  el("contrib-rows").innerHTML=e.people.map(function(x){let status=x.status==="sandbox_paid"?'<span class="pill">Sandbox paid</span>':x.status==="demo_paid"?'<span class="pill orange">SIMULATED</span>':'<span class="pill neutral">Unpaid</span>';let action=x.status!=="unpaid"?"—":!x.approved?'<button class="btn small secondary" onclick="approvePerson('+x.id+')">Approve</button>':'<div class="row wrap"><button class="btn small" onclick="simulate('+x.id+')">Simulate</button><button class="btn small primary" onclick="paypalCheckout('+x.id+')" '+(state.paypal_configured?"":"disabled title='Configure PayPal credentials'")+'>PayPal test</button></div>';return '<tr><td class="event-name">'+safe(x.name)+'</td><td class="count">'+money(x.share_cents)+'</td><td>'+(x.approved?(x.approval_source==="participant_link"?"Participant link":"Organizer demo"):"Pending")+'</td><td>'+status+'</td><td><div class="row wrap">'+action+(x.status==="unpaid"?'<button class="btn small secondary" onclick="createParticipantInvitation('+x.id+')">Invite</button><button class="btn small" onclick="revokeParticipantInvitation('+x.id+')">Revoke</button>':"")+'</div></td></tr>'}).join("");
 }
-async function load(){try{state=await request("/api/state");if(!state.events.some(function(e){return e.id===eventId}))eventId=state.events.length?state.events[0].id:null;render();let t=await request("/api/transactions");window.circleTransactions=t.transactions;renderInsights();el("transaction-list").innerHTML=t.transactions.length?'<div class="notice">Order created ≠ payment captured. Click Check PayPal to resume buyer approval or reconcile a previously approved sandbox order.</div><div class="space"></div><div style="overflow-x:auto"><table><thead><tr><th>Person</th><th>Event</th><th>Amount</th><th>Status</th><th>Verify</th></tr></thead><tbody>'+t.transactions.map(function(p){let id=String(p.order_id||"");let canCheck=p.status!=="completed"&&/^[A-Za-z0-9-]{5,50}$/.test(id);return '<tr><td>'+safe(p.person_name)+'</td><td>'+safe(p.event_name)+'</td><td>'+money(p.amount_cents)+'</td><td><span class="pill '+(p.status==="completed"?"":"orange")+'">'+safe(p.status==="completed"?"VERIFIED CAPTURE":p.status==="created"?"ORDER CREATED — NOT PAID":p.status)+'</span></td><td>'+(canCheck?'<button class="btn small secondary" onclick="verifyPayPalOrder(\''+id+'\')">Check PayPal</button>':p.status==="completed"?"Verified":"—")+'</td></tr>'}).join("")+'</tbody></table></div>':'<div class="empty">No real PayPal sandbox orders created yet.</div>'}catch(e){notice(e.message,true)}}
+async function load(){try{state=await request("/api/state");if(!state.events.some(function(e){return e.id===eventId}))eventId=state.events.length?state.events[0].id:null;render();let t=await request("/api/transactions");window.circleTransactions=t.transactions;renderInsights();renderPulse();el("transaction-list").innerHTML=t.transactions.length?'<div class="notice">Order created ≠ payment captured. Click Check PayPal to resume buyer approval or reconcile a previously approved sandbox order.</div><div class="space"></div><div style="overflow-x:auto"><table><thead><tr><th>Person</th><th>Event</th><th>Amount</th><th>Status</th><th>Verify</th></tr></thead><tbody>'+t.transactions.map(function(p){let id=String(p.order_id||"");let canCheck=p.status!=="completed"&&/^[A-Za-z0-9-]{5,50}$/.test(id);return '<tr><td>'+safe(p.person_name)+'</td><td>'+safe(p.event_name)+'</td><td>'+money(p.amount_cents)+'</td><td><span class="pill '+(p.status==="completed"?"":"orange")+'">'+safe(p.status==="completed"?"VERIFIED CAPTURE":p.status==="created"?"ORDER CREATED — NOT PAID":p.status)+'</span></td><td>'+(canCheck?'<button class="btn small secondary" onclick="verifyPayPalOrder(\''+id+'\')">Check PayPal</button>':p.status==="completed"?"Verified":"—")+'</td></tr>'}).join("")+'</tbody></table></div>':'<div class="empty">No real PayPal sandbox orders created yet.</div>'}catch(e){notice(e.message,true)}}
 async function analyze(evt){evt.preventDefault();if(applyingProposal)return;proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").textContent="Analyzing your note...";const target=event();const targetId=target?target.id:null;el("ai-button").disabled=true;try{if(!targetId)throw Error("Select an event before analyzing costs.");let p=await post("/api/ai/parse",{note:el("ai-note").value});if(event()?.id!==targetId)throw Error("Event changed during AI analysis. Re-run for the selected event.");proposal=p;proposalEventId=targetId;el("ai-rationale").textContent=(p.rationale||"Review before applying")+" · Target event: "+target.name;el("ai-proposal").className="stack";el("ai-proposal").innerHTML=p.expenses.map(function(x,i){return '<div class="formgrid"><div class="field"><label>Expense</label><input class="pro-title" value="'+safe(x.title)+'"></div><div class="field"><label>USD</label><input class="pro-amount" value="'+safe(x.amount)+'"></div></div>'}).join("")||'<div class="empty">No explicit prices were identified in the note.</div>';el("ai-apply").disabled=!p.expenses.length}catch(e){el("ai-proposal").className="empty";el("ai-proposal").textContent=e.message;notice(e.message,true)}finally{el("ai-button").disabled=false}}
 async function applyProposal(){let e=event();if(!e||!proposal||applyingProposal)return;if(proposalEventId!==e.id){notice("This proposal belongs to a different event. Analyze the selected event again.",true);return;}let titles=[...document.querySelectorAll(".pro-title")],amounts=[...document.querySelectorAll(".pro-amount")];let expenses=titles.map(function(x,i){return {title:x.value.trim(),amount:amounts[i].value.trim()}});if(expenses.some(x=>!x.title||!/^\d+(\.\d{1,2})?$/.test(x.amount))){notice("Check the expense titles and USD amounts before approving.",true);return;}applyingProposal=true;el("ai-apply").disabled=true;try{await post("/api/events/"+e.id+"/expenses/bulk",{expenses:expenses});proposal=null;proposalEventId=null;await load();el("ai-proposal").className="empty";el("ai-proposal").textContent="Expenses saved successfully to "+e.name+".";notice("AI proposal reviewed and saved for "+e.name+".",false);}catch(err){notice("Not saved: "+err.message+". Review amounts or the event’s payment lock, then retry.",true);}finally{applyingProposal=false;el("ai-apply").disabled=!proposal}}
+el("pulse-search").addEventListener("input",function(){pulseQuery=this.value.trim();renderPulse()});
+el("pulse-level").addEventListener("change",function(){pulseLevel=this.value;renderPulse()});
 el("bulk-people-form").addEventListener("submit",importParticipants);
 el("scenario-form").addEventListener("submit",previewScenario);
 ["scenario-adjustment","scenario-people","scenario-strategy"].forEach(function(id){el(id).addEventListener("input",resetScenario);});
