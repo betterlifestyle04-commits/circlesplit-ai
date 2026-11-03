@@ -264,6 +264,7 @@ def detailed(c, eid):
 # cryptographically tamper-evident and is not a substitute for durable audit logs.
 HISTORY_SUMMARIES = {
     "event_created":"Event created",
+    "event_details_updated":"Event details changed; previous attendance and approvals reset",
     "event_template_created":"Event created from a fictional quick-start template",
     "event_duplicated":"Event duplicated as a new plan",
     "expense_added":"Expense added; shares recalculated",
@@ -994,6 +995,73 @@ def new_event(data: EventInput):
                         (data.name,data.date,data.note,now()))
         record_history(c,row.lastrowid,"event_created",details={"event_id":row.lastrowid})
     return {"id": row.lastrowid}
+
+class EventDetailsUpdate(BaseModel):
+    """Require an expected snapshot to prevent stale-browser overwrites."""
+    model_config = ConfigDict(extra="forbid",strict=True)
+    name: str = Field(min_length=3,max_length=90)
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    note: str = Field(max_length=180)
+    expected_name: str = Field(max_length=90)
+    expected_date: str = Field(max_length=20)
+    expected_note: str = Field(max_length=180)
+
+
+@app.put("/api/events/{eid}/details")
+def update_event_details(eid: int,data: EventDetailsUpdate):
+    """Before checkout, changing event identity invalidates prior attendance and consent."""
+    name=data.name.strip()
+    note=data.note.strip()
+    if not 3<=len(name)<=90:
+        raise HTTPException(422,"Event name must contain 3–90 characters")
+    try:
+        CalendarDate.fromisoformat(data.date)
+    except ValueError:
+        raise HTTPException(422,"Enter a real calendar date (YYYY-MM-DD)")
+    with db() as c:
+        current=require_event(c,eid)
+        if (current["name"]!=data.expected_name or
+            current["date"]!=data.expected_date or
+            current["note"]!=data.expected_note):
+            raise HTTPException(409,"Event details changed since you opened the editor; refresh and review before saving")
+        changed=(current["name"]!=name or current["date"]!=data.date or
+                 current["note"]!=note)
+        if not changed:
+            return {"ok":True,"changed":False,"approvals_reset":False,
+                    "rsvps_reset":False,"invitations_revoked":0}
+        require_editable(c,eid)
+        participant_count=c.execute(
+            "SELECT COUNT(*) FROM people WHERE event_id=?",(eid,)
+        ).fetchone()[0]
+        had_approvals=c.execute(
+            "SELECT COUNT(*) FROM people WHERE event_id=? AND approved=1",(eid,)
+        ).fetchone()[0]
+        had_rsvps=c.execute(
+            "SELECT COUNT(*) FROM people WHERE event_id=? AND rsvp_status!='pending'",(eid,)
+        ).fetchone()[0]
+        c.execute("UPDATE events SET name=?,date=?,note=? WHERE id=?",
+                  (name,data.date,note,eid))
+        c.execute(
+            """UPDATE people SET approved=0,approval_source='',
+               rsvp_status='pending',rsvp_updated=NULL WHERE event_id=?""",(eid,)
+        )
+        revoked=c.execute(
+            """UPDATE participant_invites SET revoked=1 WHERE revoked=0 AND
+               person_id IN (SELECT id FROM people WHERE event_id=?)""",(eid,)
+        ).rowcount
+        record_history(c,eid,"event_details_updated",details={
+            "name_changed":current["name"]!=name,
+            "date_changed":current["date"]!=data.date,
+            "description_changed":current["note"]!=note,
+            "participants":participant_count,
+            "approvals_cleared":had_approvals,"rsvps_cleared":had_rsvps,
+            "invites_revoked":revoked
+        })
+    return {"ok":True,"changed":True,"approvals_reset":True,
+            "rsvps_reset":True,"invitations_revoked":revoked,
+            "participants":participant_count,
+            "payments_changed":False,"shares_changed":False}
+
 
 class CloneEventInput(BaseModel):
     # Copy expenses and optional fictional participants, not approvals or payments.

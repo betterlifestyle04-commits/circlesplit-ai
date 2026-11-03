@@ -2106,3 +2106,160 @@ def test_event_edit_endpoints_require_organizer_not_invitation(client,monkeypatc
     }).status_code==401
     auth=("judge","secure-edit-test-owner-password")
     assert client.put(xp,json=expense_data,auth=auth).status_code==200
+
+
+def test_event_details_update_resets_previous_consent_and_rsvps(client):
+    event=initial(client)
+    eid=event["id"];person=event["people"][0];pid=person["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    headers={"Authorization":"Bearer "+token}
+    assert client.post("/api/participant/rsvp",headers=headers,
+                       json={"status":"going"}).status_code==200
+    before=initial(client)
+    payload={
+        "name":"  Saturday volleyball  ","date":"2026-11-21",
+        "note":"  New location, confirmed by organizer  ",
+        "expected_name":event["name"],"expected_date":event["date"],
+        "expected_note":event["note"]
+    }
+    r=client.put(f"/api/events/{eid}/details",json=payload)
+    assert r.status_code==200,r.text
+    d=r.json()
+    assert d["changed"] is True
+    assert d["approvals_reset"] is True
+    assert d["rsvps_reset"] is True
+    assert d["invitations_revoked"]>=1
+    assert d["payments_changed"] is False and d["shares_changed"] is False
+    after=initial(client)
+    assert after["name"]=="Saturday volleyball"
+    assert after["date"]=="2026-11-21"
+    assert after["note"]=="New location, confirmed by organizer"
+    assert after["expenses"]==before["expenses"]
+    assert after["total_cents"]==before["total_cents"]
+    assert [x["share_cents"] for x in after["people"]]==[
+        x["share_cents"] for x in before["people"]]
+    assert after["approved"]==0
+    assert all(x["approved"]==0 and x["approval_source"]==""
+               and x["rsvp_status"]=="pending" for x in after["people"])
+    assert client.get("/api/participant/overview",headers=headers).status_code==404
+    hist=client.get(f"/api/events/{eid}/history").json()
+    assert hist["entries"][0]["action"]=="event_details_updated"
+    assert hist["entries"][0]["details"]["name_changed"] is True
+    assert hist["entries"][0]["details"]["date_changed"] is True
+    assert hist["entries"][0]["details"]["approvals_cleared"]==1
+    assert "Saturday volleyball" not in str(hist)
+    assert "New location" not in str(hist)
+    assert token not in str(hist)
+
+
+def test_event_details_noop_preserves_invitation_and_approval(client):
+    event=initial(client);eid=event["id"];pid=event["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    headers={"Authorization":"Bearer "+token}
+    assert client.post("/api/participant/rsvp",json={"status":"going"},
+                       headers=headers).status_code==200
+    prior=initial(client)
+    before_history=client.get(f"/api/events/{eid}/history").json()["total_actions"]
+    payload={"name":event["name"],"date":event["date"],"note":event["note"],
+        "expected_name":event["name"],"expected_date":event["date"],
+        "expected_note":event["note"]}
+    r=client.put(f"/api/events/{eid}/details",json=payload)
+    assert r.status_code==200,r.text
+    assert r.json()["changed"] is False
+    assert r.json()["invitations_revoked"]==0
+    assert initial(client)==prior
+    assert client.get("/api/participant/overview",headers=headers).status_code==200
+    assert client.get(f"/api/events/{eid}/history").json()["total_actions"]==before_history
+
+
+def test_event_details_reject_stale_editor_snapshot_without_mutating(client):
+    event=initial(client);eid=event["id"]
+    payload={"name":"New description event","date":"2026-12-01",
+             "note":"New meeting place",
+             "expected_name":event["name"],"expected_date":event["date"],
+             "expected_note":event["note"]}
+    r=client.put(f"/api/events/{eid}/details",json=payload)
+    assert r.status_code==200,r.text
+    first=initial(client)
+    histories=client.get(f"/api/events/{eid}/history").json()["total_actions"]
+    stale=client.put(f"/api/events/{eid}/details",json={
+        **payload,"name":"Second update"
+    })
+    assert stale.status_code==409,stale.text
+    assert "refresh" in stale.json()["detail"].lower()
+    assert initial(client)==first
+    assert client.get(f"/api/events/{eid}/history").json()["total_actions"]==histories
+
+
+def test_event_details_blocked_after_simulated_contribution(client):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    before=initial(client)
+    res=client.put(f"/api/events/{eid}/details",json={
+        "name":"Rescheduled event","date":"2026-12-03","note":"Later date",
+        "expected_name":e["name"],"expected_date":e["date"],"expected_note":e["note"]
+    })
+    assert res.status_code==409,res.text
+    assert initial(client)==before
+
+
+def test_event_details_blocked_if_paypal_checkout_was_started(client):
+    import app as api
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    with api.db() as c:
+        c.execute(
+            """INSERT INTO payments(event_id,person_id,amount_cents,request_id,
+               capture_key,status,created) VALUES(?,?,?,?,?,?,?)""",
+            (eid,pid,1100,"details-test-request-key","details-test-capture-key",
+             "creating",api.now())
+        )
+    before=initial(client)
+    res=client.put(f"/api/events/{eid}/details",json={
+        "name":"Changed event","date":"2026-12-04","note":"A new place",
+        "expected_name":e["name"],"expected_date":e["date"],"expected_note":e["note"]
+    })
+    assert res.status_code==409,res.text
+    assert initial(client)==before
+
+
+def test_event_details_strict_dates_name_and_no_unexpected_fields(client):
+    e=initial(client);eid=e["id"]
+    base={"name":"Valid new event","date":"2026-12-07","note":"Safe details",
+        "expected_name":e["name"],"expected_date":e["date"],"expected_note":e["note"]}
+    baseline=initial(client)
+    for date in ["2026-02-30","2026-13-01","2026/12/01","nonsense"]:
+        res=client.put(f"/api/events/{eid}/details",json={**base,"date":date})
+        assert res.status_code==422,(date,res.text)
+    for name in [" ", "  x  ","A"*91]:
+        assert client.put(f"/api/events/{eid}/details",json={
+            **base,"name":name
+        }).status_code==422
+    assert client.put(f"/api/events/{eid}/details",json={
+        **base,"payment_status":"completed"
+    }).status_code==422
+    assert client.put(f"/api/events/{eid}/details",json={
+        **base,"note":"N"*181
+    }).status_code==422
+    assert client.get("/api/state").json()["events"][0]==baseline
+
+
+def test_event_details_requires_owner_not_participant_link(client,monkeypatch):
+    e=initial(client);eid=e["id"];pid=e["people"][0]["id"]
+    token=client.post(f"/api/events/{eid}/people/{pid}/invite").json()["token"]
+    data={"name":"Owner only event","date":"2026-12-09","note":"",
+          "expected_name":e["name"],"expected_date":e["date"],"expected_note":e["note"]}
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","secure-event-details-password")
+    path=f"/api/events/{eid}/details"
+    assert client.put(path,json=data).status_code==401
+    assert client.put(path,json=data,headers={
+        "Authorization":"Bearer "+token
+    }).status_code==401
+    auth=("judge","secure-event-details-password")
+    assert client.put(path,json=data,auth=auth).status_code==200
+    assert client.put("/api/events/987654/details",json={
+        **data,"expected_name":"anything"
+    },auth=auth).status_code==404

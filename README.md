@@ -49,6 +49,16 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Guarded event detail editing and stale-change protection
+
+- The protected **Events** page now provides **Edit event details** for the current event's name, calendar date and description. The editor preserves typed values on server errors and asks for confirmation before meaningful changes.
+- New authenticated `PUT /api/events/{eid}/details` uses a required **expected name/date/description snapshot**. If event details changed after the form was opened, the server rejects the stale write with HTTP 409; the user must refresh and review the current details.
+- A meaningful change to event identity or schedule **invalidates prior participant consent**: RSVP responses reset to `pending`, demo approvals clear, and existing private invite tokens are revoked. Event budgets, participant IDs, assigned exact-cent shares, prepared tasks and payment records are **not** modified.
+- Editing is blocked if a PayPal sandbox order has been initiated or a simulated contribution recorded. A truly unchanged edit is a no-op and leaves prior consent and invitations intact.
+- The server validates real ISO calendar dates, trimmed names and 180-character descriptions, rejects extra fields, and writes the event update, consent resets and privacy-safe history entry in **one SQLite transaction**.
+- This is not a real-time notification system. Following a schedule change, the organizer must **issue new invitation links and communicate the new details manually**. External calendar invitations and previously sent messages are not automatically updated.
+- Tests cover invalid date rejection, old-token invalidation, RSVP/approval reset, exact-cent share isolation, no-op preservation, stale-browser conflicts, payment locks and organizer-only authorization.
+
 ## Guarded financial editing of expenses and participants
 
 - In protected **Events**, existing expenses now have **Edit** controls for their title, exact-cent USD amount and category. Participants have **Edit** controls for names and attendance weights (1–10). Editors are clearly labeled and allow cancellation.

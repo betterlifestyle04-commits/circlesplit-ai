@@ -171,7 +171,20 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
    <div class="grid2">
     <div class="stack">
      <div class="card"><div class="section-heading"><h2>Event budget</h2><select id="event-select" class="select choose" aria-label="Select event" onchange="selectEvent(this.value)"></select></div>
-       <div id="event-detail"></div><div class="space"></div><div class="row wrap"><button class="btn small secondary" onclick="exportSelectedShares()">↓ Export this event’s shares (CSV)</button><button class="btn small" onclick="cloneSelectedEvent()">⧉ Duplicate as new event</button><button class="btn small" onclick="downloadCalendar()">▣ Calendar .ics</button></div><div class="space"></div>
+       <div id="event-detail"></div><div class="space"></div>
+       <form id="event-details-form" style="display:none;margin:13px 0;padding:16px;border:1px solid var(--line);border-radius:12px" aria-label="Edit event details">
+        <div class="section-heading"><h3>Edit event details</h3><span class="pill orange">Resets attendance and approvals</span></div>
+        <div class="formgrid">
+         <div class="field"><label for="details-name">Event name</label><input id="details-name" required minlength="3" maxlength="90"></div>
+         <div class="field"><label for="details-date">Event date</label><input id="details-date" type="date" required></div>
+         <div class="field full"><label for="details-note">Event description</label>
+          <textarea id="details-note" rows="3" maxlength="180" placeholder="Location, schedule, and practical notes"></textarea></div>
+        </div>
+        <p class="notice"><b>Consent protection:</b> Changing the name, date, or description resets previous attendance responses and approvals, and revokes private invitation links. Everyone must respond and approve again. The expense budget and shares stay unchanged. Once a PayPal sandbox order or contribution exists, the event details cannot be changed.</p>
+        <div class="row wrap"><button class="btn primary" id="details-save" type="submit">Save event details</button>
+          <button class="btn secondary" type="button" onclick="cancelEventDetailsEditor()">Cancel</button></div>
+       </form>
+       <div class="row wrap"><button class="btn small secondary" onclick="openEventDetailsEditor()">✎ Edit event details</button><button class="btn small secondary" onclick="exportSelectedShares()">↓ Export this event’s shares (CSV)</button><button class="btn small" onclick="cloneSelectedEvent()">⧉ Duplicate as new event</button><button class="btn small" onclick="downloadCalendar()">▣ Calendar .ics</button></div><div class="space"></div>
        <div class="row wrap"><button id="equal" class="split-label" onclick="setAllocation('equal')">Equal split</button><button id="weighted" class="split-label" onclick="setAllocation('weighted')">Attendance-weighted</button></div>
        <div class="space"></div><div id="expense-rows"></div>
        <form id="expense-edit-form" style="display:none;margin:14px 0;padding:15px;border:1px solid var(--line);border-radius:12px" aria-label="Edit expense">
@@ -421,6 +434,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/backup.js"></script>
 <script src="/static/templates.js"></script>
 <script src="/static/editing.js"></script>
+<script src="/static/event-details.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -429,7 +443,7 @@ let directoryQuery="",directoryFilter="all",directorySort="soonest";
 let historyCache=null;
 let closeoutCache=null;
 let selectedPlanningBackup=null;
-let expenseEditing=null,participantEditing=null;
+let expenseEditing=null,participantEditing=null,eventDetailsEditing=null;
 let eventTemplates=null,selectedTemplateKey=null,templateRequestKey=null,templatesRequestPending=false;
 let eventId = null, currentTab = "overview", proposal = null, proposalEventId=null, applyingProposal=false;
 let taskDraft=null,taskDraftEventId=null,applyingTaskDraft=false;
@@ -585,6 +599,51 @@ async function createQuickStartEvent(evt){
   button.textContent="Plan created — edit details for another";
  }
 }
+function cancelEventDetailsEditor(){
+ eventDetailsEditing=null;
+ el("event-details-form").style.display="none";
+}
+function openEventDetailsEditor(){
+ const e=event();
+ if(!e){notice("Create an event before editing its details.",true);return;}
+ cancelExpenseEditor();cancelParticipantEditor();
+ eventDetailsEditing={eventId:e.id,
+   name:e.name,date:e.date,note:e.note||""};
+ el("details-name").value=e.name;
+ el("details-date").value=e.date;
+ el("details-note").value=e.note||"";
+ el("event-details-form").style.display="block";
+ el("details-name").focus();
+}
+async function submitEventDetails(evt){
+ evt.preventDefault();
+ const snapshot=eventDetailsEditing,e=event();
+ if(!snapshot||!e||e.id!==snapshot.eventId){
+  notice("The selected event changed. Open the editor again.",true);return;
+ }
+ let prepared;
+ try{
+  prepared=prepareEventDetails(el("details-name").value,el("details-date").value,
+   el("details-note").value,snapshot);
+ }catch(err){notice(err.message,true);return;}
+ if(prepared.changed&&!window.confirm(
+  "Update these event details? All existing RSVP answers and approvals will reset, and old invitation links will be revoked. The group budget and shares remain the same. Payment activity prevents this change."
+ ))return;
+ const button=el("details-save");button.disabled=true;
+ try{
+  const result=await request("/api/events/"+e.id+"/details",{
+   method:"PUT",body:JSON.stringify(prepared.body)
+  });
+  cancelEventDetailsEditor();
+  await load();
+  notice(result.changed?
+   "Event details saved. Previous attendance and approvals reset; old invitation links revoked. Share amounts were not changed.":
+   "Event details unchanged. Attendance, approvals and invitation links were preserved.",false);
+ }catch(err){
+  notice("Event details not saved: "+err.message+
+   ". Your entries are still in the editor. Reload before saving if the event was changed elsewhere.",true);
+ }finally{button.disabled=false;}
+}
 function cancelExpenseEditor(){
  expenseEditing=null;
  el("expense-edit-form").style.display="none";
@@ -691,7 +750,7 @@ function explainMember(id){
  }catch(err){el("split-explanation").textContent="Unable to explain this share: "+err.message}
 }
 function focusNew(){setTimeout(function(){el("new-name").focus()},100)}
-function selectEvent(id){eventId=Number(id);cancelExpenseEditor();cancelParticipantEditor();clearCloseout();el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();render()}
+function selectEvent(id){eventId=Number(id);cancelEventDetailsEditor();cancelExpenseEditor();cancelParticipantEditor();clearCloseout();el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();render()}
 async function cloneSelectedEvent(){
  const e=event();if(!e)return;
  const name=window.prompt("New event name (expenses and participants will be copied, payments will not)",("Copy of "+e.name).slice(0,90));
@@ -1315,6 +1374,7 @@ el("task-form").addEventListener("submit",createTask);el("backup-file").addEvent
 el("planning-form").addEventListener("submit",savePlanning);
 el("planning-ceiling").addEventListener("input",()=>showPlanningForecast(false));
 el("planning-reserve").addEventListener("input",()=>showPlanningForecast(false));
+el("event-details-form").addEventListener("submit",submitEventDetails);
 el("expense-edit-form").addEventListener("submit",submitExpenseEdit);
 el("participant-edit-form").addEventListener("submit",submitParticipantEdit);
 el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("quickstart-form").addEventListener("submit",createQuickStartEvent);
