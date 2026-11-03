@@ -49,6 +49,16 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## AI-assisted event preparation (Gemini)
+
+- The protected **AI assistant** now offers a second workflow: **Generate preparation tasks**. Gemini uses the selected fictional event's name, date, description, existing checklist titles, and optionally the organizer's additional context to suggest an actionable plan.
+- The AI returns up to **eight new checklist tasks**, a short rationale and a checklist-version signature. Its result is a **preview only**: no event task, payment, budget, approval, invitation, booking or participant detail is changed automatically.
+- Organizers can **deselect and edit** any suggestion. Only clicking **Add selected tasks to checklist** calls the separate bulk task endpoint.
+- The task submission is **atomic**, deduplicates names case-insensitively, enforces the 40-task cap, and checks a SHA-256 version signature of the currently stored checklist. If a checklist changed since generation, the server rejects the stale proposal with HTTP 409.
+- Provider errors share the existing sanitized Gemini adapter and never expose API secrets or upstream responses. The public homepage remains a **browser-local simulation**, and AI endpoints are protected by the existing workspace authentication.
+- AI-planned preparation is available even after a PayPal sandbox order exists, because tasks are operational and **do not recalculate shares, invalidate approvals or affect captures**.
+- Provider/API calls consume your Gemini quota; no automatic background call is made. This remains a fictional sandbox prototype, and tasks like “confirm venue” must not be mistaken for bookings the AI completed.
+
 ## Operations Pulse: action-oriented event health
 
 - New **Operations pulse** section in the protected organizer workspace organizes action priorities around missing people/budgets, allocation discrepancies, unapproved contributions, unfinished preparation tasks, and PayPal SANDBOX orders without recorded captures.

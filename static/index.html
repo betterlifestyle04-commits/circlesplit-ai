@@ -105,7 +105,7 @@
      <div class="card"><div class="card-title">Create an event</div><p class="muted small">Start with a name and date, then add your expenses and people.</p>
        <form class="formgrid" id="new-form"><div class="field full"><label for="new-name">Event name</label><input id="new-name" required minlength="3" placeholder="e.g. Community badminton"></div><div class="field full"><label for="new-date">Date</label><input id="new-date" type="date" required></div><div class="field full"><label for="new-note">Description</label><input id="new-note" placeholder="What are you organizing?"></div><button class="btn primary full" type="submit">Create new event</button></form>
      </div>
-     <div class="card"><div class="section-heading"><h2>Event preparation</h2><span class="pill neutral" id="task-counter">0 / 0</span></div><p class="notice">Checklist changes do not affect approvals or payments.</p><div class="progress" style="margin:13px 0"><div class="fill" id="task-meter" style="width:0%"></div></div><div id="task-rows"></div><form id="task-form" class="inlineform" style="margin-top:13px"><input id="task-title" required minlength="3" maxlength="120" placeholder="Preparation task" aria-label="New task"><button class="btn secondary">Add</button></form><div class="space"></div><button class="btn small" onclick="addStarterTasks()">＋ Starter checklist</button></div>
+     <div class="card"><div class="section-heading"><h2>Event preparation</h2><span class="pill neutral" id="task-counter">0 / 0</span></div><p class="notice">Checklist changes do not affect approvals or payments.</p><div class="progress" style="margin:13px 0"><div class="fill" id="task-meter" style="width:0%"></div></div><div id="task-rows"></div><form id="task-form" class="inlineform" style="margin-top:13px"><input id="task-title" required minlength="3" maxlength="120" placeholder="Preparation task" aria-label="New task"><button class="btn secondary">Add</button></form><div class="space"></div><button class="btn small" onclick="addStarterTasks()">＋ Starter checklist</button><button class="btn small secondary" style="margin-left:8px" onclick="switchTab('assistant');el('ai-plan-note').focus()">✦ Suggest tasks with AI</button></div>
       <div class="card"><div class="card-title">Why transparent splitting?</div><p class="muted small">Money is calculated in integer cents so the shares always sum to exactly the total budget, even when a total cannot be divided evenly. No hidden rounding discrepancies.</p><div class="capsule small"><b>Approval is required:</b> no sandbox checkout can be created until the individual approves their assigned share.</div></div>
     </div>
    </div>
@@ -126,6 +126,24 @@
    <div class="grid2">
     <div class="card"><div class="row between"><div class="card-title">Expense planner</div><span class="pill orange" id="ai-indicator">Checking AI</span></div><p class="small muted">Example: “Our court is $180, equipment $25, and refreshments $30. Twenty people will attend.”</p><form id="ai-form"><div class="field"><label for="ai-note">Your plan</label><textarea id="ai-note" required minlength="12" placeholder="Describe your event and costs"></textarea></div><div class="space"></div><button class="btn primary" id="ai-button" type="submit">✦ Analyze expenses</button></form><p class="notice">AI is optional and never initiates payments. Without a configured provider, this control returns an explicit unavailable error.</p></div>
     <div class="card"><div class="card-title">Review before applying</div><p class="small muted" id="ai-rationale">AI suggestions appear here. Verify figures before adding them.</p><div id="ai-proposal" class="empty">No AI proposal yet.</div><div class="space"></div><button class="btn primary" id="ai-apply" onclick="applyProposal()" disabled>Approve & add expenses</button></div>
+   </div>
+   <div class="space"></div><div class="grid2">
+    <div class="card">
+     <div class="section-heading"><h2>AI preparation planner</h2><span class="pill neutral">Review first</span></div>
+     <p class="small muted">Describe a challenge or use the selected event's name, date and description. Gemini will suggest preparation tasks, not prices or payment actions.</p>
+     <form id="ai-plan-form"><div class="field"><label for="ai-plan-note">Optional additional context</label>
+      <textarea id="ai-plan-note" maxlength="600" rows="4" placeholder="Example: We're organizing a 20-person volleyball session. We need a court, equipment and attendee coordination."></textarea>
+     </div><div class="space"></div>
+      <button type="submit" id="ai-plan-generate" class="btn primary">✦ Generate preparation tasks</button>
+     </form><p class="notice">Generates suggestions only. AI does not book a venue, contact participants or modify event finances. A provider API call may use your Gemini quota.</p>
+    </div>
+    <div class="card">
+     <div class="section-heading"><h2>Review suggested tasks</h2><span class="pill neutral">Human approval</span></div>
+     <p class="small muted" id="ai-plan-rationale">Generate a plan, then choose and edit the tasks you want.</p>
+     <div id="ai-plan-preview" class="empty" aria-live="polite">No preparation plan generated yet.</div>
+     <div class="space"></div>
+     <button type="button" id="ai-plan-apply" class="btn primary" onclick="applyTaskPlan()" disabled>Add selected tasks to checklist</button>
+    </div>
    </div>
   </section>
   <section id="insights" class="tabpan"><div class="title"><div><div class="eyebrow">INSIGHT CENTER</div><h1>Know where every share stands.</h1><p class="sub">Clear funding progress, outstanding contributions and portable demo reports. No real money is collected.</p></div></div><div class="metrics" id="insights-metrics"></div><div class="space"></div><div class="card"><div class="section-heading"><h2>Event funding overview</h2><div class="row wrap"><button class="btn small secondary" onclick="exportFundingReport()">↓ Export funding CSV</button><button class="btn small" onclick="exportDemoSnapshot()">↓ Download JSON snapshot</button></div></div><p class="notice" id="insights-note" aria-live="polite">Calculating…</p><div style="overflow-x:auto"><table><thead><tr><th>Event</th><th>People</th><th>Budget</th><th>Confirmed sandbox</th><th>Outstanding</th><th>Allocation</th></tr></thead><tbody id="insights-events"></tbody></table></div></div><div class="banner" style="margin-top:16px"><b>Data safety:</b> Reports are read-only and contain fictional demo participants. Render Free can reset its SQLite database after a restart or redeploy. JSON snapshots are NOT restorable backups and omit PayPal transaction identifiers.</div></section>
@@ -170,6 +188,7 @@
 let state = {events:[],paypal_configured:false,ai_configured:false};
 let pulseQuery="",pulseLevel="all";
 let eventId = null, currentTab = "overview", proposal = null, proposalEventId=null, applyingProposal=false;
+let taskDraft=null,taskDraftEventId=null,applyingTaskDraft=false;
 window.circleTransactions=[];
 function el(id){return document.getElementById(id)}
 function safe(x){return String(x ?? "").replace(/[&<>"']/g,function(s){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[s]})}
@@ -225,7 +244,7 @@ function copyEventBrief(){
  else window.prompt("Copy the event briefing:",brief);
 }
 function focusNew(){setTimeout(function(){el("new-name").focus()},100)}
-function selectEvent(id){eventId=Number(id);proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";resetScenario();render()}
+function selectEvent(id){eventId=Number(id);proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();render()}
 async function cloneSelectedEvent(){
  const e=event();if(!e)return;
  const name=window.prompt("New event name (expenses and participants will be copied, payments will not)",("Copy of "+e.name).slice(0,90));
@@ -377,9 +396,72 @@ function render(){
 }
 async function load(){try{state=await request("/api/state");if(!state.events.some(function(e){return e.id===eventId}))eventId=state.events.length?state.events[0].id:null;render();let t=await request("/api/transactions");window.circleTransactions=t.transactions;renderInsights();renderPulse();el("transaction-list").innerHTML=t.transactions.length?'<div class="notice">Order created ≠ payment captured. Click Check PayPal to resume buyer approval or reconcile a previously approved sandbox order.</div><div class="space"></div><div style="overflow-x:auto"><table><thead><tr><th>Person</th><th>Event</th><th>Amount</th><th>Status</th><th>Verify</th></tr></thead><tbody>'+t.transactions.map(function(p){let id=String(p.order_id||"");let canCheck=p.status!=="completed"&&/^[A-Za-z0-9-]{5,50}$/.test(id);return '<tr><td>'+safe(p.person_name)+'</td><td>'+safe(p.event_name)+'</td><td>'+money(p.amount_cents)+'</td><td><span class="pill '+(p.status==="completed"?"":"orange")+'">'+safe(p.status==="completed"?"VERIFIED CAPTURE":p.status==="created"?"ORDER CREATED — NOT PAID":p.status)+'</span></td><td>'+(canCheck?'<button class="btn small secondary" onclick="verifyPayPalOrder(\''+id+'\')">Check PayPal</button>':p.status==="completed"?"Verified":"—")+'</td></tr>'}).join("")+'</tbody></table></div>':'<div class="empty">No real PayPal sandbox orders created yet.</div>'}catch(e){notice(e.message,true)}}
 async function analyze(evt){evt.preventDefault();if(applyingProposal)return;proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").textContent="Analyzing your note...";const target=event();const targetId=target?target.id:null;el("ai-button").disabled=true;try{if(!targetId)throw Error("Select an event before analyzing costs.");let p=await post("/api/ai/parse",{note:el("ai-note").value});if(event()?.id!==targetId)throw Error("Event changed during AI analysis. Re-run for the selected event.");proposal=p;proposalEventId=targetId;el("ai-rationale").textContent=(p.rationale||"Review before applying")+" · Target event: "+target.name;el("ai-proposal").className="stack";el("ai-proposal").innerHTML=p.expenses.map(function(x,i){return '<div class="formgrid"><div class="field"><label>Expense</label><input class="pro-title" value="'+safe(x.title)+'"></div><div class="field"><label>USD</label><input class="pro-amount" value="'+safe(x.amount)+'"></div></div>'}).join("")||'<div class="empty">No explicit prices were identified in the note.</div>';el("ai-apply").disabled=!p.expenses.length}catch(e){el("ai-proposal").className="empty";el("ai-proposal").textContent=e.message;notice(e.message,true)}finally{el("ai-button").disabled=false}}
+async function generateTaskPlan(evt){
+ evt.preventDefault();if(applyingTaskDraft)return;
+ const target=event(),id=target?.id;
+ taskDraft=null;taskDraftEventId=null;
+ el("ai-plan-apply").disabled=true;
+ el("ai-plan-preview").className="empty";
+ el("ai-plan-preview").textContent="Generating a practical plan…";
+ const button=el("ai-plan-generate");button.disabled=true;
+ try{
+  if(!id)throw Error("Create or select an event first.");
+  const p=await post("/api/ai/plan/"+id,{note:el("ai-plan-note").value.trim()});
+  if(event()?.id!==id)throw Error("Event changed during planning. Please generate again.");
+  if(!Array.isArray(p.tasks)||!p.tasks.length)throw Error("Gemini did not return useful tasks.");
+  taskDraft=p;taskDraftEventId=id;
+  el("ai-plan-rationale").textContent=(p.rationale||"Review all tasks.")+" · Target: "+target.name;
+  el("ai-plan-preview").className="stack";
+  el("ai-plan-preview").innerHTML=p.tasks.map((x,i)=>
+   '<div class="row" style="align-items:center;border-bottom:1px solid #edf2f1;padding:7px 0">'+
+   '<label class="row" style="flex:1;align-items:center;min-width:0">'+
+   '<input type="checkbox" class="task-plan-selected" checked aria-label="Select suggested task '+(i+1)+'">'+
+   '<input type="text" class="task-plan-title" minlength="3" maxlength="120" value="'+safe(x.title)+'" aria-label="Task '+(i+1)+' title" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:9px"></label></div>'
+  ).join("");
+  el("ai-plan-apply").disabled=false;
+ }catch(err){
+  el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent=err.message;
+  notice("AI planner: "+err.message,true);
+ }finally{button.disabled=false}
+}
+async function applyTaskPlan(){
+ if(!taskDraft||applyingTaskDraft)return;
+ const current=event();
+ if(!current||current.id!==taskDraftEventId){
+  notice("The selected event changed. Generate a fresh preparation plan.",true);return;
+ }
+ const checks=[...document.querySelectorAll(".task-plan-selected")],
+       inputs=[...document.querySelectorAll(".task-plan-title")];
+ const tasks=inputs.filter((_,i)=>checks[i]?.checked).map(x=>({title:x.value.trim()}));
+ if(!tasks.length){notice("Select at least one suggested task.",true);return}
+ if(tasks.some(t=>t.title.length<3||t.title.length>120)){
+  notice("Each selected task must contain 3–120 characters.",true);return;
+ }
+ const lowered=tasks.map(t=>t.title.toLocaleLowerCase());
+ if(new Set(lowered).size!==lowered.length){
+  notice("Selected tasks contain duplicates. Edit or deselect repeated items.",true);return;
+ }
+ applyingTaskDraft=true;el("ai-plan-apply").disabled=true;
+ try{
+  const result=await post("/api/events/"+current.id+"/tasks/bulk",{
+   tasks,expected_signature:taskDraft.expected_signature
+  });
+  taskDraft=null;taskDraftEventId=null;
+  await load();
+  el("ai-plan-preview").className="empty";
+  el("ai-plan-preview").textContent=result.added+" reviewed tasks added to "+current.name+".";
+  el("ai-plan-rationale").textContent="Saved tasks have not affected payments, approvals or budget allocations.";
+  notice("Added "+result.added+" preparation tasks. No payments or expenses were changed.",false);
+ }catch(err){
+  notice("AI tasks not saved: "+err.message+". Review the checklist and retry, or generate a fresh plan.",true);
+ }finally{
+  applyingTaskDraft=false;el("ai-plan-apply").disabled=!taskDraft;
+ }
+}
 async function applyProposal(){let e=event();if(!e||!proposal||applyingProposal)return;if(proposalEventId!==e.id){notice("This proposal belongs to a different event. Analyze the selected event again.",true);return;}let titles=[...document.querySelectorAll(".pro-title")],amounts=[...document.querySelectorAll(".pro-amount")];let expenses=titles.map(function(x,i){return {title:x.value.trim(),amount:amounts[i].value.trim()}});if(expenses.some(x=>!x.title||!/^\d+(\.\d{1,2})?$/.test(x.amount))){notice("Check the expense titles and USD amounts before approving.",true);return;}applyingProposal=true;el("ai-apply").disabled=true;try{await post("/api/events/"+e.id+"/expenses/bulk",{expenses:expenses});proposal=null;proposalEventId=null;await load();el("ai-proposal").className="empty";el("ai-proposal").textContent="Expenses saved successfully to "+e.name+".";notice("AI proposal reviewed and saved for "+e.name+".",false);}catch(err){notice("Not saved: "+err.message+". Review amounts or the event’s payment lock, then retry.",true);}finally{applyingProposal=false;el("ai-apply").disabled=!proposal}}
 el("pulse-search").addEventListener("input",function(){pulseQuery=this.value.trim();renderPulse()});
 el("pulse-level").addEventListener("change",function(){pulseLevel=this.value;renderPulse()});
+el("ai-plan-form").addEventListener("submit",generateTaskPlan);
 el("bulk-people-form").addEventListener("submit",importParticipants);
 el("scenario-form").addEventListener("submit",previewScenario);
 ["scenario-adjustment","scenario-people","scenario-strategy"].forEach(function(id){el(id).addEventListener("input",resetScenario);});

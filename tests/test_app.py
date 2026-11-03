@@ -678,3 +678,139 @@ def test_public_head_probe_does_not_trigger_auth(client,monkeypatch):
     assert client.head("/health").status_code==200
     assert client.get("/health").json()["status"]=="ok"
     assert client.head("/workspace").status_code==401
+
+
+def test_ai_preparation_plan_requires_review(client,monkeypatch):
+    """Mocked Gemini suggests tasks but cannot mutate stored event data."""
+    import app as api
+    import json
+    event = initial(client)
+    eid = event["id"]
+    assert client.post(f"/api/events/{eid}/tasks/starter").status_code == 200
+    before = client.get("/api/state").json()
+    monkeypatch.setenv("GEMINI_API_KEY","fictional-test-key-not-a-real-secret")
+    prompts = []
+    class GoodResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"candidates":[{"content":{"parts":[{"text":json.dumps({
+                "tasks":[
+                    {"title":"Confirm venue"}, # already exists, filtered
+                    {"title":"  Arrange   volleyball  nets "},
+                    {"title":"Arrange volleyball nets"}, # duplicate, filtered
+                    {"title":"Check court lighting"},
+                    {"title":"Share arrival instructions"},
+                    {"title":"x"},
+                    {"title":"x"*145},
+                ],
+                "rationale":"Coordinate equipment and arrival."
+            })}]}}]}
+    class FakeClient:
+        def __init__(self,*args,**kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self,*args): pass
+        async def post(self,url,**kwargs):
+            prompts.append(kwargs["json"]["contents"][0]["parts"][0]["text"])
+            return GoodResponse()
+    monkeypatch.setattr(api.httpx,"AsyncClient",FakeClient)
+    result=client.post(f"/api/ai/plan/{eid}",json={"note":"Twenty friends, one indoor volleyball court"})
+    assert result.status_code==200,result.text
+    data=result.json()
+    assert data["requires_approval"] is True
+    assert data["event_id"]==eid
+    assert data["source"]=="gemini"
+    assert [t["title"] for t in data["tasks"]]==[
+        "Arrange volleyball nets","Check court lighting","Share arrival instructions"
+    ]
+    assert len(data["expected_signature"])==64
+    assert "Alex" not in prompts[0] # no participant names added by CircleSplit
+    assert "Confirm venue" in prompts[0]
+    assert client.get("/api/state").json()==before
+
+
+def test_approved_ai_tasks_are_atomic_event_scoped_and_payment_safe(client):
+    import app as api
+    e = initial(client)
+    eid=e["id"]
+    with api.db() as conn:
+        original_sig=api.task_list_signature(conn,eid)
+    unchanged=client.get("/api/state").json()
+    payload={"expected_signature":original_sig,
+             "tasks":[{"title":"Arrange balls"},{"title":"Set up net"}]}
+    result=client.post(f"/api/events/{eid}/tasks/bulk",json=payload)
+    assert result.status_code==200,result.text
+    assert result.json()["added"]==2
+    assert result.json()["approvals_changed"] is False
+    assert result.json()["payments_changed"] is False
+    new_state=initial(client)
+    assert len(new_state["tasks"])==2
+    assert new_state["people"]==e["people"]
+    assert new_state["total_cents"]==e["total_cents"]
+    assert new_state["sandbox_cents"]==0
+    assert new_state["simulated_cents"]==0
+    # Previous draft is stale; no extra tasks should be inserted.
+    assert client.post(f"/api/events/{eid}/tasks/bulk",json=payload).status_code==409
+    assert len(initial(client)["tasks"])==2
+    with api.db() as conn: current_sig=api.task_list_signature(conn,eid)
+    invalid={"expected_signature":current_sig,
+             "tasks":[{"title":"Fresh"},{"title":"fRESH"}]}
+    assert client.post(f"/api/events/{eid}/tasks/bulk",json=invalid).status_code==422
+    assert len(initial(client)["tasks"])==2
+    # Task planning stays possible after a simulated contribution.
+    pid=e["people"][0]["id"]
+    client.post(f"/api/events/{eid}/people/{pid}/approve")
+    client.post(f"/api/events/{eid}/people/{pid}/simulate")
+    with api.db() as conn: sig=api.task_list_signature(conn,eid)
+    approved=client.post(f"/api/events/{eid}/tasks/bulk",json={
+        "expected_signature":sig,"tasks":[{"title":"Confirm final attendance"}]
+    })
+    assert approved.status_code==200,approved.text
+    assert initial(client)["simulated_cents"]==1100
+    assert len(initial(client)["tasks"])==3
+    assert unchanged["events"][0]["tasks"]==[]
+
+
+def test_ai_task_proposal_rejects_stale_checklist_and_conflicts(client):
+    import app as api
+    e=initial(client);eid=e["id"]
+    with api.db() as conn: sig=api.task_list_signature(conn,eid)
+    assert client.post(f"/api/events/{eid}/tasks",json={"title":"Book court"}).status_code==200
+    assert client.post(f"/api/events/{eid}/tasks/bulk",json={
+        "expected_signature":sig,"tasks":[{"title":"Arrange equipment"}]
+    }).status_code==409
+    with api.db() as conn: latest=api.task_list_signature(conn,eid)
+    assert client.post(f"/api/events/{eid}/tasks/bulk",json={
+        "expected_signature":latest,"tasks":[{"title":"book COURT"}]
+    }).status_code==409
+    assert len(initial(client)["tasks"])==1
+
+
+def test_ai_plan_is_protected_and_unavailable_without_key(client,monkeypatch):
+    e=initial(client);eid=e["id"]
+    assert client.post(f"/api/ai/plan/{eid}",json={}).status_code==503
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","valid-long-owner-password")
+    assert client.post(f"/api/ai/plan/{eid}",json={}).status_code==401
+    assert client.post(f"/api/events/{eid}/tasks/bulk",json={
+        "expected_signature":"a"*64,"tasks":[{"title":"Fake approval"}]
+    }).status_code==401
+
+
+def test_ai_task_provider_fails_safely_on_bad_output(client,monkeypatch):
+    import app as api
+    eid=initial(client)["id"]
+    monkeypatch.setenv("GEMINI_API_KEY","fake-fixture-key")
+    class BadResponse:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"candidates":[{"content":{"parts":[{"text":"{\"not_tasks\":[]}" }]}}]}
+    class FakeClient:
+        def __init__(self,*args,**kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self,*args): pass
+        async def post(self,*args,**kwargs): return BadResponse()
+    monkeypatch.setattr(api.httpx,"AsyncClient",FakeClient)
+    r=client.post(f"/api/ai/plan/{eid}",json={})
+    assert r.status_code==502
+    assert "task list" in r.json()["detail"]
+    assert initial(client)["tasks"]==[]
