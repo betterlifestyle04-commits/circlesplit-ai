@@ -666,7 +666,7 @@ async function downloadPlanningBackup(){
   const backup=await request("/api/planning-backup");
   const totals=inspectPlanningBackup(backup);
   offerDownload("circlesplit-private-planning-backup-"+new Date().toISOString().slice(0,10)+".json",
-    JSON.stringify(backup,null,2),"application/json;charset=utf-8");
+    JSON.stringify(backup),"application/json;charset=utf-8");
   notice("Private planning backup downloaded: "+totals.events+" event(s). Save the JSON securely. No payment records or invitation links are included.",false);
  }catch(err){notice("Planning backup not downloaded: "+err.message,true)}
  finally{button.disabled=false}
