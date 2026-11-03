@@ -124,6 +124,37 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   </section>
 <section id="events" class="tabpan">
    <div class="title"><div><div class="eyebrow">EVENT MANAGEMENT</div><h1>Plan & split</h1><p class="sub">Set up your event, estimate costs and decide how to divide them fairly.</p></div></div>
+   <div class="card" style="margin-bottom:20px" id="quickstart-card">
+    <div class="section-heading">
+     <div><h2>Quick Start — event templates</h2>
+      <p class="small muted">Create a fictional event plan in one step, then add real participants and revise costs.</p>
+     </div><span class="pill neutral">No payments or invitations</span>
+    </div>
+    <div id="quickstart-templates" class="dir-results" aria-live="polite">
+     <div class="empty">Open Events to load the starter templates.</div>
+    </div>
+    <div class="grid2" style="margin-top:17px">
+     <div>
+      <form id="quickstart-form">
+       <div class="formgrid">
+        <div class="field full"><label for="quickstart-name">New event name</label>
+         <input id="quickstart-name" required minlength="3" maxlength="90" placeholder="Select a template to prefill the name"></div>
+        <div class="field full"><label for="quickstart-date">Event date</label>
+         <input id="quickstart-date" required type="date"></div>
+       </div>
+       <label class="row wrap" style="margin-top:12px"><input id="quickstart-expenses" type="checkbox" checked>
+        Include fictional expense estimates</label>
+       <label class="row wrap" style="margin-top:9px"><input id="quickstart-tasks" type="checkbox" checked>
+        Include preparation checklist</label>
+       <p class="notice" style="margin-top:13px">All estimates are examples, not price quotes or purchases. Creating an event does not book a venue, add attendees, seek consent, send invitations or process payments.</p>
+       <button type="submit" class="btn primary" id="quickstart-create" disabled>Create fictional event plan</button>
+      </form>
+     </div>
+     <div id="quickstart-preview" class="capsule small" aria-live="polite">
+      Select one of the event types above to preview its estimated costs and preparation tasks.
+     </div>
+    </div>
+   </div>
    <div class="card" id="event-directory" style="margin-bottom:20px">
     <div class="section-heading"><h2>Find an event</h2><span class="pill neutral" id="directory-count">0 events</span></div>
     <div class="dir-controls">
@@ -367,6 +398,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/planning.js"></script>
 <script src="/static/closeout.js"></script>
 <script src="/static/backup.js"></script>
+<script src="/static/templates.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -375,6 +407,7 @@ let directoryQuery="",directoryFilter="all",directorySort="soonest";
 let historyCache=null;
 let closeoutCache=null;
 let selectedPlanningBackup=null;
+let eventTemplates=null,selectedTemplateKey=null,templateRequestKey=null,templatesRequestPending=false;
 let eventId = null, currentTab = "overview", proposal = null, proposalEventId=null, applyingProposal=false;
 let taskDraft=null,taskDraftEventId=null,applyingTaskDraft=false;
 window.circleTransactions=[];
@@ -386,7 +419,7 @@ function event(){return state.events.find(function(x){return x.id===eventId})||s
 async function request(path,opts){let r=await fetch(path,Object.assign({headers:{"Content-Type":"application/json"}},opts||{}));let body=await r.json().catch(function(){return {}});if(!r.ok)throw new Error(body.detail||"Request failed");return body}
 function post(path,body){return request(path,{method:"POST",body:JSON.stringify(body||{})})}
 async function run(action,msg){try{await action();await load();if(msg)notice(msg,false)}catch(e){notice(e.message,true)}}
-function switchTab(tab){currentTab=tab;document.querySelectorAll(".tabpan").forEach(function(x){x.classList.toggle("active",x.id===tab)});document.querySelectorAll("[data-tab]").forEach(function(x){x.classList.toggle("active",x.dataset.tab===tab)});el("crumb").textContent=tab.charAt(0).toUpperCase()+tab.slice(1);render();if(tab==="history")loadEventHistory();if(tab==="closeout")loadCloseout();if(tab==="activity")loadRecovery()}
+function switchTab(tab){currentTab=tab;document.querySelectorAll(".tabpan").forEach(function(x){x.classList.toggle("active",x.id===tab)});document.querySelectorAll("[data-tab]").forEach(function(x){x.classList.toggle("active",x.dataset.tab===tab)});el("crumb").textContent=tab.charAt(0).toUpperCase()+tab.slice(1);render();if(tab==="history")loadEventHistory();if(tab==="closeout")loadCloseout();if(tab==="activity")loadRecovery();if(tab==="events")loadEventTemplates()}
 function openPulseAction(id,tab){
  if(!state.events.some(e=>e.id===id)){notice("Event not available. Refresh the dashboard.",true);return;}
  selectEvent(id);switchTab(tab);
@@ -430,6 +463,94 @@ function copyEventBrief(){
  navigator.clipboard.writeText(brief).then(()=>notice("Fictional sandbox event briefing copied.",false))
  .catch(()=>window.prompt("Copy the event briefing:",brief));
  else window.prompt("Copy the event briefing:",brief);
+}
+async function loadEventTemplates(){
+ if(eventTemplates||templatesRequestPending)return;
+ templatesRequestPending=true;
+ el("quickstart-templates").innerHTML='<div class="empty">Loading starter templates…</div>';
+ try{
+  const response=await request("/api/event-templates");
+  if(response.mode!=="SANDBOX ONLY"||!Array.isArray(response.templates))throw Error("Unexpected template catalog");
+  eventTemplates=response.templates;
+  renderEventTemplateCards();
+ }catch(err){
+  el("quickstart-templates").innerHTML='<div class="empty">Templates are unavailable. Retry by opening Events again.</div>';
+  notice("Unable to load event templates: "+err.message,true);
+ }finally{templatesRequestPending=false;}
+}
+function renderEventTemplateCards(){
+ const cards=el("quickstart-templates");
+ if(!eventTemplates){cards.innerHTML='<div class="empty">Templates not loaded.</div>';return;}
+ cards.innerHTML=eventTemplates.map(t=>{
+  const preview=templatePreview(t,true,true),active=t.key===selectedTemplateKey;
+  return '<button type="button" class="dir-item '+(active?"active":"")+
+    '" aria-pressed="'+(active?"true":"false")+
+    '" onclick="selectQuickStartTemplate(\''+safe(t.key)+'\')">'+
+    '<b class="dir-item-title">'+safe(t.title)+'</b>'+
+    '<span class="dir-meta">'+safe(t.description)+'</span>'+
+    '<strong>'+money(preview.estimatedCents)+' illustrative</strong>'+
+    '<span class="dir-meta">'+preview.expenseCount+' cost lines · '+preview.taskCount+' checklist tasks</span></button>';
+ }).join("");
+}
+function selectedQuickStartTemplate(){
+ return eventTemplates?.find(t=>t.key===selectedTemplateKey)||null;
+}
+function selectQuickStartTemplate(key){
+ const t=eventTemplates?.find(x=>x.key===key);
+ if(!t){notice("Choose a valid event template.",true);return}
+ selectedTemplateKey=key;templateRequestKey=null;
+ el("quickstart-name").value=t.title;
+ el("quickstart-create").disabled=false;
+ renderEventTemplateCards();
+ renderQuickStartPreview();
+ el("quickstart-name").focus();
+}
+function renderQuickStartPreview(){
+ const root=el("quickstart-preview"),t=selectedQuickStartTemplate();
+ if(!t){root.textContent="Choose a template to see its example costs and tasks.";return;}
+ try{
+  const p=templatePreview(t,el("quickstart-expenses").checked,el("quickstart-tasks").checked);
+  root.innerHTML='<div class="row between"><b>'+safe(t.title)+'</b><span class="pill neutral">Preview only</span></div>'+
+    '<div style="margin-top:11px"><b>Illustrative planned total: '+money(p.estimatedCents)+'</b></div>'+
+    (p.expenseCount?'<p class="small muted" style="margin-top:9px">Example expenses</p>'+
+      p.expenses.map(x=>'<div class="row between" style="margin-top:6px"><span>'+safe(x.title)+'</span><b>'+money(x.cents)+'</b></div>').join(""):'<p class="small muted">No sample expenses will be added.</p>')+
+    (p.taskCount?'<p class="small muted" style="margin-top:13px">Preparation checklist</p>'+
+      '<ul style="margin:6px 0 0;padding-left:20px">'+p.tasks.map(x=>'<li>'+safe(x)+'</li>').join("")+'</ul>':
+      '<p class="small muted">No sample tasks will be added.</p>')+
+    '<p class="notice" style="margin-top:13px">No participants, RSVP answers, approvals, payments or invitations are created.</p>';
+ }catch(err){root.textContent="Cannot preview template: "+err.message;}
+}
+async function createQuickStartEvent(evt){
+ evt.preventDefault();
+ const t=selectedQuickStartTemplate(),button=el("quickstart-create");
+ if(!t){notice("Select a template before creating your event.",true);return}
+ if(button.disabled)return;
+ const date=el("quickstart-date").value,name=el("quickstart-name").value;
+ const includeExpenses=el("quickstart-expenses").checked,includeTasks=el("quickstart-tasks").checked;
+ // Keep the same key across a failed network request; retrying is safe.
+ if(!templateRequestKey){
+  if(!window.crypto?.randomUUID){
+   notice("A secure browser is needed to safely create an event. Try the HTTPS workspace.",true);return;
+  }
+  templateRequestKey=window.crypto.randomUUID();
+ }
+ let payload;
+ try{payload=templateRequestPayload(t.key,name,date,includeExpenses,includeTasks,templateRequestKey)}
+ catch(err){notice(err.message,true);return}
+ button.disabled=true;
+ try{
+  const result=await post("/api/event-templates/"+encodeURIComponent(payload.key)+"/create",payload.body);
+  templateRequestKey=null;
+  eventId=result.id;
+  await load();
+  notice(result.reused?
+    "Existing event returned from an earlier request. No duplicate was created.":
+    "New fictional event created with "+result.expense_count+" estimated expenses and "+
+    result.task_count+" preparation tasks. Add participants after reviewing costs.",false);
+ }catch(err){
+  notice("Event may not have been created: "+err.message+
+   ". Correct the error if needed, or press Create again to safely retry the same request.",true);
+ }finally{button.disabled=false}
 }
 function renderDirectory(){
  const found=directoryView(state.events,directoryQuery,directoryFilter,directorySort,localDay());
@@ -1088,7 +1209,13 @@ el("task-form").addEventListener("submit",createTask);el("backup-file").addEvent
 el("planning-form").addEventListener("submit",savePlanning);
 el("planning-ceiling").addEventListener("input",()=>showPlanningForecast(false));
 el("planning-reserve").addEventListener("input",()=>showPlanningForecast(false));
-el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);
+el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("quickstart-form").addEventListener("submit",createQuickStartEvent);
+el("quickstart-date").value=localDay();
+for(const field of ["quickstart-name","quickstart-date","quickstart-expenses","quickstart-tasks"]){
+ el(field).addEventListener("change",function(){templateRequestKey=null;renderQuickStartPreview()});
+}
+el("quickstart-name").addEventListener("input",()=>{templateRequestKey=null});
+el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);
 document.querySelectorAll("[data-tab]").forEach(function(x){x.addEventListener("click",function(){switchTab(x.dataset.tab)})});
 async function checkReadiness(){
  try{

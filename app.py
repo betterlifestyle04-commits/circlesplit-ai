@@ -157,6 +157,12 @@ def initialize():
           status TEXT NOT NULL, capture_id TEXT, created TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, created TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS template_creations (
+            request_key TEXT PRIMARY KEY,
+            fingerprint TEXT NOT NULL,
+            event_id INTEGER NOT NULL REFERENCES events(id),
+            created TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS planning_restores (
             fingerprint TEXT PRIMARY KEY,
             restored_at TEXT NOT NULL,
@@ -258,6 +264,7 @@ def detailed(c, eid):
 # cryptographically tamper-evident and is not a substitute for durable audit logs.
 HISTORY_SUMMARIES = {
     "event_created":"Event created",
+    "event_template_created":"Event created from a fictional quick-start template",
     "event_duplicated":"Event duplicated as a new plan",
     "expense_added":"Expense added; shares recalculated",
     "expense_recategorized":"Expense category updated without changing the budget",
@@ -806,6 +813,171 @@ def set_event_planning(eid: int, data: EventPlanningInput):
         amount=c.execute("SELECT COALESCE(SUM(cents),0) FROM expenses WHERE event_id=?",(eid,)).fetchone()[0]
     return {"ok":True,"changed":True,"planning":planning_forecast(amount,cap,data.reserve_percent),
             "financial_records_changed":False}
+
+
+# These are fictional demo estimates, not quotes, reservations or paid expenses.
+# Quick-start templates never seed participants, approval records or PayPal orders.
+EVENT_TEMPLATES = {
+    "volleyball": {
+        "title": "Volleyball night",
+        "description": "Organize a group volleyball session with a court, equipment and refreshments.",
+        "note": "Fictional indoor volleyball meetup; all costs are editable estimates, not bookings.",
+        "expenses": [
+            {"title":"Court rental estimate","cents":16000,"category":"venue"},
+            {"title":"Equipment estimate","cents":2500,"category":"equipment"},
+            {"title":"Refreshments estimate","cents":3500,"category":"food"},
+        ],
+        "tasks": [
+            "Check court availability", "Confirm a volleyball net",
+            "Coordinate participant attendance", "Prepare equipment",
+            "Share arrival instructions",
+        ],
+    },
+    "dinner": {
+        "title": "Group dinner",
+        "description": "Plan a shared dinner and coordinate attendance and dietary preferences.",
+        "note": "Fictional group dinner with estimated costs; no table reservation or payment is made.",
+        "expenses": [
+            {"title":"Shared meal estimate","cents":12000,"category":"food"},
+            {"title":"Drinks estimate","cents":3000,"category":"food"},
+            {"title":"Transport estimate","cents":2000,"category":"travel"},
+        ],
+        "tasks": [
+            "Check suitable restaurant options", "Confirm dietary preferences",
+            "Collect attendance responses", "Review expected menu prices",
+            "Share arrival details",
+        ],
+    },
+    "weekend-trip": {
+        "title": "Weekend getaway",
+        "description": "Draft a shared weekend travel budget and preparation checklist.",
+        "note": "Fictional trip estimates only; no accommodation, transport or activities are booked.",
+        "expenses": [
+            {"title":"Accommodation estimate","cents":28000,"category":"venue"},
+            {"title":"Transport estimate","cents":10000,"category":"travel"},
+            {"title":"Groceries estimate","cents":5000,"category":"food"},
+            {"title":"Activities estimate","cents":6000,"category":"services"},
+        ],
+        "tasks": [
+            "Compare accommodation options", "Check travel arrangements",
+            "Confirm everyone can attend", "Plan shared groceries",
+            "Agree on activities and timing",
+        ],
+    },
+    "study-meetup": {
+        "title": "Study meetup",
+        "description": "Set up a small study session with supplies, a venue and a clear agenda.",
+        "note": "Fictional study meetup estimates; venue and materials are not reserved or purchased.",
+        "expenses": [
+            {"title":"Meeting room estimate","cents":4000,"category":"venue"},
+            {"title":"Printing estimate","cents":1500,"category":"services"},
+            {"title":"Snacks estimate","cents":2000,"category":"food"},
+        ],
+        "tasks": [
+            "Agree on study topics", "Confirm suitable study space",
+            "Share the agenda", "Prepare reference materials",
+            "Check accessibility requirements",
+        ],
+    },
+    "community-cleanup": {
+        "title": "Community cleanup",
+        "description": "Coordinate a volunteer cleanup with equipment and basic logistics.",
+        "note": "Fictional volunteer cleanup costs; supplies are estimates and no purchase has been made.",
+        "expenses": [
+            {"title":"Cleanup supplies estimate","cents":3000,"category":"equipment"},
+            {"title":"Local travel estimate","cents":2000,"category":"travel"},
+            {"title":"Water estimate","cents":1500,"category":"food"},
+        ],
+        "tasks": [
+            "Check site rules and permissions", "Confirm safety precautions",
+            "Arrange waste collection", "Coordinate volunteers",
+            "Prepare gloves and bags",
+        ],
+    },
+}
+
+
+class QuickStartInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str = Field(min_length=3,max_length=90)
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    include_expenses: bool = True
+    include_tasks: bool = True
+    request_key: str = Field(pattern=r"^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$")
+
+
+@app.get("/api/event-templates")
+def list_event_templates():
+    return {
+        "currency":"USD","mode":"SANDBOX ONLY",
+        "templates":[{
+            "key":key,"title":value["title"],"description":value["description"],
+            "expenses":value["expenses"],"tasks":value["tasks"],
+            "estimated_cents":sum(e["cents"] for e in value["expenses"]),
+        } for key,value in EVENT_TEMPLATES.items()],
+        "notice":"Examples only. No real prices, bookings, participants, approvals or payment records are created.",
+    }
+
+
+@app.post("/api/event-templates/{key}/create")
+def create_event_from_template(key: str,data: QuickStartInput):
+    template=EVENT_TEMPLATES.get(key)
+    if template is None:
+        raise HTTPException(404,"Unknown quick-start event template")
+    name=data.name.strip()
+    if not 3<=len(name)<=90:
+        raise HTTPException(422,"Event name must be 3–90 characters")
+    try:
+        CalendarDate.fromisoformat(data.date)
+    except ValueError:
+        raise HTTPException(422,"Enter a valid calendar date")
+    fingerprint=hashlib.sha256(json.dumps({
+        "key":key,"name":name,"date":data.date,
+        "include_expenses":data.include_expenses,
+        "include_tasks":data.include_tasks,
+    },sort_keys=True,separators=(",",":")).encode("utf-8")).hexdigest()
+    with db() as c:
+        existing=c.execute(
+            "SELECT event_id,fingerprint FROM template_creations WHERE request_key=?",
+            (data.request_key,)
+        ).fetchone()
+        if existing:
+            if existing["fingerprint"]!=fingerprint:
+                raise HTTPException(409,"Request key already used for different event details")
+            return {"id":existing["event_id"],"reused":True,
+                    "notice":"Previously created event reused. No duplicate or payment was created."}
+        event_id=c.execute(
+            "INSERT INTO events(name,date,note,strategy,created) VALUES(?,?,?,?,?)",
+            (name,data.date,template["note"],"equal",now())
+        ).lastrowid
+        expenses=template["expenses"] if data.include_expenses else []
+        tasks=template["tasks"] if data.include_tasks else []
+        for expense in expenses:
+            c.execute(
+                "INSERT INTO expenses(event_id,title,cents,category) VALUES(?,?,?,?)",
+                (event_id,expense["title"],expense["cents"],expense["category"])
+            )
+        for title in tasks:
+            c.execute(
+                "INSERT INTO event_tasks(event_id,title,completed,created) VALUES(?,?,0,?)",
+                (event_id,title,now())
+            )
+        record_history(c,event_id,"event_template_created",details={
+            "template":key,"expenses":len(expenses),"tasks":len(tasks)
+        })
+        c.execute(
+            "INSERT INTO template_creations(request_key,fingerprint,event_id,created) VALUES(?,?,?,?)",
+            (data.request_key,fingerprint,event_id,now())
+        )
+    return {
+        "id":event_id,"reused":False,
+        "expense_count":len(expenses),"task_count":len(tasks),
+        "estimated_cents":sum(x["cents"] for x in expenses),
+        "participants_created":0,
+        "approvals_created":0,
+        "payments_created":0,
+        "notice":"Fictional event plan created. No people, booking, real expense or PayPal payment was created.",
+    }
 
 
 class EventInput(BaseModel):

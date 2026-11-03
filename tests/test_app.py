@@ -1781,3 +1781,183 @@ def test_planning_backup_size_limit_and_schema_version(client):
     assert response.status_code==413
     data["events"]=[]
     assert client.post("/api/planning-backup/restore",json=data).status_code==422
+
+
+def test_quickstart_catalog_contains_valid_fictional_costs(client):
+    catalog=client.get("/api/event-templates")
+    assert catalog.status_code==200,catalog.text
+    data=catalog.json()
+    assert data["mode"]=="SANDBOX ONLY"
+    assert data["currency"]=="USD"
+    assert len(data["templates"])==5
+    assert {t["key"] for t in data["templates"]}=={
+        "volleyball","dinner","weekend-trip","study-meetup","community-cleanup"
+    }
+    assert all(t["estimated_cents"]==sum(x["cents"] for x in t["expenses"])
+               for t in data["templates"])
+    assert all(t["estimated_cents"]>0 and t["tasks"] for t in data["templates"])
+    assert all(x["category"] in {
+        "venue","equipment","food","travel","services","other"
+    } for t in data["templates"] for x in t["expenses"])
+    assert "not" in data["notice"].lower()
+
+
+def test_quickstart_creates_atomic_event_with_checklist_and_no_people_or_money(client):
+    original=initial(client)
+    request_key="acdde001-1111-4222-8333-1234567890ab"
+    response=client.post("/api/event-templates/volleyball/create",json={
+        "name":"  My friends' volleyball  ","date":"2026-12-03",
+        "include_expenses":True,"include_tasks":True,"request_key":request_key
+    })
+    assert response.status_code==200,response.text
+    result=response.json()
+    assert result["reused"] is False
+    assert result["expense_count"]==3
+    assert result["task_count"]==5
+    assert result["estimated_cents"]==22000
+    assert result["participants_created"]==0
+    assert result["approvals_created"]==0
+    assert result["payments_created"]==0
+    eid=result["id"]
+    event=next(e for e in client.get("/api/state").json()["events"] if e["id"]==eid)
+    assert event["name"]=="My friends' volleyball"
+    assert event["date"]=="2026-12-03"
+    assert event["total_cents"]==22000
+    assert event["strategy"]=="equal"
+    assert not event["people"]
+    assert event["approved"]==0
+    assert event["sandbox_cents"]==0 and event["simulated_cents"]==0
+    assert all(not task["completed"] for task in event["tasks"])
+    assert [e["category"] for e in event["expenses"]]==["venue","equipment","food"]
+    assert initial(client)["id"]==eid  # newest selected as first by API; source still exists
+    state=client.get("/api/state").json()["events"]
+    source=next(e for e in state if e["id"]==original["id"])
+    assert source==original
+    history=client.get(f"/api/events/{eid}/history").json()
+    assert history["total_actions"]==1
+    assert history["entries"][0]["action"]=="event_template_created"
+    assert history["entries"][0]["details"]=={
+        "template":"volleyball","expenses":3,"tasks":5
+    }
+
+
+def test_quickstart_can_create_task_only_plan_without_costs(client):
+    response=client.post("/api/event-templates/study-meetup/create",json={
+        "name":"Study circle","date":"2026-12-05",
+        "include_expenses":False,"include_tasks":True,
+        "request_key":"acdde002-1111-4222-8333-1234567890ab"
+    })
+    assert response.status_code==200,response.text
+    result=response.json()
+    assert result["expense_count"]==0
+    assert result["estimated_cents"]==0
+    event=next(e for e in client.get("/api/state").json()["events"] if e["id"]==result["id"])
+    assert event["expenses"]==[]
+    assert event["total_cents"]==0
+    assert len(event["tasks"])==5
+    assert event["people"]==[]
+
+
+def test_quickstart_idempotency_key_replay_creates_no_duplicate_events(client):
+    request={
+        "name":"Weekend with friends","date":"2026-12-06",
+        "include_expenses":True,"include_tasks":False,
+        "request_key":"acdde003-1111-4222-8333-1234567890ab"
+    }
+    first=client.post("/api/event-templates/weekend-trip/create",json=request)
+    assert first.status_code==200,first.text
+    event_id=first.json()["id"]
+    before=client.get("/api/state").json()["events"]
+    same=client.post("/api/event-templates/weekend-trip/create",json=request)
+    assert same.status_code==200,same.text
+    assert same.json()["reused"] is True
+    assert same.json()["id"]==event_id
+    assert client.get("/api/state").json()["events"]==before
+    changed=client.post("/api/event-templates/weekend-trip/create",json={
+        **request,"name":"Different event"
+    })
+    assert changed.status_code==409,changed.text
+    assert client.get("/api/state").json()["events"]==before
+    another=client.post("/api/event-templates/weekend-trip/create",json={
+        **request,"request_key":"acdde004-1111-4222-8333-1234567890ab"
+    })
+    assert another.status_code==200
+    assert another.json()["id"]!=event_id
+
+
+def test_quickstart_rejects_unknown_template_bad_date_or_extra_fields(client):
+    payload={
+        "name":"Test group","date":"2026-12-01",
+        "include_expenses":True,"include_tasks":True,
+        "request_key":"acdde005-1111-4222-8333-1234567890ab"
+    }
+    start=client.get("/api/state").json()["events"]
+    assert client.post("/api/event-templates/missing/create",json=payload).status_code==404
+    for date in ["2026-02-30","2026-13-01","2026/12/01","garbage"]:
+        assert client.post("/api/event-templates/volleyball/create",json={
+            **payload,"date":date
+        }).status_code==422
+    assert client.post("/api/event-templates/volleyball/create",json={
+        **payload,"name":"  "
+    }).status_code==422
+    assert client.post("/api/event-templates/volleyball/create",json={
+        **payload,"payments":[{"status":"completed"}]
+    }).status_code==422
+    assert client.post("/api/event-templates/volleyball/create",json={
+        **payload,"request_key":"not-a-valid-idempotency-key"
+    }).status_code==422
+    assert client.get("/api/state").json()["events"]==start
+
+
+def test_quickstart_creation_rolls_back_atomically_when_history_fails(client,monkeypatch):
+    import app as api
+    original=api.record_history
+    def refuse_history(c,event_id,action,**kwargs):
+        if action=="event_template_created":
+            raise RuntimeError("simulated transaction failure")
+        return original(c,event_id,action,**kwargs)
+    monkeypatch.setattr(api,"record_history",refuse_history)
+    start=client.get("/api/state").json()["events"]
+    with pytest.raises(RuntimeError,match="simulated transaction failure"):
+        client.post("/api/event-templates/dinner/create",json={
+            "name":"Atomic rollback demo","date":"2026-12-09",
+            "request_key":"acdde006-1111-4222-8333-1234567890ab"
+        })
+    assert client.get("/api/state").json()["events"]==start
+    with api.db() as c:
+        assert c.execute(
+            "SELECT COUNT(*) FROM template_creations WHERE request_key=?",
+            ("acdde006-1111-4222-8333-1234567890ab",)
+        ).fetchone()[0]==0
+
+
+def test_quickstart_auth_separates_invite_links_from_organizer(client,monkeypatch):
+    person=initial(client)["people"][0];e=initial(client)
+    invite=client.post(f"/api/events/{e['id']}/people/{person['id']}/invite").json()["token"]
+    payload={"name":"Protected starter","date":"2026-12-10",
+             "request_key":"acdde007-1111-4222-8333-1234567890ab"}
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_PASSWORD","owner-secret-quickstart-demo")
+    assert client.get("/api/event-templates").status_code==401
+    assert client.post("/api/event-templates/volleyball/create",json=payload).status_code==401
+    assert client.post("/api/event-templates/volleyball/create",json=payload,
+        headers={"Authorization":"Bearer "+invite}).status_code==401
+    auth=("judge","owner-secret-quickstart-demo")
+    assert client.get("/api/event-templates",auth=auth).status_code==200
+    assert client.post("/api/event-templates/volleyball/create",json=payload,
+        auth=auth).status_code==200
+
+
+def test_quickstart_does_not_reset_existing_sandbox_approvals(client):
+    existing=initial(client);eid=existing["id"];pid=existing["people"][0]["id"]
+    assert client.post(f"/api/events/{eid}/people/{pid}/approve").status_code==200
+    assert client.post(f"/api/events/{eid}/people/{pid}/simulate").status_code==200
+    before=next(e for e in client.get("/api/state").json()["events"] if e["id"]==eid)
+    result=client.post("/api/event-templates/community-cleanup/create",json={
+        "name":"Clean the park","date":"2026-12-12",
+        "request_key":"acdde008-1111-4222-8333-1234567890ab"
+    })
+    assert result.status_code==200,result.text
+    after=next(e for e in client.get("/api/state").json()["events"] if e["id"]==eid)
+    assert after==before
+    assert after["simulated_cents"]==1100

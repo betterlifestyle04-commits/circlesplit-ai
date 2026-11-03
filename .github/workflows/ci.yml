@@ -13,7 +13,8 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
       - run: node --check static/insights.js
-      - run: node --test tests/test_insights.cjs tests/test_operations.cjs tests/test_pulse.cjs tests/test_communications.cjs tests/test_directory.cjs tests/test_categories.cjs tests/test_planning.cjs tests/test_closeout.cjs tests/test_backup.cjs
+      - run: node --test tests/test_insights.cjs tests/test_operations.cjs tests/test_pulse.cjs tests/test_communications.cjs tests/test_directory.cjs tests/test_categories.cjs tests/test_planning.cjs tests/test_closeout.cjs tests/test_backup.cjs tests/test_templates.cjs
+      - run: node --check static/templates.js
       - run: node --check static/backup.js
       - run: node --check static/closeout.js
       - run: node --check static/planning.js

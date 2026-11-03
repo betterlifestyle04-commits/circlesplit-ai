@@ -49,6 +49,17 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Quick Start — event templates (fictional sandbox planning)
+
+- The protected **Events** page includes a **Quick Start** wizard with five ready-made examples: **Volleyball night, Group dinner, Weekend getaway, Study meetup, and Community cleanup**. The user can preview the cost breakdown and checklist before creating a new plan.
+- The organizer can edit the new event name/date and include or exclude **example expense estimates** and **preparation tasks**. All templates are explicitly hypothetical: no actual prices, venue reservations, participants, approval records, PayPal orders, invitation tokens, or real-money transactions are created.
+- New authenticated `GET /api/event-templates` returns the fixed catalog, plus a `POST /api/event-templates/{key}/create` endpoint to atomically create an event, category-tagged expense estimates and an unchecked preparation checklist.
+- Server validation includes strict JSON fields, actual calendar dates, trimmed names, a known template ID, a valid UUID request key, and bounded fixed expense categories/amounts.
+- Template creation is **idempotent** within the current database. The request key and SHA-256 hash of its creation settings are stored transactionally in `template_creations`; retrying the same request returns the existing event instead of creating a duplicate. Reusing a key for different details returns HTTP 409. Keys are not financial transaction identifiers.
+- Organizer event history receives an `event_template_created` entry with only the template ID and counts. A failed multi-record write rolls back completely.
+- This is designed to reduce onboarding friction and help demonstrate CircleSplit's planning workflow. **Existing event plans, approvals and sandbox payments remain unchanged**.
+- Like other local SQLite records, templates and idempotency records reset after a Render Free database reset. Never treat estimated costs as actual charges, invoices, reservation confirmations, or amounts owed.
+
 ## Planning backup & safe restore (manual, private, non-financial)
 
 - The protected organizer workspace now includes **Backup & restore**. The owner can explicitly download a versioned `planning-backup` JSON and inspect a selected backup file locally before any restore is requested.
