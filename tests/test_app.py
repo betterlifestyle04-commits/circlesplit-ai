@@ -563,7 +563,7 @@ def test_participant_invitation_is_private_and_approves_only_own_share(client,mo
     assert detail.status_code==200
     d=detail.json()
     assert set(d)=={"event_name","event_date","participant","share_cents","approved",
-                    "approval_source","status","rsvp_status","expires_at","currency","payment_mode","identity_verified"}
+                    "approval_source","status","rsvp_status","expires_at","currency","payment_mode","identity_verified","agenda"}
     assert d["participant"]=="Alex" and d["share_cents"]==1100
     assert d["rsvp_status"]=="pending"
     assert d["identity_verified"] is False and d["payment_mode"]=="NONE"
