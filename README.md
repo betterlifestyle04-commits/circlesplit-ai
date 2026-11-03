@@ -49,6 +49,15 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - `tests/`: backend tests
 - `.github/workflows/ci.yml`: automated tests
 
+## Operations Pulse: action-oriented event health
+
+- New **Operations pulse** section in the protected organizer workspace organizes action priorities around missing people/budgets, allocation discrepancies, unapproved contributions, unfinished preparation tasks, and PayPal SANDBOX orders without recorded captures.
+- Open each alert directly in its relevant Events, Contributions, Activity, or Insights tab; filter and search the action queue.
+- Event health shows progress on checklists and verified sandbox captures separately. "Planning progressing" is never represented as a successful charge or complete payment.
+- **Copy event brief** creates a plaintext summary with no participant names or payment token identifiers and explicitly states that test amounts are not real invoices or debts.
+- The transaction feed now returns `event_id` for precise order-to-event association; event names are not unique identifiers.
+- `static/pulse.js` is a pure tested module. Node tests cover prioritization, malformed dates, allocation mismatches and avoiding double-counting simulated payments.
+
 ## Event Operations checklist and calendar export
 
 - Protected Events page now supports per-event preparation tasks, a completion bar, and a five-task starter checklist.
