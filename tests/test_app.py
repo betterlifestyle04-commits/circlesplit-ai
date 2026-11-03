@@ -725,7 +725,9 @@ def test_ai_preparation_plan_requires_review(client,monkeypatch):
     assert len(data["expected_signature"])==64
     assert "Alex" not in prompts[0] # no participant names added by CircleSplit
     assert "Confirm venue" in prompts[0]
-    assert client.get("/api/state").json()==before
+    # Configured status changed because the test installed a fake API key;
+    # the database event records must remain identical.
+    assert client.get("/api/state").json()["events"] == before["events"]
 
 
 def test_approved_ai_tasks_are_atomic_event_scoped_and_payment_safe(client):
