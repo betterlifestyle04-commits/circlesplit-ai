@@ -501,6 +501,7 @@ function selectQuickStartTemplate(key){
  selectedTemplateKey=key;templateRequestKey=null;
  el("quickstart-name").value=t.title;
  el("quickstart-create").disabled=false;
+ el("quickstart-create").textContent="Create fictional event plan";
  renderEventTemplateCards();
  renderQuickStartPreview();
  el("quickstart-name").focus();
@@ -538,19 +539,28 @@ async function createQuickStartEvent(evt){
  try{payload=templateRequestPayload(t.key,name,date,includeExpenses,includeTasks,templateRequestKey)}
  catch(err){notice(err.message,true);return}
  button.disabled=true;
+ let result;
  try{
-  const result=await post("/api/event-templates/"+encodeURIComponent(payload.key)+"/create",payload.body);
-  templateRequestKey=null;
-  eventId=result.id;
+  result=await post("/api/event-templates/"+encodeURIComponent(payload.key)+"/create",payload.body);
+ }catch(err){
+  notice("Event creation was interrupted: "+err.message+
+   ". Press Create again to safely retry this same request key.",true);
+  button.disabled=false;
+  return;
+ }
+ templateRequestKey=null;eventId=result.id;
+ try{
   await load();
   notice(result.reused?
-    "Existing event returned from an earlier request. No duplicate was created.":
-    "New fictional event created with "+result.expense_count+" estimated expenses and "+
-    result.task_count+" preparation tasks. Add participants after reviewing costs.",false);
+   "Existing event returned from an earlier request. No duplicate was created.":
+   "New fictional event created with "+result.expense_count+" estimated expenses and "+
+   result.task_count+" preparation tasks. Add participants after reviewing costs.",false);
  }catch(err){
-  notice("Event may not have been created: "+err.message+
-   ". Correct the error if needed, or press Create again to safely retry the same request.",true);
- }finally{button.disabled=false}
+  notice("Event created, but the workspace failed to refresh. Reload the page to see it.",true);
+ }finally{
+  button.disabled=true;
+  button.textContent="Plan created — edit details for another";
+ }
 }
 function renderDirectory(){
  const found=directoryView(state.events,directoryQuery,directoryFilter,directorySort,localDay());
@@ -1212,9 +1222,18 @@ el("planning-reserve").addEventListener("input",()=>showPlanningForecast(false))
 el("expense-form").addEventListener("submit",addExpense);el("person-form").addEventListener("submit",addPerson);el("quickstart-form").addEventListener("submit",createQuickStartEvent);
 el("quickstart-date").value=localDay();
 for(const field of ["quickstart-name","quickstart-date","quickstart-expenses","quickstart-tasks"]){
- el(field).addEventListener("change",function(){templateRequestKey=null;renderQuickStartPreview()});
+ el(field).addEventListener("change",function(){
+  templateRequestKey=null;
+  el("quickstart-create").disabled=!selectedTemplateKey;
+  el("quickstart-create").textContent="Create fictional event plan";
+  renderQuickStartPreview();
+ });
 }
-el("quickstart-name").addEventListener("input",()=>{templateRequestKey=null});
+el("quickstart-name").addEventListener("input",()=>{
+ templateRequestKey=null;
+ el("quickstart-create").disabled=!selectedTemplateKey;
+ el("quickstart-create").textContent="Create fictional event plan";
+});
 el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);
 document.querySelectorAll("[data-tab]").forEach(function(x){x.addEventListener("click",function(){switchTab(x.dataset.tab)})});
 async function checkReadiness(){
