@@ -1799,7 +1799,8 @@ def test_quickstart_catalog_contains_valid_fictional_costs(client):
     assert all(x["category"] in {
         "venue","equipment","food","travel","services","other"
     } for t in data["templates"] for x in t["expenses"])
-    assert "not" in data["notice"].lower()
+    assert "no real prices" in data["notice"].lower()
+    assert "payment records" in data["notice"].lower()
 
 
 def test_quickstart_creates_atomic_event_with_checklist_and_no_people_or_money(client):
