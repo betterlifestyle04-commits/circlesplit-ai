@@ -1026,4 +1026,4 @@ def test_integrity_finds_unverified_sandbox_status_without_leaking_ids(client):
         conn.execute("UPDATE people SET status='sandbox_paid' WHERE id=?",(pid,))
     report=client.get(f"/api/events/{eid}/history").json()
     assert report["integrity"]["status"]=="needs_review"
-    assert "paid_without_capture" in [x["code"] for x in report["integrity"]["issues"]
+    assert "paid_without_capture" in [x["code"] for x in report["integrity"]["issues"]]
