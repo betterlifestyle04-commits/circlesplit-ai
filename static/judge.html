@@ -45,7 +45,7 @@ footer{margin-top:36px;font-size:12px;color:#78929b}
 <li>Approve the participant's assigned share, then select PayPal test.</li>
 <li>Use a PayPal sandbox PERSONAL buyer account from the developer dashboard. Confirm checkout uses the sandbox PayPal hostname; never use real cards or live credentials.</li>
 <li>Approve checkout and return to CircleSplit. Activity should display VERIFIED CAPTURE, not just ORDER CREATED.</li>
-<li>If interrupted, use Activity → Check PayPal to resume the existing order. Never create repeated orders for the same participant.</li></ol></section>
+<li>If interrupted, use Activity → Check PayPal to resume the existing order. Never create repeated orders for the same participant.</li></ol><p class="small">The shared testing workspace has short provider-request budgets to prevent accidental API spend. If a provider action returns HTTP 429, follow its retry time rather than making a duplicate payment request.</p></section>
 <section class="card"><span class="chip">Evidence and limitations</span><h2>4 · Inspect the implementation</h2>
 <p>On November 2–3, 2026, the hosted integration workspace returned a real Gemini response and recorded one $11.00 USD PayPal sandbox capture, with HTTP 200 capture and webhook requests.</p>
 <p class="small" style="margin-top:15px">This is a hackathon MVP. Public demonstration data is fictional; the protected workspace uses shared test records and Render Free's ephemeral SQLite. Data may reset after deployment. No production payments, real identity verification, escrow, or payout splitting are claimed.</p>
