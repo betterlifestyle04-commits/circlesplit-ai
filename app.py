@@ -597,7 +597,12 @@ def favicon():
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
-    return {"status": "ok", "mode": "sandbox-only", "version": "0.2.0"}
+    # Render supplies the deployed Git revision. Never expose other environment
+    # variables, secrets, credentials, internal hostnames, or arbitrary strings.
+    revision = os.getenv("RENDER_GIT_COMMIT", "")
+    safe_revision = revision.lower() if re.fullmatch(r"[0-9a-fA-F]{40}", revision) else None
+    return {"status": "ok", "mode": "sandbox-only", "version": "0.2.0",
+            "git_commit": safe_revision}
 
 @app.get("/api/judge-readiness")
 def judge_readiness():
