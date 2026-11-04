@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
@@ -2402,61 +2402,100 @@ async def webhook(request: Request):
     return {"ok":True}
 
 @app.get("/api/paypal/recovery")
-def payment_recovery():
-    """Owner-only read-only recovery queue; no new PayPal calls or payments."""
-    current=datetime.now(timezone.utc)
+def payment_recovery(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+):
+    """Protected, read-only, paginated PayPal Sandbox recovery queue.
+
+    Unresolved and inconsistent payment rows precede completed captures, even
+    when the unresolved rows are old. Summary counters cover *all* local rows
+    rather than only the current page. Never contacts PayPal or changes state.
+    """
+    current = datetime.now(timezone.utc)
     with db() as c:
-        total=c.execute("SELECT COUNT(*) FROM payments").fetchone()[0]
-        rows=c.execute(
+        grouped = c.execute(
+            "SELECT status, COUNT(*) AS amount FROM payments GROUP BY status"
+        ).fetchall()
+        counters = {"creating": 0, "created": 0, "capturing": 0, "completed": 0, "other": 0}
+        for entry in grouped:
+            status = entry["status"]
+            counters[status if status in counters else "other"] += entry["amount"]
+        total = sum(counters.values())
+        attention_count = c.execute(
+            """SELECT COUNT(*) FROM payments WHERE status!='completed'
+                 OR capture_id IS NULL OR capture_id=''"""
+        ).fetchone()[0]
+        rows = c.execute(
             """SELECT p.id,p.event_id,p.person_id,p.status,p.amount_cents,p.created,
                       p.order_id,p.capture_id,e.name AS event_name,
                       a.name AS person_name
                FROM payments p
-               JOIN events e ON p.event_id=e.id
-               JOIN people a ON p.person_id=a.id
-               ORDER BY p.id DESC LIMIT 200"""
+               LEFT JOIN events e ON p.event_id=e.id
+               LEFT JOIN people a ON p.person_id=a.id
+               ORDER BY
+                 CASE WHEN p.status='completed' AND p.capture_id IS NOT NULL
+                           AND p.capture_id!=''
+                      THEN 1 ELSE 0 END ASC,
+                 p.id DESC
+               LIMIT ? OFFSET ?""", (limit, offset)
         ).fetchall()
-    items=[]
-    counters={"creating":0,"created":0,"capturing":0,"completed":0,"other":0}
+    items = []
     for row in rows:
-        status=row["status"]
-        bucket=status if status in counters else "other"
-        counters[bucket]+=1
+        status = row["status"]
         try:
-            created=datetime.fromisoformat(row["created"].replace("Z","+00:00"))
-            age=max(0,int((current-created).total_seconds()//60)) if created.tzinfo else None
-        except (ValueError,TypeError,OverflowError):
-            age=None
-        if status=="creating":
-            action="manual_review"
-            explanation="Order creation response was not recorded. An order may exist at PayPal; do not create another automatically."
-        elif status=="capturing":
-            action="check_existing_order"
-            explanation="A capture request was attempted. Check the existing PayPal order only; never submit another capture."
-        elif status=="created" and row["order_id"]:
-            action="check_existing_order"
-            explanation="Sandbox order created, but its capture has not been recorded. Check the existing order."
-        elif status=="completed" and row["capture_id"]:
-            action="none"
-            explanation="Completed PayPal sandbox capture is recorded locally. No new action is needed."
+            created = datetime.fromisoformat(row["created"].replace("Z", "+00:00"))
+            age = max(0, int((current-created).total_seconds()//60)) if created.tzinfo else None
+        except (ValueError, TypeError, OverflowError):
+            age = None
+        if not row["event_name"] or not row["person_name"]:
+            action = "manual_review"
+            explanation = ("Local event or participant is missing. Inspect the "
+                           "existing PayPal Sandbox record; do not start another checkout.")
+        elif status == "creating":
+            action = "manual_review"
+            explanation = ("Order creation response was not recorded. An order may "
+                           "exist at PayPal; do not create another automatically.")
+        elif status == "capturing" and row["order_id"]:
+            action = "check_existing_order"
+            explanation = ("A capture request was attempted. Check the existing "
+                           "PayPal order only; never submit another capture.")
+        elif status == "created" and row["order_id"]:
+            action = "check_existing_order"
+            explanation = ("Sandbox order created, but its capture has not been "
+                           "recorded. Check the existing order.")
+        elif status == "completed" and row["capture_id"]:
+            action = "none"
+            explanation = ("Completed PayPal sandbox capture is recorded locally. "
+                           "No new action is needed.")
         else:
-            action="manual_review"
-            explanation="Inconsistent local payment record; investigate without creating another order."
+            action = "manual_review"
+            explanation = ("Inconsistent local payment record; investigate "
+                           "without creating another order.")
         items.append({
-            "id":row["id"],"event_id":row["event_id"],"event_name":row["event_name"],
-            "person_name":row["person_name"],"status":status,
-            "amount_cents":row["amount_cents"],"created":row["created"],
-            "age_minutes":age,"action":action,
-            "order_id":row["order_id"] if action=="check_existing_order" else None,
-            "explanation":explanation,
+            "id": row["id"], "event_id": row["event_id"],
+            "event_name": row["event_name"] or "Missing local event",
+            "person_name": row["person_name"] or "Missing local participant",
+            "status": status, "amount_cents": row["amount_cents"],
+            "created": row["created"], "age_minutes": age, "action": action,
+            "order_id": row["order_id"] if action == "check_existing_order" else None,
+            "explanation": explanation,
         })
+    returned = len(items)
+    next_offset = offset + returned if offset + returned < total else None
     return {
-        "mode":"PAYPAL_SANDBOX","total_records":total,"returned":len(items),
-        "is_truncated":total>len(items),"summary":counters,
-        "items":items,
-        "notice":"Read-only local recovery queue. No PayPal request is made. Stalled creation and uncertain captures must never be automatically retried."
+        "mode": "PAYPAL_SANDBOX",
+        "total_records": total,
+        "attention_count": attention_count,
+        "returned": returned, "limit": limit, "offset": offset,
+        "next_offset": next_offset,
+        "is_truncated": next_offset is not None,
+        "summary": counters, "items": items,
+        "notice": ("Read-only local recovery queue, unresolved first. "
+                   "Summary covers all local payment rows; no PayPal request is made. "
+                   "Stalled creation and uncertain captures must never be "
+                   "automatically retried. Local database records can reset."),
     }
-
 
 @app.get("/api/transactions")
 def transactions():
