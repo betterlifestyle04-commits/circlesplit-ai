@@ -5,7 +5,7 @@ const path=require("node:path");
 const vm=require("node:vm");
 
 const html=fs.readFileSync(path.join(__dirname,"../static/index.html"),"utf8");
-const scripts=[...html.matchAll(/<script>([\\s\\S]*?)<\\/script>/g)];
+const scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
 assert.equal(scripts.length,1,"Expected protected workspace's single inline script");
 const inline=scripts[0][1];
 const begin=inline.indexOf("let recoveryOffset=0,recoveryLimit=50;");
