@@ -10,7 +10,23 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
-## Hosted browser safeguards (November 4, 2026)
+## Public guided judge walkthrough (November 5, 2026)
+
+- `/judge` is deliberately public, uses a static five-stage walkthrough and
+  keeps review checkmarks only in page memory. It does not store tokens,
+  credentials, participant data, or payment results in persistent browser
+  storage, and cannot submit a Devpost entry or trigger a capture.
+- The optional source check issues `GET /health` with `credentials: omit`,
+  verifies the sandbox-only response shape, and reports the source commit
+  prefix. This is a **source-version availability diagnostic only**, not an
+  upstream PayPal/Gemini test, consent attestation or payment proof.
+- The guide clearly separates public browser simulation, bearer-link
+  participant consent, protected Gemini integration, and optional PayPal
+  Sandbox buyer checkout. It contains no secret or live-payment credential.
+- All sensitive hosted API routes remain protected; the guide does not add
+  any new authentication exemption or backend mutation.
+
+ (November 4, 2026)
 
 - Hosted unsafe requests (POST, PUT, PATCH, DELETE) reject a cross-site or same-site `Sec-Fetch-Site` context even when an HTTP Basic password was previously entered. If an `Origin` header is present, it must match the request's exact origin or configured `PUBLIC_BASE_URL` (including scheme and port). Malformed, `null` and misleading lookalike origins fail closed.
 - PayPal's `/api/paypal/webhook` remains exempt from the browser-origin check **only** because the server independently verifies the provider's signature before processing events. This does not relax its verification or amount-match rules.

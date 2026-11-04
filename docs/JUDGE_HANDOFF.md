@@ -8,7 +8,23 @@
 
 The public homepage is a browser-local simulation. Only the protected workspace connects to the actual Gemini model and PayPal SANDBOX.
 
-## Testing steps to copy to PRIVATE Devpost testing-instructions field
+## Guided browser walkthrough (no credentials)
+
+Open the public [judge guide](https://circlesplit-ai-demo.onrender.com/judge)
+for a five-step interactive navigation panel. Its progress labels are
+page-local **manual checkmarks**, not automated assertions or submission
+confirmation, and reset on page reload. Every stage has a link to its
+detailed testing instructions. Judges can copy the fictional Gemini example
+to the clipboard and request one public source-health check. The health
+result only identifies a running application revision, not current
+PayPal/Gemini connectivity, data durability, buyer approval, or capture.
+
+The **public** planning example has a $10 fictional budget shared among
+three people, allocated as $3.34, $3.33, and $3.33, in exact cents.
+Private invitation consent should be tested with fictional data; never put
+bearer invitations in public issue comments or test recordings.
+
+
 **Never put judge passwords in this public file, the project description or the YouTube video.**
 
 Use the following instructions in the private judge-testing field after entering separate judge credentials:
