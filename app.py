@@ -25,15 +25,18 @@ from domain import allocate, cents
 from calendar_export import build_ics
 import paypal
 from security import cross_origin_mutation, protect_response
+from provider_limits import ProviderLimiter, provider_group
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv("CIRCLESPLIT_DB") or str(ROOT / "circlesplit.sqlite3"))
 app = FastAPI(title="CircleSplit AI", version="0.2.0")
+provider_limiter = ProviderLimiter()
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
 @app.middleware("http")
 async def demo_access_control(request: Request, call_next):
     """Only for an explicitly configured hosted judge demo; NOT user accounts."""
+    quota_headers = None
     if os.getenv("CIRCLESPLIT_HOSTED") == "1":
         # PayPal must reach the webhook without Basic credentials; it verifies a
         # cryptographic signature before any payment state change.
@@ -91,7 +94,27 @@ async def demo_access_control(request: Request, call_next):
         return protect_response(JSONResponse(status_code=403,
             content={"detail": "Cross-origin modification blocked"}), request.url.path)
 
+    # Charge a provider-cost quota only after authentication and the
+    # cross-origin browser guard have succeeded. This protects shared demo
+    # credentials without affecting invitation links or signed webhooks.
+    if os.getenv("CIRCLESPLIT_HOSTED") == "1":
+        role = getattr(request.state, "viewer_role", None)
+        group = provider_group(request.method, request.url.path)
+        if role and group:
+            allowed, remaining, retry_after, limit = provider_limiter.attempt(role, group)
+            quota_headers = {
+                "X-RateLimit-Limit": str(limit),
+                "X-RateLimit-Remaining": str(remaining),
+            }
+            if not allowed:
+                return protect_response(JSONResponse(status_code=429,
+                    content={"detail": "Too many sandbox provider requests. Retry later."},
+                    headers={**quota_headers, "Retry-After": str(retry_after)}),
+                    request.url.path)
+
     response = await call_next(request)
+    if quota_headers:
+        response.headers.update(quota_headers)
     if request.url.path in ("/participant", "/api/participant/overview", "/api/participant/approve", "/api/participant/rsvp") or "/invite" in request.url.path:
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
