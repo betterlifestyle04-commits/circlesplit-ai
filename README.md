@@ -27,7 +27,24 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
-## Transparent, reviewable participant cost shares
+## Guided, sandbox-safe evaluation for hackathon judges
+
+The public [judge walkthrough](https://circlesplit-ai-demo.onrender.com/judge)
+now includes a five-stage, interactive checklist: public browser simulation,
+Gemini proposal, private-link share consent, optional PayPal Sandbox capture,
+and engineering evidence. Review progress stays in memory in the judge's
+current page; marking a step is **not** a test result or a submission.
+
+The walkthrough includes reproducible test expectations ($10/3 exact-cent
+allocation and $180 + $25 + $30 Gemini extraction), an optional browser
+clipboard action for the fictional AI prompt, and a public **source-only**
+GET `/health` check. The latter reports a deployed revision if available,
+but is **not** proof of login, PayPal capture, AI availability, or persistent
+storage. No PayPal/Gemini requests, payments, invitation tokens, or financial
+mutations occur on the public guide. Credentials belong solely in private
+Devpost testing instructions.
+
+
 
 A private invitation now explains **how the fictional contribution was
 calculated** before the participant approves it. The participant portal shows
