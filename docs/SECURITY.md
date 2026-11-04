@@ -9,6 +9,15 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - Shared judge credentials are **not** secure individual participant identities. Any authenticated judge can operate the organizer demo.
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
+
+## Hosted browser safeguards (November 4, 2026)
+
+- Hosted unsafe requests (POST, PUT, PATCH, DELETE) reject a cross-site or same-site `Sec-Fetch-Site` context even when an HTTP Basic password was previously entered. If an `Origin` header is present, it must match the request's exact origin or configured `PUBLIC_BASE_URL` (including scheme and port). Malformed, `null` and misleading lookalike origins fail closed.
+- PayPal's `/api/paypal/webhook` remains exempt from the browser-origin check **only** because the server independently verifies the provider's signature before processing events. This does not relax its verification or amount-match rules.
+- Authenticated command-line requests without browser Origin/Fetch Metadata headers remain supported. This is browser CSRF defence-in-depth, not a replacement for secure identities, explicit CSRF tokens, strong passwords, or API-level quotas.
+- Responses set `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a restrictive `Permissions-Policy`. API responses, the protected workspace, and invitation portal are private and not stored by browser caches.
+- Configure `PUBLIC_BASE_URL` to the true HTTPS deployment origin; avoid changing this to arbitrary or untrusted sites. These safeguards are covered by offline regression tests and do not prove that the hosted demo is suitable for real money or real participant data.
+
 ## Money invariants
 
 - All allocation arithmetic uses integer cents.
