@@ -12,6 +12,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] Budget breakdown, closeout/integrity reports, backup/restore of unpaid planning data
 - [x] PayPal SANDBOX OAuth, Orders v2 create/capture, strict server-side amount verification
 - [x] Persisted idempotency keys, duplicate-order lockout, signed webhook verification and replay prevention
+- [x] Global unique sandbox capture IDs, shared transactional settlement guard and ambiguous-capture rejection
 - [x] Read-only PayPal recovery queue and checks of existing orders; no blind capture retry
 - [x] Optional Gemini expense and task proposals with human review before any changes
 - [x] Hosted cross-origin mutation protections and no-store/private browser security headers (November 4, 2026)
