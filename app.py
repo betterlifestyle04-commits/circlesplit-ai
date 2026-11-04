@@ -248,6 +248,13 @@ def initialize():
         CREATE INDEX IF NOT EXISTS participant_invites_person_idx
           ON participant_invites(person_id);
         """)
+        # The capture ID is a global provider transaction identifier. Never
+        # allow one completed sandbox capture to fund multiple local orders,
+        # even across different events. Legacy duplicates fail initialization
+        # closed instead of silently inflating financial totals.
+        c.execute("""CREATE UNIQUE INDEX IF NOT EXISTS payment_capture_id_unique
+                     ON payments(capture_id)
+                     WHERE capture_id IS NOT NULL AND capture_id != ''""")
         columns = {row["name"] for row in c.execute("PRAGMA table_info(people)")}
         if "approval_source" not in columns:
             c.execute("ALTER TABLE people ADD COLUMN approval_source TEXT NOT NULL DEFAULT ''")
@@ -2129,6 +2136,46 @@ def add_bulk(eid: int, data: BulkInput):
         record_history(c,eid,"expenses_bulk_added",details={"count":len(clean),"total_cents":sum(x[1] for x in clean)})
     return {"ok":True,"added":len(clean)}
 
+def settle_verified_sandbox_capture(c, payment, capture_id):
+    """Record exactly one global PayPal sandbox capture atomically.
+
+    All entry points (direct capture, status reconciliation, signed webhook)
+    share this guard. A different capture assigned to the same order, or one
+    capture claimed by another order, requires manual investigation.
+    """
+    if (not isinstance(capture_id, str) or not 1 <= len(capture_id) <= 128
+            or not capture_id.isascii()
+            or not all(char.isalnum() or char == "-" for char in capture_id)):
+        raise HTTPException(409, "Invalid sandbox capture identifier")
+    claimed = c.execute(
+        "SELECT id FROM payments WHERE capture_id=? AND id!=? LIMIT 1",
+        (capture_id, payment["id"])
+    ).fetchone()
+    if claimed:
+        raise HTTPException(409, "Sandbox capture is already assigned to another payment")
+    if payment["status"] == "completed":
+        if payment["capture_id"] != capture_id:
+            raise HTTPException(409, "Completed order has a different recorded capture")
+        return False
+    if payment["status"] not in ("created", "capturing") or payment["capture_id"]:
+        raise HTTPException(409, "Order is not eligible for capture reconciliation")
+    updated = c.execute(
+        """UPDATE payments SET status='completed',capture_id=?
+           WHERE id=? AND status IN ('created','capturing')
+             AND capture_id IS NULL""",
+        (capture_id, payment["id"])
+    )
+    if updated.rowcount != 1:
+        raise HTTPException(409, "Sandbox payment changed; inspect the existing order")
+    c.execute("UPDATE people SET status='sandbox_paid' WHERE id=?",
+              (payment["person_id"],))
+    record_history(c, payment["event_id"], "sandbox_capture_verified",
+                   actor="paypal_sandbox",
+                   details={"participant_id":payment["person_id"],
+                            "amount_cents":payment["amount_cents"]})
+    return True
+
+
 @app.post("/api/paypal/orders/{eid}/{pid}")
 async def create_order(eid: int, pid: int, request: Request):
     if not paypal.configured(): raise HTTPException(503, "PayPal sandbox unconfigured")
@@ -2195,12 +2242,8 @@ async def check_existing_order(order_id: str):
         if not verified:
             raise HTTPException(409, "PayPal reports completion but no matching capture was found")
         with db() as c:
-            changed=c.execute("UPDATE payments SET status='completed',capture_id=? WHERE id=? AND status!='completed'",
-                      (verified["id"],record["id"]))
-            c.execute("UPDATE people SET status='sandbox_paid' WHERE id=?", (record["person_id"],))
-            if changed.rowcount:
-                record_history(c,record["event_id"],"sandbox_capture_verified",actor="paypal_sandbox",
-                               details={"participant_id":record["person_id"],"amount_cents":record["amount_cents"]})
+            latest=c.execute("SELECT * FROM payments WHERE id=?", (record["id"],)).fetchone()
+            settle_verified_sandbox_capture(c,latest,verified["id"])
         return {"status":"COMPLETED","action":"done","verified":True}
     if status == "APPROVED":
         # A previous capture may still be in flight or its result ambiguous.
@@ -2241,13 +2284,8 @@ async def capture_order(data: CaptureInput):
     if not verified:
         raise HTTPException(409,"PayPal has not confirmed the exact completed capture")
     with db() as c:
-        changed=c.execute("UPDATE payments SET status='completed',capture_id=? WHERE id=? AND status!='completed'",
-                  (verified["id"], record["id"]))
-        c.execute("UPDATE people SET status='sandbox_paid' WHERE id=?",
-                  (record["person_id"],))
-        if changed.rowcount:
-            record_history(c,record["event_id"],"sandbox_capture_verified",actor="paypal_sandbox",
-                           details={"participant_id":record["person_id"],"amount_cents":record["amount_cents"]})
+        latest=c.execute("SELECT * FROM payments WHERE id=?", (record["id"],)).fetchone()
+        settle_verified_sandbox_capture(c,latest,verified["id"])
     return {"ok":True,"status":"completed","mode":"PAYPAL_SANDBOX"}
 
 @app.post("/api/paypal/webhook")
@@ -2270,12 +2308,7 @@ async def webhook(request: Request):
             if (p and resource.get("status")=="COMPLETED" and resource.get("id")
                 and resource.get("amount",{}).get("currency_code")=="USD"
                 and paypal.same_amount(resource.get("amount",{}).get("value"),p["amount_cents"])):
-                changed=c.execute("UPDATE payments SET status='completed',capture_id=? WHERE id=? AND status!='completed'",
-                          (resource["id"],p["id"]))
-                c.execute("UPDATE people SET status='sandbox_paid' WHERE id=?", (p["person_id"],))
-                if changed.rowcount:
-                    record_history(c,p["event_id"],"sandbox_capture_verified",actor="paypal_sandbox",
-                                   details={"participant_id":p["person_id"],"amount_cents":p["amount_cents"]})
+                settle_verified_sandbox_capture(c,p,resource["id"])
         c.execute("INSERT INTO webhook_events(id,created) VALUES(?,?)",(event_id,now()))
     return {"ok":True}
 
