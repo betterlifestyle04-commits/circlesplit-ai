@@ -26,6 +26,17 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Confirm that Render runs the latest code
+
+The public `/health` endpoint includes `git_commit`: a validated, 40-character
+Git SHA automatically supplied by Render. Compare it against the latest GitHub
+`main` commit to confirm which source revision is running at
+https://circlesplit-ai-demo.onrender.com/health. If it is `null` or differs,
+the current deployment is **not verified**. Health responses are not cached.
+
+See [Deployment verification](docs/DEPLOYMENT_VERIFICATION.md) for steps and
+limitations. This check cannot prove PayPal/Gemini availability or storage durability.
+
 ## Configuration
 
 | Environment variable | Purpose |
