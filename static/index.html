@@ -467,6 +467,25 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
    </div>
    <p class="notice" style="margin-top:12px">This is a read-only view of the local demo database. Records may reset on Render Free restarts. For unresolved creation requests with no returned order ID, inspect the sandbox account manually before making any new request.</p>
   </div>
+  <div class="space"></div>
+  <div class="card">
+   <div class="section-heading"><h2>Compare private recovery snapshots</h2><span class="pill neutral">Local files only</span></div>
+   <p class="notice" id="snapshot-compare-help">Compare an earlier and a later saved reconciliation manifest. Both files are read locally in your browser and are never uploaded to CircleSplit or PayPal. The tool checks their SHA-256 record digests, detects a database reset, and flags missing or changed local payment records. It cannot prove payment settlement or recover missing orders.</p>
+   <div class="formgrid">
+    <div class="field">
+     <label for="snapshot-compare-before">Earlier reconciliation JSON</label>
+     <input type="file" id="snapshot-compare-before" accept=".json,application/json" aria-describedby="snapshot-compare-help">
+    </div>
+    <div class="field">
+     <label for="snapshot-compare-after">Later reconciliation JSON</label>
+     <input type="file" id="snapshot-compare-after" accept=".json,application/json" aria-describedby="snapshot-compare-help">
+    </div>
+   </div>
+   <div class="space"></div>
+   <button class="btn secondary" type="button" id="snapshot-compare-run" onclick="compareLocalReconciliationFiles()">Compare snapshots securely</button>
+   <div id="snapshot-compare-status" role="status" aria-live="polite" class="small muted" style="margin-top:12px">No files analyzed in this session.</div>
+   <div id="snapshot-compare-results" style="margin-top:12px"></div>
+  </div>
  </section>
  </div>
 </div></div>
@@ -483,6 +502,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/editing.js"></script>
 <script src="/static/event-details.js"></script>
 <script src="/static/schedule.js"></script>
+<script src="/static/reconciliation_compare.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -1188,6 +1208,60 @@ async function downloadReconciliationManifest(){
  }catch(err){
   notice("Reconciliation manifest could not be downloaded: "+err.message,true);
  }finally{button.disabled=false;}
+}
+async function compareLocalReconciliationFiles(){
+ const beforeInput=el("snapshot-compare-before"),afterInput=el("snapshot-compare-after");
+ const button=el("snapshot-compare-run"),status=el("snapshot-compare-status");
+ const results=el("snapshot-compare-results");
+ button.disabled=true;
+ results.replaceChildren();
+ status.textContent="Validating selected local files and their SHA-256 digests…";
+ try{
+  const helper=window.CircleSplitReconciliationCompare;
+  if(!helper)throw Error("The local snapshot comparison tool is unavailable.");
+  const earlier=await helper.readSnapshot(beforeInput.files?.[0],window.crypto?.subtle);
+  const later=await helper.readSnapshot(afterInput.files?.[0],window.crypto?.subtle);
+  const report=helper.compareManifests(earlier,later);
+  status.textContent=(report.databaseChanged?
+    "Database reset/replacement detected — compare PayPal Sandbox order IDs, not local IDs.":
+    "Same database incarnation — local payment IDs can be compared.")+
+    " Both snapshot digests verified for accidental changes.";
+  const count=document.createElement("p");count.className="notice";
+  count.textContent="Earlier: "+report.baselineRecords+
+    " · Later: "+report.followupRecords+
+    " · Matched: "+report.matched+
+    " · Earlier not found: "+report.missing+
+    " · New references: "+report.added+".";
+  results.appendChild(count);
+  const differences=document.createElement("p");differences.className="notice";
+  differences.textContent="Status changes: "+report.statusChanges+
+    " · Newly completed locally: "+report.newlyCompleted+
+    " · Completed-status regressions: "+report.completedRegressions+
+    " · Capture ID conflicts: "+report.captureChanges+
+    " · Amount changes: "+report.amountChanges+
+    " · Order ID changes: "+report.orderChanges+
+    " · Event/participant linkage changes: "+report.referenceChanges+".";
+  results.appendChild(differences);
+  if(report.databaseChanged){
+   const unmatched=document.createElement("p");unmatched.className="notice";
+   unmatched.textContent="Earlier attempts without PayPal order IDs: "+report.priorUntrackable+
+     " · Later attempts without PayPal order IDs: "+report.followupUntrackable+
+     ". These cannot be matched across a database reset.";
+   results.appendChild(unmatched);
+  }
+  const warnings=document.createElement("ul");warnings.className="small";
+  for(const message of report.warnings){
+   const item=document.createElement("li");
+   item.textContent=message;warnings.appendChild(item);
+  }
+  results.appendChild(warnings);
+ }catch(error){
+  status.textContent="Local comparison not completed: "+error.message;
+ }finally{
+  // Clear selected private file references. No contents are cached or sent.
+  beforeInput.value="";afterInput.value="";
+  button.disabled=false;
+ }
 }
 async function paypalCheckout(pid){let e=event();try{let result=await post("/api/paypal/orders/"+e.id+"/"+pid);if(!result.approval_url||!result.approval_url.startsWith("https://"))throw Error("Invalid PayPal redirect");window.location.assign(result.approval_url)}catch(err){if(/already exists/i.test(err.message)){switchTab("activity");notice("An order already exists for this participant. Use Check PayPal on the Activity page to resume or verify it.",true)}else notice(err.message,true)}}
 async function verifyPayPalOrder(id){try{let result=await post("/api/paypal/order-status/"+encodeURIComponent(id));await load();if(result.verified){notice("Verified PayPal sandbox capture. Contribution recorded.",false)}else if(result.action==="approve"&&result.approval_url){if(window.confirm("PayPal is still waiting for sandbox buyer approval. Resume this existing checkout?"))window.location.assign(result.approval_url);else notice("Order not yet approved. No payment has been captured.",true)}else if(result.action==="capture"){if(window.confirm("PayPal confirms the sandbox buyer approved this order. Capture the approved test payment now?")){await post("/api/paypal/capture",{order_id:id});await load();notice("PayPal sandbox capture verified and recorded.",false)}else notice("PayPal approved the order; capture not requested.",true)}else notice("PayPal reports "+result.status+". "+(result.note||"No completed capture was verified. Do not start another payment while the result is uncertain."),true)}catch(err){notice("PayPal status check: "+err.message,true)}}
