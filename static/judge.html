@@ -19,6 +19,20 @@ h2{font-size:22px;letter-spacing:-.5px;margin:8px 0 15px}
 ol{padding-left:22px}li{margin:10px 0}.small{font-size:13px;color:var(--muted)}
 .example{font-family:ui-monospace,Consolas,monospace;background:#f3f7f7;border:1px solid var(--line);border-radius:10px;padding:13px;word-break:break-word}
 footer{margin-top:36px;font-size:12px;color:#78929b}
+button{font:inherit;cursor:pointer}button:disabled{cursor:not-allowed;opacity:.5}
+button:focus-visible,a:focus-visible{outline:3px solid #14a988;outline-offset:3px}
+.guide{margin:22px 0 26px}.guide-top{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
+.guide-top h2{margin:0}.guide-progress{background:#e6eeee;height:8px;border-radius:50px;overflow:hidden;margin:14px 0}
+.guide-progress div{width:0;height:100%;background:var(--teal);transition:width .2s}
+.judge-steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:17px 0}
+.judge-steps button{padding:11px 8px;text-align:center;background:#f6faf9;border:1px solid var(--line);border-radius:10px;color:var(--ink);font-size:12px;font-weight:750}
+.judge-steps button.selected{background:#dbf6ed;border-color:var(--teal)}.judge-steps button.done:before{content:"✓ ";color:var(--teal)}
+.guide-summary{padding:17px;border:1px solid var(--line);border-radius:12px;background:#f7faf9;min-height:135px}
+.guide-summary h3{margin:4px 0;font-size:18px}.guide-controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}
+.guide-controls button{font-size:13px;font-weight:750;border:1px solid var(--line);border-radius:9px;background:white;color:var(--ink);padding:11px 14px}
+.guide-controls .check{background:var(--teal);color:#fff;border-color:var(--teal)}
+.health-status{margin:12px 0;color:var(--muted);font-size:13px}
+@media(max-width:750px){.judge-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.guide-summary{min-height:0}}
 @media(max-width:750px){.grid{grid-template-columns:1fr}.card{padding:20px}main{padding:30px 15px}}
 </style></head><body>
 <header><strong>◉ CircleSplit AI</strong><nav><a href="/">Public demo</a> &nbsp; · &nbsp; <a href="https://github.com/betterlifestyle04-commits/circlesplit-ai" rel="noopener" target="_blank">Source code</a></nav></header>
@@ -26,28 +40,66 @@ footer{margin-top:36px;font-size:12px;color:#78929b}
 <p class="lead">A reproducible evaluation of AI-assisted event budgeting, exact-cent cost splitting, explicit human approval, and verified PayPal sandbox captures. No real funds are involved.</p>
 <div class="actions"><a class="btn primary" href="/">Explore public demo</a><a class="btn" href="/workspace">Open protected integration workspace</a></div>
 <div class="warn"><strong>Two intentionally separate experiences.</strong> The public homepage uses fictional data in your browser and simulated contributions only. The protected integration workspace calls real Gemini and PayPal sandbox APIs; access credentials are provided privately in Devpost testing instructions. This avoids exposing AI usage and payment APIs to anonymous visitors.</div>
+<section class="card guide" aria-labelledby="judge-guide-label">
+ <div class="guide-top"><div><span class="eyebrow">Self-guided evaluation</span>
+  <h2 id="judge-guide-label">Choose what to inspect</h2></div>
+  <span class="chip" id="judge-progress-text" role="status" aria-live="polite">0 of 5 steps reviewed</span></div>
+ <div class="guide-progress" aria-hidden="true"><div id="judge-progress-bar"></div></div>
+ <nav class="judge-steps" aria-label="Evaluation checklist steps">
+  <button type="button" data-judge-step="public" aria-current="step">1 · Public demo</button>
+  <button type="button" data-judge-step="ai">2 · Gemini AI</button>
+  <button type="button" data-judge-step="consent">3 · Consent</button>
+  <button type="button" data-judge-step="paypal">4 · PayPal test</button>
+  <button type="button" data-judge-step="evidence">5 · Evidence</button>
+ </nav>
+ <div class="guide-summary">
+  <span class="eyebrow" id="judge-current-scope">No account required</span>
+  <h3 id="judge-current-title">Explore the fictional planning demo</h3>
+  <p id="judge-current-expected">Try a $10 budget split among 3 people: the shares must be $3.34, $3.33 and $3.33. All contributions remain simulated.</p>
+ </div>
+ <div class="guide-controls">
+  <button type="button" id="judge-prev" disabled>Previous step</button>
+  <a class="btn" id="judge-step-detail" href="#judge-public">View step instructions</a>
+  <button type="button" id="judge-review-toggle" class="check">Mark step reviewed</button>
+  <button type="button" id="judge-next">Next step</button>
+ </div>
+ <p id="judge-status" class="small" aria-live="polite">This checklist is only a navigation aid. Marking a step does not verify its outcome or submit anything.</p>
+ <p class="small">Progress is kept only on this page and resets on reload. No data is sent to the server.</p>
+</section>
 <div class="grid">
-<section class="card"><span class="chip">Open to everyone</span><h2>1 · Explore the public experience</h2>
+<section class="card" id="judge-public"><span class="chip">Open to everyone</span><h2>1 · Explore the public experience</h2>
 <ol><li>Open the <a href="/">public CircleSplit demo</a> and select Event planner.</li>
 <li>Choose Friday Community Volleyball: $220 for 20 friends.</li>
 <li>Verify equal splitting yields $11.00 each and weighted splitting adjusts allocations without losing cents.</li>
-<li>Create a $10 event with three fictional participants and confirm shares add up to exactly $10.</li>
+<li>Create a $10 event with three fictional participants and confirm the exact shares are <strong>$3.34, $3.33 and $3.33</strong>, adding up to $10.00.</li>
 <li>Open Contributions, approve a share and select Simulate; it must be labelled SIMULATED and must not charge anyone.</li></ol>
 <p class="small">Reset demo restores local fictional data. This experience never contacts Gemini or PayPal.</p></section>
-<section class="card"><span class="chip">Separate judge login</span><h2>2 · Run the AI copilot</h2>
+<section class="card" id="judge-ai"><span class="chip">Separate judge login</span><h2>2 · Run the AI copilot</h2>
 <ol><li>Sign into the <a href="/workspace">protected workspace</a> with judge credentials supplied privately in Devpost.</li>
 <li>Open AI assistant and paste the sample note.</li>
 <li>Click Analyze expenses. A real Gemini response should extract $180, $25 and $30, totalling $235, and provide a rationale.</li>
 <li>Verify that every proposal remains editable and does not change an event until it is explicitly approved.</li></ol>
-<div class="example">Our court costs $180, equipment $25 and refreshments $30. Twenty friends will attend.</div></section>
-<section class="card"><span class="chip">PayPal sandbox only</span><h2>3 · Verify one captured payment</h2>
+<div class="example" id="judge-example-prompt">Our court costs $180, equipment $25 and refreshments $30. Twenty friends will attend.</div>
+<button class="btn" id="judge-copy-prompt" type="button" style="margin-top:10px">Copy sample expense note</button></section>
+<section class="card" id="judge-consent"><span class="chip">Private participant invitation</span><h2>3 · Inspect informed share consent</h2>
+<ol><li>In the protected organizer workspace, create an event with expenses and participants. Generate a private invitation link for one fictional participant.</li>
+<li>Open the private link. Confirm it shows only that participant's share, <strong>total estimated budget, participant count, equal/weighted split and cost categories</strong>—not the other participants' names or shares.</li>
+<li>Approve the displayed amount. This records fictional consent only; it does not initiate a PayPal transaction.</li>
+<li>Before creating any checkout, test the withdrawal button. Withdrawal blocks a new order until a fresh participant-link approval.</li></ol>
+<p class="small">Never publish invitation bearer links. They are not identity proof; the organizer and judge can use fictional data only. After a checkout starts, withdrawal cannot cancel or refund it.</p></section>
+<section class="card" id="judge-paypal"><span class="chip">PayPal sandbox only</span><h2>4 · Verify one captured payment</h2>
 <ol><li>Create a new fictional $11 event with one participant in the protected workspace.</li>
 <li>Approve the participant's assigned share, then select PayPal test.</li>
 <li>Use a PayPal sandbox PERSONAL buyer account from the developer dashboard. Confirm checkout uses the sandbox PayPal hostname; never use real cards or live credentials.</li>
 <li>Approve checkout and return to CircleSplit. Activity should display VERIFIED CAPTURE, not just ORDER CREATED.</li>
 <li>If interrupted, use Activity → Check PayPal to resume the existing order. Never create repeated orders for the same participant.</li></ol><p class="small">The shared testing workspace has short provider-request budgets to prevent accidental API spend. If a provider action returns HTTP 429, follow its retry time rather than making a duplicate payment request.</p></section>
-<section class="card"><span class="chip">Evidence and limitations</span><h2>4 · Inspect the implementation</h2>
+<section class="card" id="judge-evidence"><span class="chip">Evidence and limitations</span><h2>5 · Inspect the implementation</h2>
 <p>On November 2–3, 2026, the hosted integration workspace returned a real Gemini response and recorded one $11.00 USD PayPal sandbox capture, with HTTP 200 capture and webhook requests.</p>
 <p class="small" style="margin-top:15px">This is a hackathon MVP. Public demonstration data is fictional; the protected workspace uses shared test records and Render Free's ephemeral SQLite. Data may reset after deployment. No production payments, real identity verification, escrow, or payout splitting are claimed.</p>
-<p style="margin-top:16px"><a href="https://github.com/betterlifestyle04-commits/circlesplit-ai" target="_blank" rel="noopener">Review source code, MIT license and automated tests →</a></p></section>
-</div><footer>CircleSplit AI · Public simulation and controlled live sandbox testing · No real funds</footer></main></body></html>
+<p style="margin-top:16px"><a href="https://github.com/betterlifestyle04-commits/circlesplit-ai" target="_blank" rel="noopener">Review source code, MIT license and automated tests →</a></p>
+<button class="btn" type="button" id="judge-source-check" style="margin-top:13px">Check deployed source revision</button>
+<p class="health-status" id="judge-source-status" role="status" aria-live="polite">No source-only health check performed. This cannot prove Gemini, PayPal, or storage availability.</p>
+</section>
+</div><footer>CircleSplit AI · Public simulation and controlled PayPal Sandbox testing · No real funds</footer></main>
+<script src="/static/judge_walkthrough.js"></script>
+</body></html>
