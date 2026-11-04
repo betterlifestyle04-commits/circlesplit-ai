@@ -55,11 +55,12 @@ function boot({fragment="",saved=undefined,storageUnavailable=false}={}){
 function fakeOverview(){
  return {event_name:"A private event",event_date:"2026-11-16",participant:"Private tester",
   share_cents:1100,expires_at:"2099-01-01T00:00:00Z",agenda:[],
-  agenda_revision:0,rsvp_status:"pending",approved:false,status:"unpaid"};
+  agenda_revision:0,rsvp_status:"pending",approved:false,status:"unpaid",
+  checkout_started:false,approval_withdrawn:false};
 }
-async function complete(pending){
+async function complete(pending,payload=fakeOverview()){
  assert.ok(pending,"Expected one pending overview request");
- pending.resolve({ok:true,json:async()=>fakeOverview()});
+ pending.resolve({ok:true,json:async()=>payload});
  // Let both nested fetch/json promises and the view-render continuation run.
  await new Promise(resolve=>setImmediate(resolve));
 }
@@ -139,4 +140,41 @@ test("participant controls disclose that forgetting is local-only",()=>{
  assert.match(html,/does not revoke the link or undo a submitted RSVP or approval/);
  assert.match(code,/invitationVersion\+\+/);
  assert.match(code,/expectedVersion!==invitationVersion/);
+});
+
+test("withdrawal button calls private API and reflects renewed-approval option",async()=>{
+ const view=boot({fragment:"#token="+TOKEN_A});
+ await complete(view.pending[0],{...fakeOverview(),approved:true});
+ assert.equal(view.el("withdraw-approval").disabled,false);
+ const click=view.handlers.get("withdraw-approval:click")();
+ assert.equal(view.pending.length,2);
+ assert.equal(view.pending[1].url,"/api/participant/withdraw");
+ assert.equal(view.pending[1].init.method,"POST");
+ assert.equal(view.pending[1].init.headers.Authorization,"Bearer "+TOKEN_A);
+ view.pending[1].resolve({ok:true,json:async()=>({
+  ok:true,already_withdrawn:false,approval_withdrawn:true,payment_changed:false
+ })});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(view.pending.length,3,"Withdrawal should refresh the participant state");
+ await complete(view.pending[2],{...fakeOverview(),approval_withdrawn:true});
+ await click;
+ assert.equal(view.el("approval").textContent,"Withdrawn by private link");
+ assert.equal(view.el("withdraw-approval").disabled,true);
+ assert.equal(view.el("approve").disabled,false,
+  "Re-approving through private link should remain available");
+ assert.match(view.el("message").textContent,/Approval withdrawn/);
+});
+
+test("started checkout disables both approval and withdrawal actions",async()=>{
+ const view=boot({fragment:"#token="+TOKEN_A});
+ await complete(view.pending[0],{...fakeOverview(),checkout_started:true,approved:true});
+ assert.equal(view.el("payment").textContent,"Sandbox checkout started");
+ assert.equal(view.el("approve").disabled,true);
+ assert.equal(view.el("withdraw-approval").disabled,true);
+});
+
+test("withdrawal controls explicitly distinguish consent from refund",()=>{
+ assert.match(html,/id="withdraw-approval"/);
+ assert.match(html,/does not cancel a checkout already started/);
+ assert.match(code,/\/api\/participant\/withdraw/);
 });
