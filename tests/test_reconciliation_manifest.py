@@ -149,6 +149,27 @@ def test_export_respects_hosted_auth_and_blocks_invitation_bearer(client,monkeyp
     assert client.get("/health").json().get("storage_epoch") is None
 
 
+def test_secondary_guest_judge_cannot_download_private_ledger(client,monkeypatch):
+    monkeypatch.setenv("CIRCLESPLIT_HOSTED","1")
+    monkeypatch.setenv("DEMO_USERNAME","organizer")
+    monkeypatch.setenv("DEMO_PASSWORD","protected-organizer-secret-2026")
+    monkeypatch.setenv("JUDGE_ACCESS_ENABLED","1")
+    monkeypatch.setenv("JUDGE_USERNAME","guest-judge")
+    monkeypatch.setenv("JUDGE_PASSWORD","private-temporary-judge-password-2026")
+    monkeypatch.setenv("JUDGE_ACCESS_EXPIRES_AT","2099-01-01T00:00:00Z")
+    export="/api/paypal/reconciliation-export"
+    # Guests can view the ordinary recovery queue but not export private names.
+    judge_auth=("guest-judge","private-temporary-judge-password-2026")
+    assert client.get("/api/paypal/recovery",auth=judge_auth).status_code==200
+    denied=client.get(export,auth=judge_auth)
+    assert denied.status_code==403
+    assert "Organizer credentials required" in denied.json()["detail"]
+    assert "no-store" in denied.headers["Cache-Control"]
+    allowed=client.get(export,auth=("organizer","protected-organizer-secret-2026"))
+    assert allowed.status_code==200
+    assert allowed.json()["importable"] is False
+
+
 def test_export_rejects_oversized_ledger_without_partial_file(client):
     import app
     e=client.get("/api/state").json()["events"][0]
