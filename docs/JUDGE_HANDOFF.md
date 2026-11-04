@@ -17,6 +17,13 @@ CircleSplit has a public interactive simulation (no login) and a separate protec
 
 AI: Open AI assistant and submit: "Our court costs $180, equipment $25 and refreshments $30. Twenty friends will attend." Gemini should extract three editable amounts totalling $235 USD with a rationale. The organizer must explicitly approve each proposal before applying it.
 
+Participant consent: For any event with participants and expenses, generate
+an individual private invitation in the organizer workspace. Opening the link
+shows the invited person's fictional share, total planned budget, equal or
+weighted split method, and aggregate cost categories. Check that the private
+view reveals no other person's name or share. Approving the quoted amount
+records consent only: it does not initiate PayPal or move money.
+
 PayPal: Make a fresh fictional event costing $11.00 USD with one participant. Approve the share; select PayPal test. Use a *PayPal SANDBOX personal buyer account* obtained from PayPal Developer Dashboard (never a live PayPal account or real card). Complete checkout; on return, CircleSplit should show VERIFIED CAPTURE under Activity. If the flow is interrupted, use Activity → Check PayPal to resume or reconcile the *existing order*, not create duplicates.
 
 The test environment is sandbox only. The protected integration workspace uses shared fictional data and temporary SQLite storage; it may reset after deployment. If judges prefer not to use a sandbox buyer account, the under-3-minute YouTube video documents our confirmed capture and the repository contains the integration and tests.
