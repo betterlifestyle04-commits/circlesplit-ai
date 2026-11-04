@@ -106,7 +106,10 @@ def test_corrupt_ledger_discloses_specific_anomaly_categories(client):
     after=client.get("/api/paypal/reconciliation-export").json()
     assert snapshot["records"]==after["records"]
     assert snapshot["records_sha256"]==after["records_sha256"]
-    assert "paypal_order_id" not in str(result)
+    # Diagnostic category names may mention PayPal fields; raw provider
+    # identifiers and participant names must never leak into this audit.
+    assert "AUDIT-ORDER-" not in str(result)
+    assert "CAPTURE-UNCONFIRMED" not in str(result)
     assert "participant_name" not in str(result)
 
 
