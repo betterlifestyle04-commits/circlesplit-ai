@@ -48,6 +48,32 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - Withdrawing is refused once any payment order has been initiated or any simulated contribution has been recorded; it cannot undo or refund a PayPal transaction. The portal displays whether sandbox checkout has already started, and disables the withdrawal control then.
 - This is **capability-link consent in a fictional shared sandbox**, not verified human identity, legal consent evidence, recurring mandate management, or a real-money chargeback process. Whoever holds the current invitation token can act on behalf of the fictional participant. A shared judge organizer login still has other broad privileges.
 
+## Storage reset and checkout safety (November 4, 2026)
+
+- Render's Free web-service filesystem is ephemeral. The local SQLite ledger,
+  including idempotency keys and PayPal Sandbox reconciliation records, can
+  disappear on restart, spin-down or redeployment. This is **not** fixed by a
+  normal planning backup or by an environment variable alone.
+- A private database incarnation ID and creation time are stored in SQLite.
+  The protected readiness API and workspace show a truncated 12-character ID
+  that changes after database replacement. This detects local resets, not
+  incomplete or missing external PayPal transactions.
+- `CIRCLESPLIT_PERSISTENT_MOUNT` can identify an actual non-root filesystem
+  mount. The application verifies that the SQLite file is inside that mount;
+  setting this variable by itself never proves persistence.
+- If `CIRCLESPLIT_CHECKOUT_REQUIRES_DURABLE_DB=1` is enabled, the server
+  refuses new PayPal Sandbox orders with HTTP 503 **before** recording a payment
+  or contacting PayPal unless the mount is verified. Existing order status
+  checks, prior capture attempts and signature-verified webhooks remain
+  available for safe reconciliation.
+- The gate is off by default to preserve the current Free hackathon test flow.
+  Enabling it on the current Free service will block new checkout. The optional
+  paid Render disk blueprint has **not** been applied. See
+  [persistent storage operations](PERSISTENT_STORAGE.md).
+- A mounted SQLite file still needs external backups, restore tests, strict
+  instance ownership and an identity model before real users. Never claim that
+  this diagnostic creates durable storage, real bank accounts, or true escrow.
+
 ## Money invariants
 
 - All allocation arithmetic uses integer cents.
