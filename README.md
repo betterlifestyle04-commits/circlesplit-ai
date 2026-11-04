@@ -27,6 +27,29 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Private PayPal Sandbox reconciliation manifest (manual download)
+
+The protected **Activity → Save private reconciliation manifest** control
+downloads one JSON snapshot from `GET /api/paypal/reconciliation-export`. It
+includes **every current local payment attempt** (up to 10,000 records), its
+fictional event/participant mapping, exact USD cents, local status, creation
+timestamp, PayPal Sandbox order ID (if known) and capture ID (if recorded).
+It also records the database incarnation ID and a SHA-256 digest of the
+canonical record array to help identify accidental changes after download.
+
+The manifest contains **private participant names and payment-provider
+identifiers**. Store it securely on a trusted device. It deliberately excludes
+secret request/capture idempotency keys, bearer invitation tokens, credentials
+and webhook payloads. It is **not importable** into CircleSplit, and the
+planning-only restore endpoint rejects it. It is **not** a PayPal receipt,
+proof of settlement, durable database backup or cryptographically signed
+audit. A digest is not a signature. It can only help manually compare local
+records with PayPal Sandbox after a reset; missing records cannot be recovered
+from an earlier-lost database. For larger ledgers the export fails with
+HTTP 413 rather than silently truncating a financial snapshot.
+
+See [security boundaries](docs/SECURITY.md) and [storage recovery guidance](docs/PERSISTENT_STORAGE.md).
+
 ## Safe payment recovery across large demo ledgers
 
 The protected **Activity → Safe payment recovery** view prioritizes unresolved
