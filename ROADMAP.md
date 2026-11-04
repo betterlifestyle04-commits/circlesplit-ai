@@ -4,6 +4,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 
 ## Implemented and covered by automated tests
 - [x] Responsive public browser-local guest demo and Basic-auth protected organizer workspace
+- [x] Public guided judge navigation, local-only progress, copyable fictional prompt and source-only health checks (November 5, 2026)
 - [x] Exact-cent equal/weighted group allocation, event planning and expense/participant CRUD
 - [x] Explicit share approvals, consent invalidation after budget edits, separate simulations
 - [x] Participant-visible aggregate cost explanation and stale-share consent guard (November 4, 2026)
