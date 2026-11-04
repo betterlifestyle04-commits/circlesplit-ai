@@ -444,6 +444,13 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   <div class="card"><div class="section-heading"><h2>PayPal sandbox orders</h2>
    <button class="btn small" onclick="load()">Refresh records</button></div><div id="transaction-list"></div></div>
   <div class="space"></div>
+  <div class="card"><div class="section-heading"><h2>Local payment integrity audit</h2>
+   <button class="btn small secondary" type="button" id="ledger-audit-run" onclick="runLedgerAudit()">Run read-only audit</button></div>
+   <p class="notice">Check all local PayPal Sandbox records for mismatched amounts, missing participants, repeated orders and inconsistent capture statuses. Pending checkout alone is not a failure. No PayPal API call or financial mutation.</p>
+   <div id="ledger-audit-status" role="status" aria-live="polite" class="small muted">Not checked in this session.</div>
+   <div id="ledger-audit-findings" style="margin-top:12px"></div>
+  </div>
+  <div class="space"></div>
   <div class="card"><div class="section-heading"><h2>Safe payment recovery</h2>
    <div class="row wrap">
     <button class="btn small secondary" onclick="loadRecovery()">↻ Refresh recovery view</button>
@@ -1068,6 +1075,48 @@ async function copyEventMessage(){
 }
 function approvePerson(pid){let e=event();run(function(){return post("/api/events/"+e.id+"/people/"+pid+"/approve")},"Organizer demo approval recorded; not verified participant consent.")}
 function simulate(pid){let e=event();run(function(){return post("/api/events/"+e.id+"/people/"+pid+"/simulate")},"SIMULATED contribution recorded — no PayPal transaction.")}
+async function runLedgerAudit(){
+ const button=el("ledger-audit-run"),status=el("ledger-audit-status"),findings=el("ledger-audit-findings");
+ button.disabled=true;
+ status.textContent="Checking current local sandbox records…";
+ findings.replaceChildren();
+ try{
+  const audit=await request("/api/paypal/ledger-audit");
+  if(audit.mode!=="PAYPAL_SANDBOX"||!Array.isArray(audit.findings)||
+     !Number.isSafeInteger(audit.issue_count)||!Number.isSafeInteger(audit.payment_records_checked))
+    throw Error("Unexpected integrity audit response");
+  status.textContent=(audit.status==="locally_consistent"?"No local inconsistencies detected":
+    "Local inconsistencies require manual investigation")+
+    " · "+audit.payment_records_checked+" payment records checked"+
+    " · "+audit.unresolved_orders+" unresolved orders"+
+    " · "+audit.issue_count+" integrity findings.";
+  const issues=Object.entries(audit.issue_counts||{});
+  if(issues.length){
+   const summary=document.createElement("p");summary.className="notice";
+   summary.textContent="Finding categories: "+issues.map(([code,n])=>code.replaceAll("_"," ")+": "+n).join(" · ");
+   findings.appendChild(summary);
+   const list=document.createElement("ol");list.className="small";
+   for(const item of audit.findings){
+    const row=document.createElement("li");
+    const references=["payment","event","person"].map(key=>
+     item[key+"_id"]==null?null:key+" #"+item[key+"_id"]).filter(Boolean).join(", ");
+    row.textContent=item.code.replaceAll("_"," ")+" — "+(references||"Local record");
+    list.appendChild(row);
+   }
+   findings.appendChild(list);
+   if(audit.findings_truncated){
+    const more=document.createElement("p");more.className="notice";
+    more.textContent="Additional integrity findings exist. Investigate the full category counts.";
+    findings.appendChild(more);
+   }
+  }else{
+   const p=document.createElement("p");p.className="notice";
+   p.textContent="No local inconsistencies. This cannot verify PayPal settlement, external captures, identity, or storage durability.";
+   findings.appendChild(p);
+  }
+ }catch(err){status.textContent="Local payment integrity audit unavailable: "+err.message;}
+ finally{button.disabled=false;}
+}
 let recoveryOffset=0,recoveryLimit=50;
 async function loadRecovery(offset=0){
  const summary=el("recovery-summary"),rows=el("recovery-rows");
