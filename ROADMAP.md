@@ -16,6 +16,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] Global unique sandbox capture IDs, shared transactional settlement guard and ambiguous-capture rejection
 - [x] Read-only PayPal recovery queue and checks of existing orders; no blind capture retry
 - [x] Full-ledger recovery totals, attention-first paginated queue and missing-record investigation safeguards
+- [x] Manual private Sandbox reconciliation JSON export with complete current local ledger, reset epoch, digest and no payment import (November 4, 2026)
 - [x] Optional Gemini expense and task proposals with human review before any changes
 - [x] Hosted cross-origin mutation protections and no-store/private browser security headers (November 4, 2026)
 - [x] Hosted 60-second per-role request budgets for Gemini calls, PayPal order creation and PayPal reconciliation (per process; not production quotas)
