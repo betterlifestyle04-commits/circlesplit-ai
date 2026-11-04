@@ -48,7 +48,7 @@ flow. The active Free blueprint remains unchanged. A warning is not a backup.
 ## Save a reconciliation snapshot before a risky redeploy
 
 If the protected workspace is accessible and contains PayPal Sandbox orders,
-use **Activity → Save private reconciliation manifest** to download an
+use the organizer credential and **Activity → Save private reconciliation manifest** to download an
 authenticated, local read-only JSON inventory. It includes Sandbox order IDs
 and locally recorded capture IDs, along with the database incarnation. It
 does **not** include idempotency secrets or invitation links. Keep it private;
