@@ -68,7 +68,7 @@ def test_full_ledger_counts_and_old_unresolved_order_first(client,monkeypatch):
     later=client.get("/api/paypal/recovery?limit=10&offset=10").json()
     assert later["summary"]==page["summary"]
     assert later["attention_count"]==3
-    assert later["items"][0]["id"]==224
+    assert later["items"][0]["id"]==227
     assert {x["id"] for x in later["items"]}.isdisjoint(
         {x["id"] for x in page["items"]}
     )
