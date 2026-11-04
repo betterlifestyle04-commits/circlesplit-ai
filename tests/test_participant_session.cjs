@@ -56,7 +56,12 @@ function fakeOverview(){
  return {event_name:"A private event",event_date:"2026-11-16",participant:"Private tester",
   share_cents:1100,expires_at:"2099-01-01T00:00:00Z",agenda:[],
   agenda_revision:0,rsvp_status:"pending",approved:false,status:"unpaid",
-  checkout_started:false,approval_withdrawn:false};
+  checkout_started:false,approval_withdrawn:false,
+  share_breakdown:{
+   total_cents:2200,allocated_cents:2200,share_cents:1100,
+   participant_count:2,split_method:"equal",allocation_consistent:true,
+   categories:[{category:"food",total_cents:2200}]
+  }};
 }
 async function complete(pending,payload=fakeOverview()){
  assert.ok(pending,"Expected one pending overview request");
