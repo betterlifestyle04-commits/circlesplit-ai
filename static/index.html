@@ -449,6 +449,11 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
    <p class="notice">No automatic retries, no second capture attempts. A failed or timed-out request may have reached PayPal; CircleSplit keeps the original record locked and offers reconciliation of existing order IDs only.</p>
    <div id="recovery-summary" class="row wrap" aria-live="polite"></div>
    <div id="recovery-rows" style="overflow-x:auto"><div class="empty">Open Activity to inspect pending sandbox orders.</div></div>
+   <div class="row wrap" style="margin-top:12px">
+    <button class="btn small secondary" id="recovery-prev" type="button" onclick="loadRecovery(Math.max(0,recoveryOffset-recoveryLimit))" disabled>← Previous</button>
+    <span class="small muted" id="recovery-page" role="status" aria-live="polite">—</span>
+    <button class="btn small secondary" id="recovery-next" type="button" onclick="loadRecovery(recoveryOffset+recoveryLimit)" disabled>Next →</button>
+   </div>
    <p class="notice" style="margin-top:12px">This is a read-only view of the local demo database. Records may reset on Render Free restarts. For unresolved creation requests with no returned order ID, inspect the sandbox account manually before making any new request.</p>
   </div>
  </section>
@@ -1059,18 +1064,31 @@ async function copyEventMessage(){
 }
 function approvePerson(pid){let e=event();run(function(){return post("/api/events/"+e.id+"/people/"+pid+"/approve")},"Organizer demo approval recorded; not verified participant consent.")}
 function simulate(pid){let e=event();run(function(){return post("/api/events/"+e.id+"/people/"+pid+"/simulate")},"SIMULATED contribution recorded — no PayPal transaction.")}
-async function loadRecovery(){
+let recoveryOffset=0,recoveryLimit=50;
+async function loadRecovery(offset=0){
  const summary=el("recovery-summary"),rows=el("recovery-rows");
+ const previous=el("recovery-prev"),next=el("recovery-next"),page=el("recovery-page");
+ offset=Number.isSafeInteger(offset)&&offset>=0?offset:0;
+ previous.disabled=true;next.disabled=true;
  summary.innerHTML='<span class="pill neutral">Checking local payment records…</span>';
  try{
-  const d=await request("/api/paypal/recovery");
+  const d=await request("/api/paypal/recovery?limit="+recoveryLimit+"&offset="+offset);
   if(d.mode!=="PAYPAL_SANDBOX")throw Error("Unexpected payment mode");
+  recoveryOffset=Number(d.offset)||0;
+  recoveryLimit=Number(d.limit)||50;
+  const start=d.returned?recoveryOffset+1:0;
+  const finish=recoveryOffset+Number(d.returned||0);
+  page.textContent="Showing "+start+"–"+finish+" of "+Number(d.total_records||0)+" local records · unresolved first";
+  previous.disabled=recoveryOffset<=0;
+  next.disabled=d.next_offset===null || d.next_offset===undefined;
   summary.innerHTML=[
    ["Creating",d.summary.creating],["Awaiting approval/capture",d.summary.created],
-   ["Capture attempted",d.summary.capturing],["Verified locally",d.summary.completed]
+   ["Capture attempted",d.summary.capturing],["Verified locally",d.summary.completed],
+   ["Other",d.summary.other]
   ].map(([name,count])=>'<span class="pill '+(name==="Capture attempted"&&count?"orange":"neutral")+'">'+
    safe(name)+': '+Number(count||0)+'</span>').join("")+
-   (d.is_truncated?'<span class="pill orange">Showing latest '+d.returned+' records</span>':'');
+   '<span class="pill '+(d.attention_count?"orange":"neutral")+'">Needs investigation: '+
+   Number(d.attention_count||0)+'</span>';
   rows.innerHTML=d.items.length?
    '<table><thead><tr><th>Event</th><th>Participant</th><th>Amount</th><th>Local status</th><th>Safe next action</th></tr></thead><tbody>'+
    d.items.map(p=>{
@@ -1083,8 +1101,9 @@ async function loadRecovery(){
      '<td>'+money(p.amount_cents)+'</td><td>'+safe(p.status)+'</td><td>'+action+
      '<p class="small muted" style="margin-top:6px">'+safe(p.explanation)+'</p></td></tr>';
    }).join("")+'</tbody></table>':
-   '<div class="empty">No PayPal sandbox order attempts in this demo database.</div>';
+   '<div class="empty">No records on this page. Try Previous, or refresh to start at the beginning.</div>';
  }catch(err){
+  previous.disabled=true;next.disabled=true;page.textContent="Recovery page unavailable";
   summary.innerHTML='<span class="pill orange">Recovery view unavailable</span>';
   rows.innerHTML='<div class="empty">Could not load the recovery queue. Use manual sandbox inspection if a payment result is uncertain.</div>';
   notice("Payment recovery status could not be loaded: "+err.message,true);

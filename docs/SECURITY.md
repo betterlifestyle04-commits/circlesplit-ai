@@ -74,6 +74,14 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
   instance ownership and an identity model before real users. Never claim that
   this diagnostic creates durable storage, real bank accounts, or true escrow.
 
+## Complete PayPal Sandbox recovery queue (November 4, 2026)
+
+- The owner/judge-authenticated `GET /api/paypal/recovery` now derives category totals and `attention_count` from **all local payment records**, never just a truncated response. Previously, it counted only the newest 200 rows and could understate unresolved payment attempts.
+- The read-only queue prioritizes unresolved or inconsistent records **before** completed captures regardless of age, then sorts by latest local record ID. Orphaned records (a missing event or participant) remain visible as **manual review** rather than disappearing because of an inner join.
+- `?limit=50&offset=0` paginates records (1–200 per request) with `next_offset` and the total count. The protected organizer Activity page provides Previous/Next controls, full-ledger status totals and the current page range.
+- Existing creation timeouts remain manual-review-only. A `capturing` payment can only initiate an existing-order **status check**, never automatic recapture. No PayPal provider calls, new checkout requests or payment mutations are performed by this endpoint.
+- Pagination is over the local, potentially temporary SQLite database. New webhook or payment writes between page requests can shift offset-based pages; refresh from the first page if data changes. These counters are **not** proof of external settlement, receipts or durable records.
+
 ## Money invariants
 
 - All allocation arithmetic uses integer cents.
