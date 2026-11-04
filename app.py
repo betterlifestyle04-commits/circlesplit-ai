@@ -2499,12 +2499,18 @@ def payment_recovery(
 
 
 @app.get("/api/paypal/reconciliation-export")
-def export_sandbox_reconciliation():
-    """Download a private, read-only snapshot for *manual* sandbox reconciliation.
+def export_sandbox_reconciliation(request: Request):
+    """Download an owner-only, read-only snapshot for manual sandbox checks.
 
     This is not a database backup, a PayPal receipt, a signed audit log,
     or a valid input to any import endpoint. No provider calls are made.
     """
+    # This export contains participant names and provider transaction IDs.
+    # A separately configured guest-judge role must not be able to download it.
+    if (os.getenv("CIRCLESPLIT_HOSTED") == "1"
+            and getattr(request.state, "viewer_role", None) != "owner"):
+        raise HTTPException(403,
+            "Organizer credentials required for private reconciliation export")
     with db() as c:
         total = c.execute("SELECT COUNT(*) FROM payments").fetchone()[0]
         # Never silently truncate a financial inventory. Exports beyond this
