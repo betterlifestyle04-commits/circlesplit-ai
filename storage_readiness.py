@@ -38,7 +38,10 @@ def storage_readiness(db_path, environ=None):
     on_render = env.get("RENDER") == "true"
     hosted = on_render or env.get("CIRCLESPLIT_HOSTED") == "1"
     mounted = mounted_database(db_path, env.get("CIRCLESPLIT_PERSISTENT_MOUNT"))
-    guarded = env.get("CIRCLESPLIT_CHECKOUT_REQUIRES_DURABLE_DB") == "1"
+    # Fail closed for nonempty, unrecognized values (e.g. typos).
+    # A common "true" environment setting must not silently disable safety.
+    guard_value = str(env.get("CIRCLESPLIT_CHECKOUT_REQUIRES_DURABLE_DB", "")).strip().lower()
+    guarded = guard_value not in ("", "0", "false", "off", "no")
     if mounted:
         mode = "mounted-sqlite"
         notice = ("Configured SQLite file is under a verified filesystem mount. "
