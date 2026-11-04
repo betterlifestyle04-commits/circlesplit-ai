@@ -30,6 +30,15 @@ button:focus-visible,select:focus-visible{outline:3px solid #1ba890;outline-offs
 <div id="details" hidden><div class="amount" id="amount">—</div>
 <div class="row"><span>Participant</span><strong id="person">—</strong></div>
 <div class="row"><span>Event date</span><strong id="date">—</strong></div>
+<section aria-label="How your share was calculated" style="margin:19px 0;padding:18px;border:1px solid var(--line);border-radius:13px;background:#f8fcfb">
+ <strong>How your share was calculated</strong>
+ <div class="row"><span>Total planned budget</span><strong id="quote-total">—</strong></div>
+ <div class="row"><span>People sharing the budget</span><strong id="quote-people">—</strong></div>
+ <div class="row"><span>Split method</span><strong id="quote-method">—</strong></div>
+ <strong style="display:block;margin-top:15px">Estimated cost categories</strong>
+ <div id="quote-categories" aria-live="polite"></div>
+ <p id="quote-note" style="font-size:12px;margin:12px 0 0">Waiting for a verified local cost breakdown.</p>
+</section>
 <div id="agenda-panel" style="margin-top:19px">
  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
   <strong>Event schedule</strong><button id="agenda-refresh" class="refresh-agenda" type="button">Refresh</button>
@@ -69,6 +78,7 @@ button:focus-visible,select:focus-visible{outline:3px solid #1ba890;outline-offs
 </div><footer>CircleSplit AI hackathon prototype · No live money movement or personal identity verification</footer></main>
 <script>"use strict";
 let token="",currentAgendaRevision=0,invitationVersion=0;
+let displayedShareCents=null,displayedBudgetCents=null;
 const INVITATION_STORAGE_KEY="circlesplit-participant-token";
 const INVITATION_TOKEN_RE=/^[A-Za-z0-9_-]{40,128}$/;
 
@@ -113,6 +123,38 @@ async function refresh(){
   $("description").textContent="Review the assigned fictional contribution below.";
   $("amount").textContent=format(d.share_cents);$("person").textContent=d.participant;
   $("date").textContent=d.event_date;$("expiry").textContent=new Date(d.expires_at).toLocaleString();
+  const quote=d.share_breakdown;
+  const validQuote=quote && quote.allocation_consistent===true &&
+    Number.isSafeInteger(quote.total_cents) && quote.total_cents>=0 &&
+    Number.isSafeInteger(quote.share_cents) && quote.share_cents===d.share_cents &&
+    Number.isSafeInteger(quote.participant_count) && quote.participant_count>=1 &&
+    (quote.split_method==="equal"||quote.split_method==="weighted") &&
+    Array.isArray(quote.categories);
+  displayedShareCents=validQuote?quote.share_cents:null;
+  displayedBudgetCents=validQuote?quote.total_cents:null;
+  $("quote-total").textContent=validQuote?format(quote.total_cents):"Unavailable";
+  $("quote-people").textContent=validQuote?String(quote.participant_count):"Unavailable";
+  $("quote-method").textContent=validQuote?
+    (quote.split_method==="weighted"?"Weighted allocation":"Equal allocation"):"Unavailable";
+  const categories=$("quote-categories");categories.replaceChildren();
+  if(validQuote&&quote.categories.length){
+   for(const category of quote.categories){
+    const row=document.createElement("div");row.className="row";
+    const label=document.createElement("span");
+    label.textContent=String(category.category||"Other").replaceAll("_"," ");
+    const amount=document.createElement("strong");
+    amount.textContent=format(category.total_cents);
+    row.appendChild(label);row.appendChild(amount);categories.appendChild(row);
+   }
+  }else{
+   const empty=document.createElement("p");empty.style.fontSize="12px";
+   empty.textContent=validQuote?"No category estimates available.":"Budget details cannot be verified.";
+   categories.appendChild(empty);
+  }
+  $("quote-note").textContent=validQuote?
+    "These are fictional estimates. Shares are allocated in exact cents using largest-remainder rounding. "+
+    "No other participant's name or assigned share is shown. Reviewing this does not create a PayPal payment.":
+    "The organizer must correct the local budget allocation before this share can be approved.";
   $("agenda-calendar-download").disabled=!Array.isArray(d.agenda)||d.agenda.length===0;
   currentAgendaRevision=Number(d.agenda_revision)||0;
   const agendaReviewed=Boolean(d.agenda_acknowledged);
@@ -144,12 +186,17 @@ async function refresh(){
    d.approved?(d.approval_source==="participant_link"?"Approved via private link":"Previously approved in demo"):"Pending";
   $("payment").textContent=d.status==="sandbox_paid"?"Sandbox captured":
    d.status==="demo_paid"?"Simulated":d.checkout_started?"Sandbox checkout started":"Unpaid";
-  $("approve").disabled=Boolean(d.approved)||d.status!=="unpaid"||d.rsvp_status==="declined"||Boolean(d.checkout_started);
+  $("approve").disabled=!validQuote||Boolean(d.approved)||d.status!=="unpaid"||d.rsvp_status==="declined"||Boolean(d.checkout_started);
   $("approve").textContent=d.approved?"Share approved":"I approve this amount";
   $("withdraw-approval").disabled=d.status!=="unpaid"||Boolean(d.checkout_started)||Boolean(d.approval_withdrawn);
   $("withdraw-approval").textContent=d.approval_withdrawn?"Approval withdrawn":"Withdraw my approval";
  }catch(err){
   if(expectedVersion!==invitationVersion||expectedToken!==token)return;
+  displayedShareCents=null;displayedBudgetCents=null;
+  $("quote-categories").replaceChildren();
+  $("quote-total").textContent="Unavailable";$("quote-people").textContent="Unavailable";
+  $("quote-method").textContent="Unavailable";
+  $("quote-note").textContent="The organizer's cost breakdown could not be verified.";
   $("agenda-calendar-download").disabled=true;currentAgendaRevision=0;
   $("agenda-ack").disabled=true;$("withdraw-approval").disabled=true;$("agenda-items").replaceChildren();
   $("details").hidden=true;$("title").textContent="Invitation unavailable";
@@ -217,10 +264,26 @@ $("rsvp-save").addEventListener("click",async()=>{
   finally{$("rsvp-save").disabled=false}
 });
 $("approve").addEventListener("click",async()=>{
- if(!window.confirm("Approve this fictional group contribution? This will not make a payment."))return;
+ const share=displayedShareCents,budget=displayedBudgetCents;
+ if(!Number.isSafeInteger(share)||!Number.isSafeInteger(budget)){
+  message("The cost breakdown is not verified. Refresh and ask the organizer to check the allocation.",true);
+  return;
+ }
+ if(!window.confirm("Approve your reviewed fictional share of "+format(share)+
+  " from a total planned budget of "+format(budget)+
+  "? This will not make a payment."))return;
  $("approve").disabled=true;
- try{const r=await api("/api/participant/approve","POST");await refresh();message(r.already_approved?"Already approved. No additional action was taken.":"Your approval was recorded. No PayPal order or payment was created.",false)}
- catch(err){message(err.message,true);await refresh()}
+ try{
+  const r=await api("/api/participant/approve","POST",{
+   expected_share_cents:share,expected_total_cents:budget
+  });
+  await refresh();
+  message(r.already_approved?"Already approved. No additional action was taken.":
+   "Your reviewed fictional share was approved. No PayPal order or payment was created.",false);
+ }catch(err){
+  await refresh();
+  message("Approval not recorded: "+err.message+". Review the current costs before trying again.",true);
+ }
 });
 $("withdraw-approval").addEventListener("click",async()=>{
  if(!window.confirm("Withdraw approval for this fictional share? This blocks new sandbox checkout but cannot reverse a checkout or payment already started."))return;
@@ -237,13 +300,15 @@ function forgetInvitation(){
  // Browser-only cleanup. The original link stays valid until the organizer
  // revokes it; this button never changes server-side consent or payment data.
  invitationVersion++;
- token="";currentAgendaRevision=0;
+ token="";currentAgendaRevision=0;displayedShareCents=null;displayedBudgetCents=null;
  try{sessionStorage.removeItem(INVITATION_STORAGE_KEY);}catch(_){}
  $("details").hidden=true;
  $("agenda-calendar-download").disabled=true;
  $("agenda-ack").disabled=true;
  $("withdraw-approval").disabled=true;
- $("agenda-items").replaceChildren();
+ $("agenda-items").replaceChildren();$("quote-categories").replaceChildren();
+ $("quote-total").textContent="—";$("quote-people").textContent="—";
+ $("quote-method").textContent="—";$("quote-note").textContent="Invitation cleared.";
  $("title").textContent="Invitation cleared";
  $("description").textContent="This tab no longer has invitation access. Open a fresh private link to view event details.";
  message("Invitation removed from this browser tab. Previously submitted actions were not reversed.",false);
