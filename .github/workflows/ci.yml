@@ -48,4 +48,4 @@ jobs:
           Path("/tmp/circlesplit-participant-inline.js").write_text(scripts[0])
           PY
           node --check /tmp/circlesplit-participant-inline.js
-      - run: python -m compileall -q app.py domain.py paypal.py calendar_export.py
+      - run: python -m compileall -q app.py domain.py paypal.py calendar_export.py security.py provider_limits.py

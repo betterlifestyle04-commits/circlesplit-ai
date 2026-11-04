@@ -484,7 +484,18 @@ function safe(x){return String(x ?? "").replace(/[&<>"']/g,function(s){return {"
 function money(n){return "$"+(Number(n||0)/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}
 function notice(message,error){let box=el("message");box.textContent=message;box.className="status show"+(error?" error":"");window.scrollTo({top:0,behavior:"smooth"})}
 function event(){return state.events.find(function(x){return x.id===eventId})||state.events[0]}
-async function request(path,opts){let r=await fetch(path,Object.assign({headers:{"Content-Type":"application/json"}},opts||{}));let body=await r.json().catch(function(){return {}});if(!r.ok)throw new Error(body.detail||"Request failed");return body}
+async function request(path,opts){
+ let r=await fetch(path,Object.assign({headers:{"Content-Type":"application/json"}},opts||{}));
+ let body=await r.json().catch(function(){return {}});
+ if(!r.ok){
+  const detail=body.detail||"Request failed";
+  const retry=Number(r.headers.get("Retry-After"));
+  if(r.status===429&&Number.isInteger(retry)&&retry>=1&&retry<=3600)
+   throw new Error(detail+" Try again in about "+retry+" seconds.");
+  throw new Error(detail);
+ }
+ return body;
+}
 function post(path,body){return request(path,{method:"POST",body:JSON.stringify(body||{})})}
 async function run(action,msg){try{await action();await load();if(msg)notice(msg,false)}catch(e){notice(e.message,true)}}
 function switchTab(tab){currentTab=tab;document.querySelectorAll(".tabpan").forEach(function(x){x.classList.toggle("active",x.id===tab)});document.querySelectorAll("[data-tab]").forEach(function(x){x.classList.toggle("active",x.dataset.tab===tab)});el("crumb").textContent=tab.charAt(0).toUpperCase()+tab.slice(1);render();if(tab==="history")loadEventHistory();if(tab==="closeout")loadCloseout();if(tab==="activity")loadRecovery();if(tab==="events")loadEventTemplates()}

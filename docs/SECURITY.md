@@ -18,6 +18,14 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - Responses set `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a restrictive `Permissions-Policy`. API responses, the protected workspace, and invitation portal are private and not stored by browser caches.
 - Configure `PUBLIC_BASE_URL` to the true HTTPS deployment origin; avoid changing this to arbitrary or untrusted sites. These safeguards are covered by offline regression tests and do not prove that the hosted demo is suitable for real money or real participant data.
 
+## Hosted provider request budgets (November 4, 2026)
+
+- When `CIRCLESPLIT_HOSTED=1`, each authenticated shared demo role has a **per-process sliding 60-second window**: 12 total Gemini parse/task-plan attempts, 6 new PayPal Sandbox order attempts, and 30 PayPal status/capture attempts. Separate owner and judge roles have separate budgets. Calls returning provider errors still count toward that budget.
+- Requests over budget return `HTTP 429` with a `Retry-After` header; no provider-backed endpoint or financial mutation runs for those blocked requests. Browser cross-origin and unauthenticated requests are rejected **before** they could consume the budget.
+- Normal event planning, private invitation/RSVP/agenda endpoints, read-only recovery views and independently signature-verified PayPal webhooks are **not** subject to these cost budgets. Local development mode does not apply them either.
+- This is a **demo safeguard**, not production-grade distributed rate limiting. Windows reset when a process restarts, do not coordinate across multiple processes/instances, and cover all users sharing a role together. A genuine public service needs durable account-level quotas, provider-side spend caps, monitoring, and abuse protections.
+- Judge demo testers may see a rate-limit message after repeated rapid calls; the response indicates when that provider action can be tried again. Never bypass PayPal's existing uncertain-payment locks merely to work around a 429.
+
 ## Money invariants
 
 - All allocation arithmetic uses integer cents.
@@ -35,7 +43,7 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 2. Public shared judge password offers limited isolation; rotate after judging.
 3. SQLite ephemeral free-hosting storage is not durable; migrate to managed Postgres for anything beyond a throwaway demo.
 4. No automated timeout reconciliation, retry backoff, or complete charge/dispute lifecycle.
-5. No rate limits, abuse controls, proper cross-account tenancy, nor production-grade monitoring.
+5. Hosted per-process provider budgets are not distributed account-level rate limiting, broad abuse controls, cross-account tenancy, or production-grade monitoring.
 6. No currency and locale abstraction; USD sandbox and two-decimal currency assumption only.
 7. AI suggestions can be incorrect or manipulated by adversarial text; humans must verify amounts and allocations.
 8. No merchant fee, refunds, disputes, cross-border compliance, or tax support. Do not call this escrow.
