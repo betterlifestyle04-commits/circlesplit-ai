@@ -27,6 +27,32 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Compare two private reconciliation snapshots without uploading them
+
+In the protected **Activity → Compare private recovery snapshots** panel,
+select an earlier and later `paypal-sandbox-reconciliation-manifest` JSON file.
+Both files remain on the device: JavaScript reads them through the file input,
+checks their server-exported SHA-256 digests with the browser's Web Crypto API,
+and compares the records **without any API upload, database write, or PayPal
+request**. Only bounded aggregate counts and warnings appear in the interface;
+no participant names or provider IDs are displayed in the comparison results.
+
+When the database incarnation is unchanged, the comparator matches records
+using local payment IDs. When it changes, local IDs can be reused and are
+**never** used to establish continuity: only known matching PayPal Sandbox
+order IDs are comparable. Earlier attempts lacking a provider order ID are
+reported as untrackable across the reset. Reports include missing/new references,
+status progression, completed-status regressions, capture-ID conflicts,
+amount changes, and, when safe, local linkage changes.
+
+The tool rejects malformed manifests, duplicate IDs, mismatched SHA-256
+digests, reversed snapshot times, and oversized files (over 8 MB each). It
+clears selected file references after each attempt. The comparison is strictly
+**investigative**: SHA-256 without a trusted signature is not proof of origin,
+an absent record does not mean PayPal never processed it, and a locally
+completed payment is not proof of external settlement. **Never retry a
+possibly existing charge based on this report.**
+
 ## Read-only global PayPal Sandbox ledger integrity audit
 
 The private organizer **Activity → Local payment integrity audit** panel checks

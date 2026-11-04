@@ -107,6 +107,30 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
   and investigate unknown order IDs or ambiguous captures. Never treat this
   file as authorization to retry a charge or override financial locks.
 
+## Local-only comparison of two payment reconciliation manifests (November 4, 2026)
+
+- The private Activity page now accepts two locally selected, schema-versioned
+  PayPal Sandbox reconciliation JSON files (earlier/later). JavaScript validates
+  their server-exported SHA-256 record digests via the Web Crypto API and
+  compares records **locally in the browser**. File contents are not uploaded,
+  transmitted to PayPal, stored in browser persistence or written to the DB.
+  Selected file handles are cleared after the comparison.
+- Matching uses local payment IDs **only when** both files have the same
+  database incarnation. If their incarnations differ, local IDs may be reused:
+  the tool instead matches known PayPal Sandbox order IDs and separately
+  counts earlier order attempts whose order ID was never recorded.
+- The result displays aggregate missing/new/matched record references,
+  completed-status regressions, capture identifier changes, amount changes,
+  and safe metadata changes. It never displays participant names or raw order,
+  capture, invitation or provider credential values. Unexpected schemas,
+  duplicate local/provider order IDs, digest mismatches, oversized files and
+  reversed dates fail closed.
+- The digest detects **accidental change only**, not who generated the file.
+  A matching order ID is not confirmation of payment, and absent orders may
+  still exist at PayPal. This is not a real-money reconciliation engine,
+  signature validation, refund process, backup service or reason to retry
+  payment creation/capture. Manually investigate against PayPal Sandbox.
+
 ## Global read-only payment integrity audit (November 4, 2026)
 
 - Authenticated `GET /api/paypal/ledger-audit` scans all current local
