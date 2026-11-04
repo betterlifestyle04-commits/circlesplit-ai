@@ -53,7 +53,7 @@ def protect_response(response, path):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
-    if (path.startswith("/api/") or path in ("/workspace", "/participant")) and (
+    if (path.startswith("/api/") or path in ("/workspace", "/participant", "/health")) and (
         "cache-control" not in response.headers
     ):
         response.headers["Cache-Control"] = "private, no-store, max-age=0"

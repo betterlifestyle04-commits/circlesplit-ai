@@ -597,7 +597,12 @@ def favicon():
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health():
-    return {"status": "ok", "mode": "sandbox-only", "version": "0.2.0"}
+    # Render supplies the deployed Git revision. Never expose other environment
+    # variables, secrets, credentials, internal hostnames, or arbitrary strings.
+    revision = os.getenv("RENDER_GIT_COMMIT", "")
+    safe_revision = revision.lower() if re.fullmatch(r"[0-9a-fA-F]{40}", revision) else None
+    return {"status": "ok", "mode": "sandbox-only", "version": "0.2.0",
+            "git_commit": safe_revision}
 
 @app.get("/api/judge-readiness")
 def judge_readiness():
@@ -1747,7 +1752,7 @@ def participant_from_invite(c, request: Request):
                   p.share_cents,p.approved,p.approval_source,p.status,p.rsvp_status,
                   p.agenda_ack_revision,p.agenda_ack_updated,
                   e.name AS event_name,e.date AS event_date,
-                  e.agenda_revision,e.agenda_changed_at
+                  e.agenda_revision,e.agenda_changed_at,e.created AS event_created
            FROM participant_invites l
            JOIN people p ON p.id=l.person_id
            JOIN events e ON e.id=p.event_id
@@ -1808,11 +1813,18 @@ def revoke_participant_invites(eid: int,pid: int):
     return {"ok":True,"revoked":result.rowcount}
 
 
-def agenda_ics_response(event_id, name, event_date, revision, rows):
-    """Only export event logistics. Exclude all payments and private metadata."""
+def agenda_ics_response(event_id, name, event_date, revision, rows, changed_at, created_at):
+    """Only export logistics, with a stable stamp for this agenda revision.
+
+    Render the same unmodified revision identically for organizer and invitee,
+    even when they download in different seconds. Old imported agendas without
+    a change timestamp fall back to their persisted event creation time.
+    """
+    stamp_raw = changed_at or created_at
     try:
-        calendar = build_ics(event_id,name,event_date,rows,revision)
-    except ValueError as exc:
+        stamp = datetime.fromisoformat(stamp_raw.replace("Z", "+00:00"))
+        calendar = build_ics(event_id,name,event_date,rows,revision,stamp=stamp)
+    except (ValueError, TypeError, AttributeError, OverflowError) as exc:
         raise HTTPException(409,str(exc))
     return Response(
         content=calendar.encode("utf-8"),
@@ -1833,7 +1845,8 @@ def organizer_event_calendar(eid:int):
         event=require_event(c,eid)
         slots=[dict(row) for row in c.execute(
             "SELECT id,start_time,end_time,title,note FROM event_agenda WHERE event_id=? ORDER BY start_time,id",(eid,))]
-    return agenda_ics_response(eid,event["name"],event["date"],event["agenda_revision"],slots)
+    return agenda_ics_response(eid,event["name"],event["date"],event["agenda_revision"],
+                               slots,event["agenda_changed_at"],event["created"])
 
 
 @app.get("/api/participant/calendar.ics")
@@ -1845,7 +1858,8 @@ def invited_participant_calendar(request:Request):
             "SELECT id,start_time,end_time,title,note FROM event_agenda WHERE event_id=? ORDER BY start_time,id",
             (invited["event_id"],))]
     return agenda_ics_response(invited["event_id"],invited["event_name"],
-                               invited["event_date"],invited["agenda_revision"],rows)
+                               invited["event_date"],invited["agenda_revision"],rows,
+                               invited["agenda_changed_at"],invited["event_created"])
 
 
 @app.get("/api/participant/overview")

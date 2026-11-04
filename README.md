@@ -26,6 +26,17 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Confirm that Render runs the latest code
+
+The public `/health` endpoint includes `git_commit`: a validated, 40-character
+Git SHA automatically supplied by Render. Compare it against the latest GitHub
+`main` commit to confirm which source revision is running at
+https://circlesplit-ai-demo.onrender.com/health. If it is `null` or differs,
+the current deployment is **not verified**. Health responses are not cached.
+
+See [Deployment verification](docs/DEPLOYMENT_VERIFICATION.md) for steps and
+limitations. This check cannot prove PayPal/Gemini availability or storage durability.
+
 ## Configuration
 
 | Environment variable | Purpose |
@@ -55,7 +66,7 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - Two routes are available: organizer-authenticated \`GET /api/events/{eid}/calendar.ics\` and private bearer-invitation \`GET /api/participant/calendar.ics\`. The participant route requires the existing valid, unrevoked and unexpired capability link; it never uses invitation tokens in download URLs, redirects, or the file itself.
 - Downloads contain only event name, agenda titles, participant-visible agenda notes, event date and activity times. There are **no participants, addresses, budget amounts, approvals, PayPal identifiers, invitation URLs or private bearer tokens** embedded in the file. The output is a local calendar file, not an outgoing email or calendar invitation.
 - All events have **floating local wall-clock times**, because CircleSplit currently stores no verified location/timezone. The \`.ics\` entries omit both TZID and UTC suffixes; the organizer and attendees must confirm the event timezone before importing. Apps may interpret floating times using the importing user's timezone; this is unsuitable for cross-timezone travel without manual checking.
-- Each activity has a deterministic, opaque UID derived from event and slot identifiers, a \`SEQUENCE\` matching the agenda revision, a UTC DTSTAMP, and RFC 5545-compatible text escaping, UTF-8 octet-aware line folding and CRLF termination. This helps calendar clients recognize updates when a new version is **manually downloaded and reimported**, though client behavior varies.
+- Each activity has a deterministic, opaque UID derived from event and slot identifiers, a \`SEQUENCE\` matching the agenda revision, a UTC DTSTAMP tied to the persisted agenda revision timestamp (stable across repeat downloads), and RFC 5545-compatible text escaping, UTF-8 octet-aware line folding and CRLF termination. This helps calendar clients recognize updates when a new version is **manually downloaded and reimported**, though client behavior varies.
 - The server sets \`Cache-Control: private, no-store\`, attachment disposition and no-sniff headers, and validates actual calendar dates and same-day non-overlapping slots. Export is read-only; no RSVP, schedule acknowledgement, payment, or approval is changed.
 - The calendar is marked **tentative** and clearly states that it is not an actual reservation, charge, invoice or confirmed booking. It does not automatically sync, send calendar updates, book venues or create real payments.
 - Backend and serialization tests cover owner-vs-bearer separation, revoked links, event isolation, exact event times, escaping of malicious calendar-property content, multibyte Unicode line folding, stable UIDs after edits, sequence increments and complete financial state isolation.
