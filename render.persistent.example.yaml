@@ -1,0 +1,33 @@
+# OPTIONAL EXAMPLE ONLY: not used by the current free render.yaml.
+# Applying this requires a PAID Render web service and attached persistent disk.
+# Read docs/PERSISTENT_STORAGE.md before changing your Render service.
+# This is a single-instance SQLite demo setup, NOT production payment storage.
+services:
+  - type: web
+    name: circlesplit-ai-demo
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /health
+    disk:
+      name: circlesplit-sqlite
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: CIRCLESPLIT_HOSTED
+        value: "1"
+      - key: CIRCLESPLIT_DB
+        value: /var/data/circlesplit.sqlite3
+      - key: CIRCLESPLIT_PERSISTENT_MOUNT
+        value: /var/data
+      - key: CIRCLESPLIT_CHECKOUT_REQUIRES_DURABLE_DB
+        value: "1"
+      - key: DEMO_USERNAME
+        value: judge
+      - key: DEMO_PASSWORD
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.12.7
