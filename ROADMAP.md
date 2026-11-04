@@ -6,6 +6,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] Responsive public browser-local guest demo and Basic-auth protected organizer workspace
 - [x] Exact-cent equal/weighted group allocation, event planning and expense/participant CRUD
 - [x] Explicit share approvals, consent invalidation after budget edits, separate simulations
+- [x] Participant-visible aggregate cost explanation and stale-share consent guard (November 4, 2026)
 - [x] Private expiring/revocable bearer invitation links, RSVP, individual approvals and agenda review acknowledgements (not identity proof)
 - [x] Participant tab invitation switching and explicit session cleanup, with stale response protection (November 4, 2026)
 - [x] Private-link withdrawal of share approval, persistent opt-out gate and renewed consent before new sandbox checkout
