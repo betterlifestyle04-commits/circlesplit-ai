@@ -82,6 +82,31 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - Existing creation timeouts remain manual-review-only. A `capturing` payment can only initiate an existing-order **status check**, never automatic recapture. No PayPal provider calls, new checkout requests or payment mutations are performed by this endpoint.
 - Pagination is over the local, potentially temporary SQLite database. New webhook or payment writes between page requests can shift offset-based pages; refresh from the first page if data changes. These counters are **not** proof of external settlement, receipts or durable records.
 
+## Private sandbox reconciliation manifest (November 4, 2026)
+
+- The organizer-only `GET /api/paypal/reconciliation-export` endpoint returns
+  an **explicitly requested, read-only, complete local snapshot** for manual
+  PayPal Sandbox review, not payment creation/capture. It includes current
+  local payment IDs, fictional event and participant associations, amounts,
+  statuses, dates, known PayPal order/capture IDs, and database incarnation.
+  Orphaned rows are retained with null names.
+- The snapshot **never** includes bearer invitation tokens, token hashes,
+  provider API keys, internal request/capture idempotency secrets or raw webhook
+  events. It does include private participant names and provider IDs; **never
+  share, commit, post publicly or email without appropriate protection**.
+- Separately enabled guest-judge credentials are explicitly forbidden from accessing this export. The response uses no-store/private headers, download disposition, a
+  schema-specific `kind`, `importable: false`, and a SHA-256 digest of the
+  record array. The digest can detect accidental content changes but **is
+  not authenticated or a proof of PayPal payment**. The planning restore API
+  rejects the manifest, and CircleSplit has no payment import path.
+- The server refuses an export with more than 10,000 local payment rows
+  rather than silently excluding them. No automatic periodic backups or
+  offsite copies have been created. A local snapshot cannot show PayPal
+  orders lost from SQLite before it was downloaded.
+- A manual reviewer must verify orders against PayPal Sandbox externally
+  and investigate unknown order IDs or ambiguous captures. Never treat this
+  file as authorization to retry a charge or override financial locks.
+
 ## Money invariants
 
 - All allocation arithmetic uses integer cents.

@@ -2497,6 +2497,91 @@ def payment_recovery(
                    "automatically retried. Local database records can reset."),
     }
 
+
+@app.get("/api/paypal/reconciliation-export")
+def export_sandbox_reconciliation(request: Request):
+    """Download an owner-only, read-only snapshot for manual sandbox checks.
+
+    This is not a database backup, a PayPal receipt, a signed audit log,
+    or a valid input to any import endpoint. No provider calls are made.
+    """
+    # This export contains participant names and provider transaction IDs.
+    # A separately configured guest-judge role must not be able to download it.
+    if (os.getenv("CIRCLESPLIT_HOSTED") == "1"
+            and getattr(request.state, "viewer_role", None) != "owner"):
+        raise HTTPException(403,
+            "Organizer credentials required for private reconciliation export")
+    with db() as c:
+        total = c.execute("SELECT COUNT(*) FROM payments").fetchone()[0]
+        # Never silently truncate a financial inventory. Exports beyond this
+        # safety limit require an operator-led database backup instead.
+        if total > 10_000:
+            raise HTTPException(413,
+                "Too many local sandbox payment records for one export. "
+                "Use controlled database backup and manual PayPal reconciliation.")
+        identity = c.execute(
+            "SELECT incarnation_id,created_at FROM storage_identity WHERE id=1"
+        ).fetchone()
+        payments = c.execute(
+            """SELECT p.id,p.event_id,p.person_id,p.amount_cents,p.status,p.created,
+                      p.order_id,p.capture_id,
+                      e.name AS event_name,a.name AS participant_name
+               FROM payments p
+               LEFT JOIN events e ON e.id=p.event_id
+               LEFT JOIN people a ON a.id=p.person_id
+               ORDER BY p.id"""
+        ).fetchall()
+        rows = [{
+            "payment_id": p["id"],
+            "event_id": p["event_id"],
+            "person_id": p["person_id"],
+            "event_name": p["event_name"],
+            "participant_name": p["participant_name"],
+            "amount_cents": p["amount_cents"],
+            "status": p["status"],
+            "created_at": p["created"],
+            "paypal_order_id": p["order_id"],
+            "paypal_capture_id": p["capture_id"],
+        } for p in payments]
+        # A snapshot is generated while the same database transaction is open.
+        generated = now()
+        epoch = identity["incarnation_id"] if identity else None
+        epoch_created = identity["created_at"] if identity else None
+    serialized = json.dumps(rows, sort_keys=True, separators=(",", ":"),
+                            ensure_ascii=False).encode("utf-8")
+    fingerprint = hashlib.sha256(serialized).hexdigest()
+    body = {
+        "app": "CircleSplit AI",
+        "kind": "paypal-sandbox-reconciliation-manifest",
+        "schema_version": 1,
+        "mode": "PAYPAL_SANDBOX",
+        "currency": "USD",
+        "generated_at": generated,
+        "storage_epoch": epoch,
+        "storage_created_at": epoch_created,
+        "record_count": total,
+        "records_sha256": fingerprint,
+        "records": rows,
+        "importable": False,
+        "limitations": (
+            "Private local SQLite snapshot only. NOT a PayPal receipt, "
+            "settlement proof, complete external history, durable backup, "
+            "or signed audit log. SHA-256 checks accidental changes to "
+            "the record array, not authenticity. May omit sandbox orders "
+            "lost before this snapshot. Cannot be imported or used "
+            "to recreate charges. Verify each order directly at PayPal."
+        ),
+    }
+    return JSONResponse(body, headers={
+        "Cache-Control": "private, no-store, max-age=0",
+        "Content-Disposition": (
+            'attachment; filename="circlesplit-private-sandbox-reconciliation.json"'
+        ),
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+    })
+
+
 @app.get("/api/transactions")
 def transactions():
     with db() as c:

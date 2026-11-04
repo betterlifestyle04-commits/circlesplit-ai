@@ -45,6 +45,21 @@ identity model and disaster recovery design.
 The gate is **off by default** to avoid breaking the present judge sandbox
 flow. The active Free blueprint remains unchanged. A warning is not a backup.
 
+## Save a reconciliation snapshot before a risky redeploy
+
+If the protected workspace is accessible and contains PayPal Sandbox orders,
+use the organizer credential and **Activity → Save private reconciliation manifest** to download an
+authenticated, local read-only JSON inventory. It includes Sandbox order IDs
+and locally recorded capture IDs, along with the database incarnation. It
+does **not** include idempotency secrets or invitation links. Keep it private;
+it cannot be restored into the application or used to recreate payments.
+
+The SHA-256 field only checks accidental record-array changes, not document
+authenticity. Exporting does **not** make the SQLite database durable, and
+only the records still present at export time can be saved. Check any
+uncertain order at PayPal itself. For more than 10,000 payment attempts the
+endpoint rejects the request; use an operator-led encrypted DB backup.
+
 ## Preparing a paid persistent disk (opt-in only)
 
 A separate, **inactive** example is provided:
