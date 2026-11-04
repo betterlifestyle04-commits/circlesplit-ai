@@ -27,6 +27,7 @@ import paypal
 from security import cross_origin_mutation, protect_response
 from provider_limits import ProviderLimiter, provider_group
 from storage_readiness import storage_readiness
+from ledger_audit import local_ledger_audit
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv("CIRCLESPLIT_DB") or str(ROOT / "circlesplit.sqlite3"))
@@ -2400,6 +2401,13 @@ async def webhook(request: Request):
                 settle_verified_sandbox_capture(c,p,resource["id"])
         c.execute("INSERT INTO webhook_events(id,created) VALUES(?,?)",(event_id,now()))
     return {"ok":True}
+
+@app.get("/api/paypal/ledger-audit")
+def sandbox_ledger_audit():
+    """Protected, read-only local consistency diagnostics; no PayPal API calls."""
+    with db() as c:
+        return local_ledger_audit(c)
+
 
 @app.get("/api/paypal/recovery")
 def payment_recovery(
