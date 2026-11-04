@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from domain import allocate, cents
 from calendar_export import build_ics
 import paypal
+from security import cross_origin_mutation, protect_response
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv("CIRCLESPLIT_DB") or str(ROOT / "circlesplit.sqlite3"))
@@ -51,8 +52,9 @@ async def demo_access_control(request: Request, call_next):
             user = os.getenv("DEMO_USERNAME", "judge")
             password = os.getenv("DEMO_PASSWORD", "")
             if len(password) < 12:
-                return JSONResponse(status_code=503,
-                    content={"detail": "Hosted demo requires DEMO_PASSWORD (12+ characters)"})
+                return protect_response(JSONResponse(status_code=503,
+                    content={"detail": "Hosted demo requires DEMO_PASSWORD (12+ characters)"}),
+                    request.url.path)
             value = request.headers.get("authorization", "")
             scheme, _, token = value.partition(" ")
             try:
@@ -78,9 +80,16 @@ async def demo_access_control(request: Request, call_next):
                         and hmac.compare_digest(received_user, judge_name)
                         and hmac.compare_digest(received_password, judge_pass))
             if not owner_ok and not judge_ok:
-                return Response("Protected testing workspace credentials required", status_code=401,
-                    headers={"WWW-Authenticate": 'Basic realm="CircleSplit AI Testing"'})
+                return protect_response(Response("Protected testing workspace credentials required", status_code=401,
+                    headers={"WWW-Authenticate": 'Basic realm="CircleSplit AI Testing"'}),
+                    request.url.path)
             request.state.viewer_role = "owner" if owner_ok else "judge"
+
+    if os.getenv("CIRCLESPLIT_HOSTED") == "1" and cross_origin_mutation(
+        request, os.getenv("PUBLIC_BASE_URL", "")
+    ):
+        return protect_response(JSONResponse(status_code=403,
+            content={"detail": "Cross-origin modification blocked"}), request.url.path)
 
     response = await call_next(request)
     if request.url.path in ("/participant", "/api/participant/overview", "/api/participant/approve", "/api/participant/rsvp") or "/invite" in request.url.path:
@@ -91,7 +100,7 @@ async def demo_access_control(request: Request, call_next):
             "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
             "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
         )
-    return response
+    return protect_response(response, request.url.path)
 
 
 def now():
