@@ -26,6 +26,7 @@ from calendar_export import build_ics
 import paypal
 from security import cross_origin_mutation, protect_response
 from provider_limits import ProviderLimiter, provider_group
+from storage_readiness import storage_readiness
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv("CIRCLESPLIT_DB") or str(ROOT / "circlesplit.sqlite3"))
@@ -194,6 +195,13 @@ def initialize():
           status TEXT NOT NULL, capture_id TEXT, created TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, created TEXT NOT NULL);
+        -- This opaque marker changes when the physical DB is replaced.
+        -- It contains no credential, payment reference or participant data.
+        CREATE TABLE IF NOT EXISTS storage_identity (
+          id INTEGER PRIMARY KEY CHECK(id=1),
+          incarnation_id TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS template_creations (
             request_key TEXT PRIMARY KEY,
             fingerprint TEXT NOT NULL,
@@ -250,6 +258,10 @@ def initialize():
         CREATE INDEX IF NOT EXISTS participant_invites_person_idx
           ON participant_invites(person_id);
         """)
+        c.execute(
+            "INSERT OR IGNORE INTO storage_identity(id,incarnation_id,created_at) VALUES(1,?,?)",
+            (str(uuid.uuid4()),now())
+        )
         # The capture ID is a global provider transaction identifier. Never
         # allow one completed sandbox capture to fund multiple local orders,
         # even across different events. Legacy duplicates fail initialization
@@ -611,12 +623,17 @@ def health():
 
 @app.get("/api/judge-readiness")
 def judge_readiness():
-    # Protected summary of configured integrations and this ephemeral database.
+    # Private operational summary. Storage epoch identifies reset events only;
+    # it is not a cryptographic attestation or an external provider receipt.
+    readiness = storage_readiness(DB)
     with db() as c:
         captures = c.execute(
             "SELECT COUNT(*) FROM payments WHERE status='completed' AND capture_id IS NOT NULL"
         ).fetchone()[0]
         webhook_events = c.execute("SELECT COUNT(*) FROM webhook_events").fetchone()[0]
+        identity = c.execute(
+            "SELECT incarnation_id,created_at FROM storage_identity WHERE id=1"
+        ).fetchone()
     return {
         "mode":"sandbox-only",
         "ai_key_present":bool(os.getenv("GEMINI_API_KEY")),
@@ -624,8 +641,12 @@ def judge_readiness():
         "webhook_id_present":bool(os.getenv("PAYPAL_WEBHOOK_ID")),
         "current_store_verified_captures":captures,
         "current_store_webhook_events":webhook_events,
-        "storage":"ephemeral-sqlite",
-        "note":"Credentials present != live provider verification; counts reset on deploy.",
+        **readiness,
+        "storage_epoch":identity["incarnation_id"][:12],
+        "storage_created_at":identity["created_at"],
+        "note":("Credentials present do not prove provider health. "
+                "Compare the storage epoch across deployments to detect "
+                "a reset; local counts are not a durable payment ledger."),
     }
 
 @app.get("/api/state")
@@ -2238,6 +2259,13 @@ def settle_verified_sandbox_capture(c, payment, capture_id):
 
 @app.post("/api/paypal/orders/{eid}/{pid}")
 async def create_order(eid: int, pid: int, request: Request):
+    readiness = storage_readiness(DB)
+    if not readiness["sandbox_checkout_allowed"]:
+        # Reject before creating a local payment row or calling PayPal. Keep
+        # existing capture, webhook and read-only reconciliation operational.
+        raise HTTPException(503,
+            "New PayPal Sandbox checkout is disabled: persistent SQLite mount not verified. "
+            "Existing orders may still be checked and reconciled.")
     if not paypal.configured(): raise HTTPException(503, "PayPal sandbox unconfigured")
     with db() as c:
         p = c.execute("SELECT * FROM people WHERE id=? AND event_id=?", (pid,eid)).fetchone()
