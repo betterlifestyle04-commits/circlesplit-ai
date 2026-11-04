@@ -92,11 +92,40 @@ def approval_link(details):
     return None
 
 def completed_capture(response, amount):
-    captures = [c for unit in response.get("purchase_units", [])
-                for c in unit.get("payments", {}).get("captures", [])]
-    return next((c for c in captures if c.get("status") == "COMPLETED"
-                 and c.get("id") and c.get("amount", {}).get("currency_code") == "USD"
-                 and same_amount(c.get("amount", {}).get("value"), amount)), None)
+    """Accept only a single, unambiguous completed capture for one purchase unit.
+
+    A matching capture must not hide an additional capture, extra purchase unit,
+    or malformed provider payload. Such responses require manual review rather
+    than recording an arbitrary transaction as settled.
+    """
+    if not isinstance(response, dict):
+        return None
+    units = response.get("purchase_units")
+    if not isinstance(units, list) or len(units) != 1:
+        return None
+    unit = units[0]
+    if not isinstance(unit, dict):
+        return None
+    payments = unit.get("payments")
+    if not isinstance(payments, dict):
+        return None
+    captures = payments.get("captures")
+    if not isinstance(captures, list) or len(captures) != 1:
+        return None
+    capture = captures[0]
+    if not isinstance(capture, dict) or not isinstance(capture.get("amount"), dict):
+        return None
+    identifier = capture.get("id")
+    if (not isinstance(identifier, str)
+            or not 1 <= len(identifier) <= 128
+            or not identifier.isascii()
+            or not all(c.isalnum() or c == "-" for c in identifier)):
+        return None
+    if (capture.get("status") != "COMPLETED"
+            or capture["amount"].get("currency_code") != "USD"
+            or not same_amount(capture["amount"].get("value"), amount)):
+        return None
+    return capture
 
 async def verify_webhook(headers, event):
     webhook_id = os.getenv("PAYPAL_WEBHOOK_ID")
