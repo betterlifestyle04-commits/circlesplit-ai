@@ -147,7 +147,7 @@ async function refresh(){
     row.appendChild(label);row.appendChild(amount);categories.appendChild(row);
    }
   }else{
-   const empty=document.createElement("p");empty.style.fontSize="12px";
+   const empty=document.createElement("p");empty.setAttribute("style","font-size:12px");
    empty.textContent=validQuote?"No category estimates available.":"Budget details cannot be verified.";
    categories.appendChild(empty);
   }
