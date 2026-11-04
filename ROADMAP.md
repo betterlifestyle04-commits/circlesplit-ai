@@ -8,6 +8,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] Explicit share approvals, consent invalidation after budget edits, separate simulations
 - [x] Private expiring/revocable bearer invitation links, RSVP, individual approvals and agenda review acknowledgements (not identity proof)
 - [x] Participant tab invitation switching and explicit session cleanup, with stale response protection (November 4, 2026)
+- [x] Private-link withdrawal of share approval, persistent opt-out gate and renewed consent before new sandbox checkout
 - [x] Agenda editor, optional private .ics calendar exports with floating local times, event preparation checklists
 - [x] Budget breakdown, closeout/integrity reports, backup/restore of unpaid planning data
 - [x] PayPal SANDBOX OAuth, Orders v2 create/capture, strict server-side amount verification

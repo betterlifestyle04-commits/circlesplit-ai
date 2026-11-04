@@ -10,6 +10,7 @@ AI-assisted group budgeting with participant approval and PayPal Sandbox checkou
 - Organizer creates an event, records expenses and participants.
 - Deterministic integer-cent allocation makes equal or weighted shares add up to the exact event total.
 - Participants explicitly approve their shares.
+- A private invitation holder may withdraw approval before checkout; an organizer cannot demo-approve that share again until the holder approves via private link. This is fictional capability-based consent, not identity verification.
 - PayPal Orders v2 **sandbox** can create and capture test payments after server-side amount validation.
 - Sandbox transactions are kept distinct from clearly labeled simulated payments.
 - Optional Gemini expense parser proposes a structured budget, subject to organizer approval.

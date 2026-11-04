@@ -41,10 +41,18 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - A provider response with multiple purchase units, multiple captures, malformed identifiers or mismatched USD amounts is **ambiguous** and cannot mark a local payment completed. Capture attempts that have an uncertain outcome remain locked, and the organizer must check the **existing** PayPal order, never blindly create another order or retry a charge.
 - These rules apply to **mocked CI scenarios** and local sandbox database state. They do **not** replace PayPal as the external source of truth, persistent event logs, refund/dispute processing, or a live merchant reconciliation system.
 
+## Participant-controlled approval withdrawal (November 4, 2026)
+
+- An invited participant holding a valid, unexpired private bearer link can explicitly withdraw approval of their **current fictional, unpaid share**, even when the organizer demo previously approved it. The server records the withdrawal without changing payment records.
+- The withdrawal flag persists across RSVP updates and budget recalculations. New PayPal Sandbox orders, simulated contributions and organizer demo approvals are blocked while it is present; only a fresh private-link approval clears the flag. An event budget edit still revokes its old invitation, so the organizer must issue a replacement before the participant can approve again.
+- Withdrawing is refused once any payment order has been initiated or any simulated contribution has been recorded; it cannot undo or refund a PayPal transaction. The portal displays whether sandbox checkout has already started, and disables the withdrawal control then.
+- This is **capability-link consent in a fictional shared sandbox**, not verified human identity, legal consent evidence, recurring mandate management, or a real-money chargeback process. Whoever holds the current invitation token can act on behalf of the fictional participant. A shared judge organizer login still has other broad privileges.
+
 ## Money invariants
 
 - All allocation arithmetic uses integer cents.
 - PayPal amount is read from persisted, approved server data, not the browser.
+- Explicit participant withdrawal persists across budget recalculations and prevents new sandbox checkout until renewed private-link consent.
 - Budget changes invalidate approvals unless payment activity already exists; then editing is locked.
 - A participant's second order is rejected if any payment request already exists.
 - Idempotency request IDs are persisted before the PayPal API request.

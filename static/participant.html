@@ -55,7 +55,11 @@ button:focus-visible,select:focus-visible{outline:3px solid #1ba890;outline-offs
 <div class="row"><span>Approval</span><strong id="approval">Pending</strong></div>
 <div class="row"><span>Contribution</span><strong id="payment">Unpaid</strong></div>
 <div class="warn"><strong>Private-link RSVP and demo approval only.</strong> Approving records acceptance of this fictional share. It does not charge you, verify your identity, or grant access to PayPal. Anyone with this secret invitation URL can approve on your behalf. Do not share it publicly.</div>
-<button id="approve" type="button" disabled>I approve this amount</button>
+<div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px">
+ <button id="approve" type="button" disabled>I approve this amount</button>
+ <button id="withdraw-approval" class="refresh-agenda" type="button" disabled>Withdraw my approval</button>
+</div>
+<p style="font-size:12px">You can withdraw approval for this fictional share before PayPal Sandbox checkout begins. Withdrawal blocks organizer demo approval and new checkout until you explicitly approve again. It does not cancel a checkout already started, reverse a payment, or prove personal identity.</p>
 <p style="font-size:12px">Invitation expires: <strong id="expiry">—</strong></p>
 <div style="border-top:1px solid #edf2f1;margin-top:22px;padding-top:17px">
  <button id="forget-invitation" type="button" class="refresh-agenda">Forget this invitation on this device</button>
@@ -136,14 +140,18 @@ async function refresh(){
   const rsvp=d.rsvp_status||"pending";
   $("rsvp").textContent={going:"Going",maybe:"Maybe",declined:"Can't attend",pending:"Not answered"}[rsvp]||"Not answered";
   $("rsvp-choice").value=rsvp==="pending"?"":rsvp;
-  $("approval").textContent=d.approved?(d.approval_source==="participant_link"?"Approved via private link":"Previously approved in demo"):"Pending";
-  $("payment").textContent=d.status==="sandbox_paid"?"Sandbox captured":d.status==="demo_paid"?"Simulated":"Unpaid";
-  $("approve").disabled=Boolean(d.approved)||d.status!=="unpaid"||d.rsvp_status==="declined";
+  $("approval").textContent=d.approval_withdrawn?"Withdrawn by private link":
+   d.approved?(d.approval_source==="participant_link"?"Approved via private link":"Previously approved in demo"):"Pending";
+  $("payment").textContent=d.status==="sandbox_paid"?"Sandbox captured":
+   d.status==="demo_paid"?"Simulated":d.checkout_started?"Sandbox checkout started":"Unpaid";
+  $("approve").disabled=Boolean(d.approved)||d.status!=="unpaid"||d.rsvp_status==="declined"||Boolean(d.checkout_started);
   $("approve").textContent=d.approved?"Share approved":"I approve this amount";
+  $("withdraw-approval").disabled=d.status!=="unpaid"||Boolean(d.checkout_started)||Boolean(d.approval_withdrawn);
+  $("withdraw-approval").textContent=d.approval_withdrawn?"Approval withdrawn":"Withdraw my approval";
  }catch(err){
   if(expectedVersion!==invitationVersion||expectedToken!==token)return;
   $("agenda-calendar-download").disabled=true;currentAgendaRevision=0;
-  $("agenda-ack").disabled=true;$("agenda-items").replaceChildren();
+  $("agenda-ack").disabled=true;$("withdraw-approval").disabled=true;$("agenda-items").replaceChildren();
   $("details").hidden=true;$("title").textContent="Invitation unavailable";
   $("description").textContent="The invitation may be missing, expired, revoked or changed since the budget was edited.";
   message(err.message,true);
@@ -214,6 +222,17 @@ $("approve").addEventListener("click",async()=>{
  try{const r=await api("/api/participant/approve","POST");await refresh();message(r.already_approved?"Already approved. No additional action was taken.":"Your approval was recorded. No PayPal order or payment was created.",false)}
  catch(err){message(err.message,true);await refresh()}
 });
+$("withdraw-approval").addEventListener("click",async()=>{
+ if(!window.confirm("Withdraw approval for this fictional share? This blocks new sandbox checkout but cannot reverse a checkout or payment already started."))return;
+ const button=$("withdraw-approval");button.disabled=true;
+ try{
+  const r=await api("/api/participant/withdraw","POST");
+  await refresh();
+  message(r.already_withdrawn?
+   "This share was already withdrawn. No new checkout is authorized.":
+   "Approval withdrawn. New sandbox checkout and organizer demo approval are blocked until you explicitly approve again.",false);
+ }catch(err){await refresh();message("Could not withdraw approval: "+err.message,true);}
+});
 function forgetInvitation(){
  // Browser-only cleanup. The original link stays valid until the organizer
  // revokes it; this button never changes server-side consent or payment data.
@@ -223,6 +242,7 @@ function forgetInvitation(){
  $("details").hidden=true;
  $("agenda-calendar-download").disabled=true;
  $("agenda-ack").disabled=true;
+ $("withdraw-approval").disabled=true;
  $("agenda-items").replaceChildren();
  $("title").textContent="Invitation cleared";
  $("description").textContent="This tab no longer has invitation access. Open a fresh private link to view event details.";
