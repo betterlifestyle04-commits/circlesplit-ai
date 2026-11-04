@@ -27,6 +27,22 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Storage safety and reset detection
+
+The protected workspace now reports a database incarnation ID, persistent-mount
+status and a warning when hosted SQLite is on an ephemeral filesystem. A changed
+incarnation ID signals that the local DB was replaced and existing PayPal
+**Sandbox** orders may need independent reconciliation.
+
+The optional `CIRCLESPLIT_CHECKOUT_REQUIRES_DURABLE_DB=1` gate blocks **new**
+sandbox checkout when the SQLite file is not under a verified filesystem
+mount. Existing recovery, capture and signed webhook operations stay enabled.
+It is off by default so the current Free judge demo is unaffected. An
+[optional paid persistent-disk example](render.persistent.example.yaml) is
+provided but **not applied**; read [storage migration and safety notes](docs/PERSISTENT_STORAGE.md)
+before making any hosting or billing changes. A persistent disk is not an
+external backup or a production-ready financial database.
+
 ## Confirm that Render runs the latest code
 
 The public `/health` endpoint includes `git_commit`: a validated, 40-character
