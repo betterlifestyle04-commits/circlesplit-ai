@@ -107,6 +107,27 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
   and investigate unknown order IDs or ambiguous captures. Never treat this
   file as authorization to retry a charge or override financial locks.
 
+## Global read-only payment integrity audit (November 4, 2026)
+
+- Authenticated `GET /api/paypal/ledger-audit` scans all current local
+  PayPal Sandbox payment rows and participant references without contacting
+  PayPal or modifying records. It counts inconsistencies across the entire
+  DB but caps individual findings at 100 to bound response size.
+- Checks include missing event/participant, cross-event linkage, mismatched
+  share amounts, missing or unexpectedly present capture IDs, conflicting
+  participant payment states, repeated orders for a participant and unknown
+  local statuses. Findings identify only local numeric IDs, not names or
+  credentials. Duplicate capture IDs are also scanned defensively, while the
+  unique database index remains the primary write-time safeguard.
+- A payment in a pending/creating/capturing state is **not automatically an
+  integrity issue**. Unresolved orders are counted separately. Use the
+  existing recovery queue to inspect known orders or manually investigate
+  creation uncertainty; no automatic charge or capture retry is allowed.
+- No local audit can prove PayPal external settlement, receipt authenticity,
+  absence of upstream orders lost during a SQLite reset, or verified human
+  identity. A green result is local consistency only, never a merchant
+  accounting sign-off or permission to retry a payment.
+
 ## Money invariants
 
 - All allocation arithmetic uses integer cents.

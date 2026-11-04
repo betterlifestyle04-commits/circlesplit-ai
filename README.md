@@ -27,6 +27,27 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Read-only global PayPal Sandbox ledger integrity audit
+
+The private organizer **Activity → Local payment integrity audit** panel checks
+the entire current SQLite payment ledger on demand via
+`GET /api/paypal/ledger-audit`. It reports full-database counts and up to 100
+representative findings by local numeric record identifiers, with no
+participant names, bearer links or provider credentials in the response.
+
+It checks for missing events/participants, cross-event payment references,
+zero/invalid or mismatched contribution amounts, completed rows without
+capture IDs, capture IDs on incomplete rows, mismatched participant paid
+statuses, repeated PayPal orders for one participant, and simulated statuses
+that coexist with PayPal orders. **Unresolved checkouts alone are not treated
+as integrity violations**; they are counted separately and belong in the
+existing safe recovery queue. This audit makes no provider request and never
+mutates the database.
+
+A locally consistent result does **not** prove external PayPal settlement,
+capture existence upstream, identity, data durability or reconciliation
+completeness after an ephemeral storage reset. See the security notes.
+
 ## Private PayPal Sandbox reconciliation manifest (manual download)
 
 The organizer-authenticated **Activity → Save private reconciliation manifest** control
