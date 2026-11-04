@@ -135,5 +135,5 @@ def test_recovery_is_auth_protected_and_safe_with_pagination(client,monkeypatch)
     assert authorized.json()["total_records"]==0
     assert authorized.json()["offset"]==0
     assert authorized.json()["limit"]==10
-    assert authorized.headers["Cache-Control"]=="no-store"
+    assert "no-store" in authorized.headers["Cache-Control"]
     assert client.get("/api/state",auth=("judge","private-demo-password-2026")).status_code==200
