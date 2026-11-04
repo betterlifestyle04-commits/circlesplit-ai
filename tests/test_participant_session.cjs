@@ -60,7 +60,8 @@ function fakeOverview(){
 async function complete(pending){
  assert.ok(pending,"Expected one pending overview request");
  pending.resolve({ok:true,json:async()=>fakeOverview()});
- await Promise.resolve();await Promise.resolve();await Promise.resolve();
+ // Let both nested fetch/json promises and the view-render continuation run.
+ await new Promise(resolve=>setImmediate(resolve));
 }
 function select(context,fragment,saved){
  return vm.runInContext("selectInvitationToken",context)(fragment,saved);
