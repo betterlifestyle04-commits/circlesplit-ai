@@ -45,6 +45,21 @@ identity model and disaster recovery design.
 The gate is **off by default** to avoid breaking the present judge sandbox
 flow. The active Free blueprint remains unchanged. A warning is not a backup.
 
+## Compare saved private manifests after a suspected reset
+
+The organizer's protected **Activity → Compare private recovery snapshots**
+panel accepts an earlier and a later reconciliation manifest JSON file.
+Both are processed on the device, without uploading them. The browser checks
+the recorded SHA-256 digest for each file and reports aggregate changes.
+
+If the SQLite incarnation changes, local payment IDs may be reused. The
+comparison matches **known PayPal Sandbox order IDs only** across different
+incarnations; unknown-order creation attempts cannot be matched and require
+manual investigation. Missing an order in the new database does not prove
+that the PayPal order ceased to exist. Always inspect PayPal Sandbox directly.
+The exported manifest can contain names and payment identifiers, so keep the
+source files private and never commit them. A digest is not a signature.
+
 ## Save a reconciliation snapshot before a risky redeploy
 
 If the protected workspace is accessible and contains PayPal Sandbox orders,
