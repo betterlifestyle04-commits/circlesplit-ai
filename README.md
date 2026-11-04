@@ -29,7 +29,7 @@ Open http://127.0.0.1:8000. Test credentials go in server environment variables,
 
 ## Private PayPal Sandbox reconciliation manifest (manual download)
 
-The protected **Activity → Save private reconciliation manifest** control
+The organizer-authenticated **Activity → Save private reconciliation manifest** control
 downloads one JSON snapshot from `GET /api/paypal/reconciliation-export`. It
 includes **every current local payment attempt** (up to 10,000 records), its
 fictional event/participant mapping, exact USD cents, local status, creation
