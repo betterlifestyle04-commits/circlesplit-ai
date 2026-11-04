@@ -26,6 +26,14 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - This is a **demo safeguard**, not production-grade distributed rate limiting. Windows reset when a process restarts, do not coordinate across multiple processes/instances, and cover all users sharing a role together. A genuine public service needs durable account-level quotas, provider-side spend caps, monitoring, and abuse protections.
 - Judge demo testers may see a rate-limit message after repeated rapid calls; the response indicates when that provider action can be tried again. Never bypass PayPal's existing uncertain-payment locks merely to work around a 429.
 
+## Private invitation session isolation (November 4, 2026)
+
+- The participant portal now validates the **entire URL fragment** as exactly one `token` parameter. A malformed, duplicate or extra parameter clears any old saved invitation from that tab rather than silently displaying a different participant's details.
+- A newly supplied valid private link takes precedence over a saved tab token. A session refresh may reuse that tab's previous valid link, and successful incoming links work even when browser session storage is disabled.
+- The **Forget this invitation on this device** control removes the token from this tab's session storage, hides the participant view and invalidates in-flight view responses so late network replies cannot repopulate private details. The bearer fragment is removed from the browser address bar after reading.
+- Forgetting is **local browser cleanup only**, not revocation or deletion on the server. It does not undo an already submitted RSVP, share approval, or an existing PayPal sandbox checkout. Only the organizer can revoke a bearer invitation. This is still capability-link authorization, not verified personal identity.
+- The participant portal remains no-index/no-referrer and does not embed the private token in calendar exports, outgoing links or API URL query parameters.
+
 ## Money invariants
 
 - All allocation arithmetic uses integer cents.

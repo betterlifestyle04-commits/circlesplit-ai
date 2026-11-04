@@ -56,11 +56,36 @@ button:focus-visible,select:focus-visible{outline:3px solid #1ba890;outline-offs
 <div class="row"><span>Contribution</span><strong id="payment">Unpaid</strong></div>
 <div class="warn"><strong>Private-link RSVP and demo approval only.</strong> Approving records acceptance of this fictional share. It does not charge you, verify your identity, or grant access to PayPal. Anyone with this secret invitation URL can approve on your behalf. Do not share it publicly.</div>
 <button id="approve" type="button" disabled>I approve this amount</button>
-<p style="font-size:12px">Invitation expires: <strong id="expiry">—</strong></p></div>
+<p style="font-size:12px">Invitation expires: <strong id="expiry">—</strong></p>
+<div style="border-top:1px solid #edf2f1;margin-top:22px;padding-top:17px">
+ <button id="forget-invitation" type="button" class="refresh-agenda">Forget this invitation on this device</button>
+ <p style="font-size:12px;margin:9px 0 0">Use this when you are finished, especially on a shared device. This clears this browser tab's saved link; it does not revoke the link or undo a submitted RSVP or approval.</p>
+</div></div>
 <div class="message" id="message" role="status" aria-live="polite"></div>
 </div><footer>CircleSplit AI hackathon prototype · No live money movement or personal identity verification</footer></main>
 <script>"use strict";
-let token="",currentAgendaRevision=0;
+let token="",currentAgendaRevision=0,invitationVersion=0;
+const INVITATION_STORAGE_KEY="circlesplit-participant-token";
+const INVITATION_TOKEN_RE=/^[A-Za-z0-9_-]{40,128}$/;
+
+/**
+ * An explicit link always wins over any session token. If a supplied fragment
+ * is invalid, fail closed instead of showing an unrelated participant's data.
+ */
+function selectInvitationToken(fragment,storedToken){
+ if(typeof fragment==="string"&&fragment.length){
+  try{
+   const raw=fragment.startsWith("#")?fragment.slice(1):fragment;
+   const items=Array.from(new URLSearchParams(raw).entries());
+   if(items.length!==1||items[0][0]!=="token"||!INVITATION_TOKEN_RE.test(items[0][1]))
+    return {token:"",source:"invalid_link"};
+   return {token:items[0][1],source:"new_link"};
+  }catch(_){return {token:"",source:"invalid_link"};}
+ }
+ if(typeof storedToken==="string"&&INVITATION_TOKEN_RE.test(storedToken))
+  return {token:storedToken,source:"saved"};
+ return {token:"",source:"missing"};
+}
 const $=id=>document.getElementById(id);
 const format=n=>"$"+(n/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 function message(s,error){$("message").textContent=s;$("message").className="message show"+(error?" error":"")}
@@ -73,9 +98,13 @@ async function api(path,method,requestBody){
  return body;
 }
 async function refresh(){
+ const expectedToken=token,expectedVersion=invitationVersion;
  try{
-  if(!token)throw Error("Missing invitation token. Ask the organizer for a fresh private link.");
+  if(!expectedToken)throw Error("Missing invitation token. Ask the organizer for a fresh private link.");
   const d=await api("/api/participant/overview");
+  // Do not re-display stale private data if the user cleared the link while
+  // a request was still in flight.
+  if(expectedVersion!==invitationVersion||expectedToken!==token)return;
   $("details").hidden=false;$("title").textContent=d.event_name;
   $("description").textContent="Review the assigned fictional contribution below.";
   $("amount").textContent=format(d.share_cents);$("person").textContent=d.participant;
@@ -111,7 +140,14 @@ async function refresh(){
   $("payment").textContent=d.status==="sandbox_paid"?"Sandbox captured":d.status==="demo_paid"?"Simulated":"Unpaid";
   $("approve").disabled=Boolean(d.approved)||d.status!=="unpaid"||d.rsvp_status==="declined";
   $("approve").textContent=d.approved?"Share approved":"I approve this amount";
- }catch(err){$("agenda-calendar-download").disabled=true;currentAgendaRevision=0;$("agenda-ack").disabled=true;$("agenda-items").replaceChildren();$("details").hidden=true;$("title").textContent="Invitation unavailable";$("description").textContent="The invitation may have expired, been revoked, or changed after the budget was edited.";message(err.message,true);}
+ }catch(err){
+  if(expectedVersion!==invitationVersion||expectedToken!==token)return;
+  $("agenda-calendar-download").disabled=true;currentAgendaRevision=0;
+  $("agenda-ack").disabled=true;$("agenda-items").replaceChildren();
+  $("details").hidden=true;$("title").textContent="Invitation unavailable";
+  $("description").textContent="The invitation may be missing, expired, revoked or changed since the budget was edited.";
+  message(err.message,true);
+ }
 }
 $("agenda-calendar-download").addEventListener("click",async()=>{
  const button=$("agenda-calendar-download");
@@ -178,11 +214,34 @@ $("approve").addEventListener("click",async()=>{
  try{const r=await api("/api/participant/approve","POST");await refresh();message(r.already_approved?"Already approved. No additional action was taken.":"Your approval was recorded. No PayPal order or payment was created.",false)}
  catch(err){message(err.message,true);await refresh()}
 });
-try{
- const urlToken=new URLSearchParams(window.location.hash.slice(1)).get("token");
- if(urlToken&&/^[A-Za-z0-9_-]{40,128}$/.test(urlToken))sessionStorage.setItem("circlesplit-participant-token",urlToken);
- token=sessionStorage.getItem("circlesplit-participant-token")||"";
- if(window.location.hash)history.replaceState(null,"","/participant");
-}catch(e){token=""}
-refresh();
+function forgetInvitation(){
+ // Browser-only cleanup. The original link stays valid until the organizer
+ // revokes it; this button never changes server-side consent or payment data.
+ invitationVersion++;
+ token="";currentAgendaRevision=0;
+ try{sessionStorage.removeItem(INVITATION_STORAGE_KEY);}catch(_){}
+ $("details").hidden=true;
+ $("agenda-calendar-download").disabled=true;
+ $("agenda-ack").disabled=true;
+ $("agenda-items").replaceChildren();
+ $("title").textContent="Invitation cleared";
+ $("description").textContent="This tab no longer has invitation access. Open a fresh private link to view event details.";
+ message("Invitation removed from this browser tab. Previously submitted actions were not reversed.",false);
+}
+$("forget-invitation").addEventListener("click",forgetInvitation);
+(function initializeInvitation(){
+ const fragment=window.location.hash||"";
+ let stored="";
+ try{stored=sessionStorage.getItem(INVITATION_STORAGE_KEY)||"";}catch(_){}
+ const selection=selectInvitationToken(fragment,stored);
+ token=selection.token;
+ if(selection.source==="new_link"){
+  try{sessionStorage.setItem(INVITATION_STORAGE_KEY,token);}catch(_){}
+ }else if(selection.source!=="saved"){
+  try{sessionStorage.removeItem(INVITATION_STORAGE_KEY);}catch(_){}
+ }
+ // Never leave an invitation bearer token visible in the address bar.
+ if(fragment)history.replaceState(null,"",window.location.pathname+window.location.search);
+ refresh();
+})();
 </script></body></html>
