@@ -27,6 +27,21 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Safe payment recovery across large demo ledgers
+
+The protected **Activity → Safe payment recovery** view prioritizes unresolved
+sandbox orders even when they are older than hundreds of completed payments.
+The paginated `GET /api/paypal/recovery?limit=50&offset=0` endpoint returns
+complete local status totals and an `attention_count` calculated over the
+entire SQLite payment table. It includes orphaned/inconsistent payment records
+for manual review and exposes only existing known order IDs for safe status
+checks. Creating/capturing a new charge is **never** performed by this view.
+
+Pagination uses a bounded offset; changes between page requests can shift
+rows, so refresh from page one after reconciliation. This is local data only,
+not external provider settlement proof. See [security and recovery
+limitations](docs/SECURITY.md) before using it for a judging demo.
+
 ## Storage safety and reset detection
 
 The protected workspace now reports a database incarnation ID, persistent-mount
