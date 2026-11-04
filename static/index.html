@@ -445,7 +445,11 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
    <button class="btn small" onclick="load()">Refresh records</button></div><div id="transaction-list"></div></div>
   <div class="space"></div>
   <div class="card"><div class="section-heading"><h2>Safe payment recovery</h2>
-   <button class="btn small secondary" onclick="loadRecovery()">↻ Refresh recovery view</button></div>
+   <div class="row wrap">
+    <button class="btn small secondary" onclick="loadRecovery()">↻ Refresh recovery view</button>
+    <button class="btn small secondary" type="button" id="recovery-export" onclick="downloadReconciliationManifest()">↓ Save private reconciliation manifest</button>
+   </div></div>
+   <p class="notice">The JSON export includes fictional participant names and PayPal Sandbox order/capture identifiers. Store it privately. This local snapshot is not a PayPal receipt, verified settlement, or restorable database backup.</p>
    <p class="notice">No automatic retries, no second capture attempts. A failed or timed-out request may have reached PayPal; CircleSplit keeps the original record locked and offers reconciliation of existing order IDs only.</p>
    <div id="recovery-summary" class="row wrap" aria-live="polite"></div>
    <div id="recovery-rows" style="overflow-x:auto"><div class="empty">Open Activity to inspect pending sandbox orders.</div></div>
@@ -1108,6 +1112,33 @@ async function loadRecovery(offset=0){
   rows.innerHTML='<div class="empty">Could not load the recovery queue. Use manual sandbox inspection if a payment result is uncertain.</div>';
   notice("Payment recovery status could not be loaded: "+err.message,true);
  }
+}
+async function downloadReconciliationManifest(){
+ const button=el("recovery-export");
+ if(!window.confirm(
+  "Download a PRIVATE local PayPal Sandbox reconciliation snapshot? "+
+  "It includes fictional participant names and PayPal order/capture IDs. "+
+  "Store it securely. It is NOT proof of payment or an importable backup."
+ ))return;
+ button.disabled=true;
+ try{
+  const manifest=await request("/api/paypal/reconciliation-export");
+  if(manifest.kind!=="paypal-sandbox-reconciliation-manifest"||
+     manifest.schema_version!==1||manifest.mode!=="PAYPAL_SANDBOX"||
+     manifest.importable!==false||!Array.isArray(manifest.records)||
+     manifest.record_count!==manifest.records.length)
+   throw Error("Unexpected reconciliation manifest format");
+  const stamp=new Date().toISOString().slice(0,10);
+  const epoch=/^[a-f0-9-]{32,36}$/i.test(manifest.storage_epoch||"")?
+   manifest.storage_epoch.slice(0,12):"unknown";
+  offerDownload("circlesplit-private-sandbox-reconciliation-"+stamp+"-"+epoch+".json",
+   JSON.stringify(manifest,null,2),"application/json;charset=utf-8");
+  notice("Private local reconciliation snapshot saved with "+manifest.record_count+
+   " payment record(s). Keep it secure and compare with PayPal Sandbox externally. "+
+   "This is not a receipt or backup you can restore.",false);
+ }catch(err){
+  notice("Reconciliation manifest could not be downloaded: "+err.message,true);
+ }finally{button.disabled=false;}
 }
 async function paypalCheckout(pid){let e=event();try{let result=await post("/api/paypal/orders/"+e.id+"/"+pid);if(!result.approval_url||!result.approval_url.startsWith("https://"))throw Error("Invalid PayPal redirect");window.location.assign(result.approval_url)}catch(err){if(/already exists/i.test(err.message)){switchTab("activity");notice("An order already exists for this participant. Use Check PayPal on the Activity page to resume or verify it.",true)}else notice(err.message,true)}}
 async function verifyPayPalOrder(id){try{let result=await post("/api/paypal/order-status/"+encodeURIComponent(id));await load();if(result.verified){notice("Verified PayPal sandbox capture. Contribution recorded.",false)}else if(result.action==="approve"&&result.approval_url){if(window.confirm("PayPal is still waiting for sandbox buyer approval. Resume this existing checkout?"))window.location.assign(result.approval_url);else notice("Order not yet approved. No payment has been captured.",true)}else if(result.action==="capture"){if(window.confirm("PayPal confirms the sandbox buyer approved this order. Capture the approved test payment now?")){await post("/api/paypal/capture",{order_id:id});await load();notice("PayPal sandbox capture verified and recorded.",false)}else notice("PayPal approved the order; capture not requested.",true)}else notice("PayPal reports "+result.status+". "+(result.note||"No completed capture was verified. Do not start another payment while the result is uncertain."),true)}catch(err){notice("PayPal status check: "+err.message,true)}}
