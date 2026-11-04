@@ -19,6 +19,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] Hosted cross-origin mutation protections and no-store/private browser security headers (November 4, 2026)
 - [x] Hosted 60-second per-role request budgets for Gemini calls, PayPal order creation and PayPal reconciliation (per process; not production quotas)
 - [x] Public no-cache deployment health endpoint with verified Render Git SHA (source revision only)
+- [x] Protected database incarnation ID, verified-mount diagnostic, ephemeral storage warning, and opt-in fail-closed new-checkout guard
 - [x] MIT license, setup instructions, offline automated tests and CI
 
 ## Provider tests documented from November 2–3, 2026
@@ -30,7 +31,7 @@ See the README's **Verified provider smoke test (November 2–3, 2026)** for the
 
 ## Remaining before final submission
 - [ ] Individual organizer and participant accounts/roles and real identity-bound consent; shared judge Basic credentials and bearer links are limited substitutes
-- [ ] Durable storage, provider reconciliation backups, distributed abuse/rate limits, and individual tenancy isolation for real users
+- [ ] Actually provision durable storage and regular external backups, test recovery, and add distributed abuse/rate limits and individual tenancy isolation for real users
 - [ ] Automated reconciliation after ambiguous upstream timeouts; do not retry an uncertain charge automatically
 - [ ] Compare live /health git_commit with main SHA and verify public demo in incognito; distribute judge credentials only privately
 - [ ] Public YouTube demonstration under three minutes with no credentials or identifiable buyer details
