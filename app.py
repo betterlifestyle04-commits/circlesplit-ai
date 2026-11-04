@@ -47,6 +47,7 @@ async def demo_access_control(request: Request, call_next):
         participant_api = (
             (request.url.path == "/api/participant/overview" and request.method == "GET")
             or (request.url.path == "/api/participant/approve" and request.method == "POST")
+            or (request.url.path == "/api/participant/withdraw" and request.method == "POST")
             or (request.url.path == "/api/participant/rsvp" and request.method == "POST")
             or (request.url.path == "/api/participant/agenda/ack" and request.method == "POST")
             or (request.url.path == "/api/participant/calendar.ics" and request.method == "GET")
@@ -115,7 +116,7 @@ async def demo_access_control(request: Request, call_next):
     response = await call_next(request)
     if quota_headers:
         response.headers.update(quota_headers)
-    if request.url.path in ("/participant", "/api/participant/overview", "/api/participant/approve", "/api/participant/rsvp") or "/invite" in request.url.path:
+    if request.url.path in ("/participant", "/api/participant/overview", "/api/participant/approve", "/api/participant/withdraw", "/api/participant/rsvp") or "/invite" in request.url.path:
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
     if request.url.path == "/participant":
@@ -183,7 +184,8 @@ def initialize():
           id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL REFERENCES events(id),
           name TEXT NOT NULL, weight INTEGER NOT NULL DEFAULT 1,
           share_cents INTEGER NOT NULL DEFAULT 0, approved INTEGER NOT NULL DEFAULT 0,
-          status TEXT NOT NULL DEFAULT 'unpaid'
+          status TEXT NOT NULL DEFAULT 'unpaid',
+          approval_withdrawn_at TEXT
         );
         CREATE TABLE IF NOT EXISTS payments (
           id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, person_id INTEGER NOT NULL,
@@ -258,6 +260,8 @@ def initialize():
         columns = {row["name"] for row in c.execute("PRAGMA table_info(people)")}
         if "approval_source" not in columns:
             c.execute("ALTER TABLE people ADD COLUMN approval_source TEXT NOT NULL DEFAULT ''")
+        if "approval_withdrawn_at" not in columns:
+            c.execute("ALTER TABLE people ADD COLUMN approval_withdrawn_at TEXT")
         if "rsvp_status" not in columns:
             c.execute("ALTER TABLE people ADD COLUMN rsvp_status TEXT NOT NULL DEFAULT 'pending'")
         if "rsvp_updated" not in columns:
@@ -352,6 +356,7 @@ HISTORY_SUMMARIES = {
     "allocation_changed":"Allocation method changed",
     "organizer_approved":"Organizer demo approval recorded",
     "participant_approved":"Private-link approval recorded",
+    "participant_approval_withdrawn":"Private-link approval withdrawn; new checkout blocked",
     "participant_rsvp":"Private-link attendance response recorded",
     "invitation_rotated":"Private invitation replaced",
     "invitation_revoked":"Private invitation revoked",
@@ -1735,6 +1740,8 @@ def approve(eid: int, pid: int):
         p = c.execute("SELECT * FROM people WHERE id=? AND event_id=?", (pid,eid)).fetchone()
         if not p: raise HTTPException(404, "Participant not found")
         if p["status"] != "unpaid": raise HTTPException(409, "Already paid")
+        if p["approval_withdrawn_at"]:
+            raise HTTPException(409, "Participant withdrew approval. A new private-link approval is required.")
         if p["rsvp_status"] == "declined": raise HTTPException(409, "Participant declined attendance; review RSVP first")
         if p["share_cents"] < 1: raise HTTPException(409, "Cannot approve zero amount")
         c.execute("UPDATE people SET approved=1,approval_source='organizer_demo' WHERE id=?", (pid,))
@@ -1749,7 +1756,8 @@ def participant_from_invite(c, request: Request):
     digest = hashlib.sha256(bearer.encode("ascii")).hexdigest()
     row = c.execute(
         """SELECT l.*,p.id AS person_id,p.event_id,p.name AS person_name,
-                  p.share_cents,p.approved,p.approval_source,p.status,p.rsvp_status,
+                  p.share_cents,p.approved,p.approval_source,p.approval_withdrawn_at,
+                  p.status,p.rsvp_status,
                   p.agenda_ack_revision,p.agenda_ack_updated,
                   e.name AS event_name,e.date AS event_date,
                   e.agenda_revision,e.agenda_changed_at,e.created AS event_created
@@ -1882,6 +1890,11 @@ def participant_overview(request: Request):
             "share_cents":invitation["share_cents"],
             "approved":bool(invitation["approved"]),
             "approval_source":invitation["approval_source"] or "unspecified",
+            "approval_withdrawn":bool(invitation["approval_withdrawn_at"]),
+            "checkout_started":bool(c.execute(
+                "SELECT 1 FROM payments WHERE person_id=? LIMIT 1",
+                (invitation["person_id"],)
+            ).fetchone()),
             "status":invitation["status"],
             "rsvp_status":invitation["rsvp_status"],
             "expires_at":invitation["expires_at"],
@@ -1981,10 +1994,12 @@ def participant_approve(request: Request):
         if c.execute("SELECT 1 FROM payments WHERE person_id=? LIMIT 1",
                      (invitation["person_id"],)).fetchone():
             raise HTTPException(409,"Payment checkout already initiated")
-        if invitation["approved"]:
+        if invitation["approved"] and not invitation["approval_withdrawn_at"]:
             return {"ok":True,"already_approved":True,
                     "approval_source":invitation["approval_source"]}
-        c.execute("UPDATE people SET approved=1,approval_source='participant_link' WHERE id=?",
+        c.execute("""UPDATE people SET approved=1,
+                     approval_source='participant_link',approval_withdrawn_at=NULL
+                     WHERE id=?""",
                   (invitation["person_id"],))
         record_history(c,invitation["event_id"],"participant_approved",actor="participant_link",
                        details={"participant_id":invitation["person_id"],"share_cents":invitation["share_cents"]})
@@ -1992,12 +2007,43 @@ def participant_approve(request: Request):
             "payment_created":False}
 
 
+@app.post("/api/participant/withdraw")
+def participant_withdraw(request: Request):
+    """Withdraw consent to an unpaid fictional share, but never erase an order.
+
+    Withdrawal stays in effect through budget edits and attendance changes.
+    Only a fresh private-link approval clears it. An organizer demo approval
+    must not override this explicit participant objection.
+    """
+    with db() as c:
+        invitation = participant_from_invite(c, request)
+        pid = invitation["person_id"]
+        if invitation["status"] != "unpaid":
+            raise HTTPException(409, "Contribution already recorded; withdrawal cannot undo it")
+        if c.execute("SELECT 1 FROM payments WHERE person_id=? LIMIT 1",
+                     (pid,)).fetchone():
+            raise HTTPException(409, "Sandbox checkout already started. Contact the organizer; no payment was cancelled.")
+        if invitation["approval_withdrawn_at"]:
+            return {"ok": True, "already_withdrawn": True,
+                    "payment_changed": False, "approval_withdrawn": True}
+        c.execute("""UPDATE people
+                     SET approved=0,approval_source='',approval_withdrawn_at=?
+                     WHERE id=?""", (now(),pid))
+        record_history(c, invitation["event_id"], "participant_approval_withdrawn",
+                       actor="participant_link",
+                       details={"participant_id":pid,
+                                "share_cents":invitation["share_cents"]})
+    return {"ok": True, "already_withdrawn": False, "payment_changed": False,
+            "approval_withdrawn": True}
+
+
 @app.post("/api/events/{eid}/people/{pid}/simulate")
 def simulate(eid: int, pid: int):
     with db() as c:
         p = c.execute("SELECT * FROM people WHERE id=? AND event_id=?", (pid,eid)).fetchone()
         if not p: raise HTTPException(404,"Participant not found")
-        if not p["approved"]: raise HTTPException(409, "Approval required")
+        if not p["approved"] or p["approval_withdrawn_at"]:
+            raise HTTPException(409, "Valid current approval required")
         if p["rsvp_status"] == "declined": raise HTTPException(409, "Declined attendance; simulation blocked")
         if p["status"] != "unpaid": raise HTTPException(409, "Already recorded")
         if c.execute("SELECT 1 FROM payments WHERE person_id=? LIMIT 1", (pid,)).fetchone():
@@ -2196,7 +2242,8 @@ async def create_order(eid: int, pid: int, request: Request):
     with db() as c:
         p = c.execute("SELECT * FROM people WHERE id=? AND event_id=?", (pid,eid)).fetchone()
         if not p: raise HTTPException(404,"Participant not found")
-        if not p["approved"]: raise HTTPException(409,"Approval required")
+        if not p["approved"] or p["approval_withdrawn_at"]:
+            raise HTTPException(409,"Valid current approval required")
         if p["rsvp_status"] == "declined": raise HTTPException(409,"Declined attendance; new checkout blocked")
         if p["status"] != "unpaid" or p["share_cents"] < 1:
             raise HTTPException(409,"Contribution not payable")
