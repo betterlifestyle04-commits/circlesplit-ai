@@ -34,6 +34,13 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - Forgetting is **local browser cleanup only**, not revocation or deletion on the server. It does not undo an already submitted RSVP, share approval, or an existing PayPal sandbox checkout. Only the organizer can revoke a bearer invitation. This is still capability-link authorization, not verified personal identity.
 - The participant portal remains no-index/no-referrer and does not embed the private token in calendar exports, outgoing links or API URL query parameters.
 
+## Global sandbox capture integrity (November 4, 2026)
+
+- Every confirmed PayPal sandbox capture identifier must be **unique across the whole local payment ledger**, not merely within an individual event. SQLite enforces this with a unique partial index for nonempty capture IDs; if legacy records already reuse an identifier, initialization fails closed instead of silently trusting duplicate payments. Inspect and reconcile such records before attempting any migration.
+- Direct capture, existing-order reconciliation, and signed PayPal webhook processing now share a **single transactional settlement guard**. A repeat confirmation of the *same capture on the same order* is idempotent. A different capture on a previously completed order, or a capture already claimed by another order, returns a conflict and cannot inflate sandbox funding.
+- A provider response with multiple purchase units, multiple captures, malformed identifiers or mismatched USD amounts is **ambiguous** and cannot mark a local payment completed. Capture attempts that have an uncertain outcome remain locked, and the organizer must check the **existing** PayPal order, never blindly create another order or retry a charge.
+- These rules apply to **mocked CI scenarios** and local sandbox database state. They do **not** replace PayPal as the external source of truth, persistent event logs, refund/dispute processing, or a live merchant reconciliation system.
+
 ## Money invariants
 
 - All allocation arithmetic uses integer cents.
@@ -41,7 +48,8 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - Budget changes invalidate approvals unless payment activity already exists; then editing is locked.
 - A participant's second order is rejected if any payment request already exists.
 - Idempotency request IDs are persisted before the PayPal API request.
-- Only an exact USD COMPLETED PayPal capture changes sandbox payment status.
+- Only an exact USD COMPLETED, single-purchase-unit PayPal capture changes sandbox payment status.
+- A capture identifier is unique across all events and orders, including concurrent webhook/reconciliation paths.
 - Sandbox-paid and simulated-paid amounts are separate in API and UI.
 - PayPal request timeout can leave a pending order creation locked for manual reconciliation; NEVER clear the lock or retry a charge blindly.
 
