@@ -38,6 +38,21 @@ def test_ephemeral_render_status_never_exposes_real_db_path(tmp_path):
     assert "restart" in data["notice"]
 
 
+
+@pytest.mark.parametrize("flag,expected",[
+    ("1",True), ("true",True), ("TRUE",True), ("yes",True),
+    ("unexpected-value",True), ("on",True),
+    ("0",False), ("false",False), ("off",False), ("",False),
+])
+def test_storage_safety_flag_fails_closed_on_unknown_values(tmp_path,flag,expected):
+    readiness=guard.storage_readiness(tmp_path / "ledger.sqlite3",{
+        "RENDER":"true",
+        "CIRCLESPLIT_CHECKOUT_REQUIRES_DURABLE_DB":flag,
+    })
+    assert readiness["checkout_requires_persistent_mount"] is expected
+    assert readiness["sandbox_checkout_allowed"] is (not expected)
+
+
 def test_opt_in_gate_fails_closed_without_verified_mount(tmp_path):
     path = tmp_path / "db.sqlite3"
     result = guard.storage_readiness(path,{
