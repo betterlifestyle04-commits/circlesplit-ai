@@ -17,6 +17,8 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] Read-only PayPal recovery queue and checks of existing orders; no blind capture retry
 - [x] Full-ledger recovery totals, attention-first paginated queue and missing-record investigation safeguards
 - [x] Manual private Sandbox reconciliation JSON export with complete current local ledger, reset epoch, digest and no payment import (November 4, 2026)
+- [x] Browser-local, digest-checked comparison of private Sandbox manifests, with reset-aware PayPal order matching and no network upload (November 4, 2026)
+
 - [x] Global read-only ledger consistency audit, bounded numeric findings and distinct unresolved-order counts (November 4, 2026)
 - [x] Optional Gemini expense and task proposals with human review before any changes
 - [x] Hosted cross-origin mutation protections and no-store/private browser security headers (November 4, 2026)
