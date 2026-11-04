@@ -27,6 +27,30 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Transparent, reviewable participant cost shares
+
+A private invitation now explains **how the fictional contribution was
+calculated** before the participant approves it. The participant portal shows
+the total estimated event budget, the number of people sharing it, the
+equal/weighted split method, and cost-category subtotals. The view returns
+**no other participant names, individual shares, contact details or PayPal
+identifiers**. Amounts are integer USD cents, using the same largest-remainder
+allocator as the organizer.
+
+The server recomputes the full allocation before accepting private-link
+approval. A local inconsistency (for example, allocated shares not matching
+the category/budget totals) blocks approval, even from older API clients.
+The browser sends both **the displayed share and displayed total** as an
+optimistic quote check. If either has changed, the server returns HTTP 409
+and the participant must refresh and review before approving. Existing
+legacy API clients with no quote body remain supported, but they are still
+subject to the independent allocation-integrity check and invitation
+invalidation when budget changes.
+
+These are **estimates, not invoices or charges**. Approving this private-link
+quote does not verify the participant's real identity or call PayPal. The
+organizer still controls actual Sandbox order creation separately.
+
 ## Compare two private reconciliation snapshots without uploading them
 
 In the protected **Activity → Compare private recovery snapshots** panel,

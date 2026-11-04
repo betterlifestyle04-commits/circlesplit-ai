@@ -56,7 +56,12 @@ function fakeOverview(){
  return {event_name:"A private event",event_date:"2026-11-16",participant:"Private tester",
   share_cents:1100,expires_at:"2099-01-01T00:00:00Z",agenda:[],
   agenda_revision:0,rsvp_status:"pending",approved:false,status:"unpaid",
-  checkout_started:false,approval_withdrawn:false};
+  checkout_started:false,approval_withdrawn:false,
+  share_breakdown:{
+   total_cents:2200,allocated_cents:2200,share_cents:1100,
+   participant_count:2,split_method:"equal",allocation_consistent:true,
+   categories:[{category:"food",total_cents:2200}]
+  }};
 }
 async function complete(pending,payload=fakeOverview()){
  assert.ok(pending,"Expected one pending overview request");
@@ -177,4 +182,80 @@ test("withdrawal controls explicitly distinguish consent from refund",()=>{
  assert.match(html,/id="withdraw-approval"/);
  assert.match(html,/does not cancel a checkout already started/);
  assert.match(code,/\/api\/participant\/withdraw/);
+});
+
+test("private participant sees an aggregate, exact-cent share explanation",async()=>{
+ const view=boot({fragment:"#token="+TOKEN_A});
+ await complete(view.pending[0],{
+  ...fakeOverview(),
+  share_breakdown:{
+   ...fakeOverview().share_breakdown,total_cents:22000,allocated_cents:22000,
+   participant_count:4,split_method:"weighted",
+   categories:[{category:"venue",total_cents:12000},{category:"food",total_cents:10000}]
+  }
+ });
+ assert.equal(view.el("quote-total").textContent,"$220.00");
+ assert.equal(view.el("quote-people").textContent,"4");
+ assert.equal(view.el("quote-method").textContent,"Weighted allocation");
+ const rows=view.el("quote-categories").children;
+ assert.equal(rows.length,2);
+ assert.equal(rows[0].children[0].textContent,"venue");
+ assert.equal(rows[0].children[1].textContent,"$120.00");
+ assert.equal(rows[1].children[1].textContent,"$100.00");
+ assert.match(view.el("quote-note").textContent,/No other participant's name/);
+ assert.equal(view.el("approve").disabled,false);
+});
+
+test("approval submits exact reviewed share and budget to server",async()=>{
+ const view=boot({fragment:"#token="+TOKEN_A});
+ await complete(view.pending[0]);
+ const act=view.handlers.get("approve:click")();
+ assert.equal(view.pending.length,2);
+ assert.equal(view.pending[1].url,"/api/participant/approve");
+ assert.equal(view.pending[1].init.method,"POST");
+ assert.deepEqual(JSON.parse(view.pending[1].init.body),{
+  expected_share_cents:1100,expected_total_cents:2200
+ });
+ view.pending[1].resolve({ok:true,json:async()=>({ok:true,approved:true})});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(view.pending.length,3);
+ await complete(view.pending[2],{...fakeOverview(),approved:true});
+ await act;
+ assert.equal(view.el("approve").disabled,true);
+ assert.match(view.el("message").textContent,/reviewed fictional share/);
+});
+
+test("inconsistent or missing allocation disables approval and cannot request payment",async()=>{
+ for(const breakdown of [undefined,{
+  ...fakeOverview().share_breakdown,allocation_consistent:false
+ }]){
+  const view=boot({fragment:"#token="+TOKEN_A});
+  await complete(view.pending[0],{...fakeOverview(),share_breakdown:breakdown});
+  assert.equal(view.el("approve").disabled,true);
+  assert.match(view.el("quote-note").textContent,/organizer must correct/);
+  await view.handlers.get("approve:click")();
+  assert.equal(view.pending.length,1,"Approval cannot be sent without verified costs");
+  assert.match(view.el("message").textContent,/cost breakdown is not verified/);
+ }
+});
+
+test("forgetting the invitation clears the aggregate cost quote",async()=>{
+ const view=boot({fragment:"#token="+TOKEN_A});
+ await complete(view.pending[0]);
+ assert.equal(view.el("quote-total").textContent,"$22.00");
+ view.handlers.get("forget-invitation:click")();
+ assert.equal(view.el("quote-total").textContent,"—");
+ assert.equal(view.el("quote-categories").children.length,0);
+ assert.equal(view.el("quote-note").textContent,"Invitation cleared.");
+});
+
+test("participant share breakdown renders category labels using text-only DOM",async()=>{
+ const view=boot({fragment:"#token="+TOKEN_A});
+ await complete(view.pending[0],{...fakeOverview(),share_breakdown:{
+  ...fakeOverview().share_breakdown,
+  categories:[{category:"<img src=x onerror=alert(1)>",total_cents:2200}]
+ }});
+ const label=view.el("quote-categories").children[0].children[0];
+ assert.equal(label.textContent,"<img src=x onerror=alert(1)>");
+ assert.doesNotMatch(code,/quote-categories.*innerHTML/);
 });

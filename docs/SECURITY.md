@@ -18,6 +18,27 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - Responses set `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a restrictive `Permissions-Policy`. API responses, the protected workspace, and invitation portal are private and not stored by browser caches.
 - Configure `PUBLIC_BASE_URL` to the true HTTPS deployment origin; avoid changing this to arbitrary or untrusted sites. These safeguards are covered by offline regression tests and do not prove that the hosted demo is suitable for real money or real participant data.
 
+## Private-link cost transparency and stale quote checks (November 4, 2026)
+
+- A participant bearer invitee receives **aggregate** cost categories,
+  total event budget, split method, participant count, and their own assigned
+  share. Individual names or individual shares of other participants, raw
+  expense titles, payment-provider identifiers, and organizer credentials
+  are not included in the participant overview.
+- The quote is generated from current local expense and participant records
+  with the deterministic integer-cent allocation algorithm. Approval fails
+  with HTTP 409 when the current share allocation is inconsistent—even when
+  the caller omits the optional quote object for older API compatibility.
+- The browser sends the reviewed `expected_share_cents` and
+  `expected_total_cents` in the private-link POST approval. A mismatch
+  fails closed with HTTP 409, and the browser refreshes the current details.
+  A legacy client may omit this optional quote, but it cannot bypass the
+  underlying invitation share check or independent allocation consistency.
+- No PayPal call, simulation, payment, or verified identity is created by
+  viewing or approving the breakdown. This improves **informed fictional
+  consent**, not authorization for a real transfer. Links are bearer secrets;
+  never share them publicly.
+
 ## Hosted provider request budgets (November 4, 2026)
 
 - When `CIRCLESPLIT_HOSTED=1`, each authenticated shared demo role has a **per-process sliding 60-second window**: 12 total Gemini parse/task-plan attempts, 6 new PayPal Sandbox order attempts, and 30 PayPal status/capture attempts. Separate owner and judge roles have separate budgets. Calls returning provider errors still count toward that budget.
