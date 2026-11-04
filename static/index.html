@@ -50,6 +50,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
      <b>Integration testing workspace</b> · All PayPal payments are sandbox-only. Use fictional participants.
      <a href="/judge">Read the judge walkthrough ↗</a>
      <div id="judge-health" class="muted" style="margin-top:5px">Checking test environment…</div>
+     <div id="storage-warning" class="banner" role="status" style="display:none;margin-top:10px"></div>
    </div>
   <section id="overview" class="tabpan active">
    <div class="title"><div><div class="eyebrow">YOUR WORKSPACE</div><h1>Money together. Made simple.</h1><p class="sub">Manage group spending, create fair splits, and make every contribution transparent.</p></div><button class="btn primary" onclick="switchTab('events');focusNew()">＋ Create event</button></div>
@@ -1547,8 +1548,24 @@ async function checkReadiness(){
    el("judge-health").textContent="Gemini key: "+(d.ai_key_present?"present":"missing")+
     " · PayPal sandbox keys: "+(d.paypal_key_pair_present?"present":"missing")+
     " · Webhook ID: "+(d.webhook_id_present?"present":"missing")+
-    " · Verified captures in current temporary storage: "+d.current_store_verified_captures+
-    ". Credentials present do not prove provider health; demo records may reset after deployment.";
+    " · Verified captures in current database: "+d.current_store_verified_captures+
+    " · Current dataset ID: "+(d.storage_epoch||"unknown")+
+    ". Credentials present do not prove provider health.";
+   const warning=el("storage-warning");
+   warning.style.display="block";
+   if(d.storage==="ephemeral-sqlite"){
+    warning.textContent="Storage warning: Hosted SQLite is on an unverified, potentially temporary filesystem. "
+     +"A restart or redeploy may erase events, consent, and PayPal Sandbox recovery records. "
+     +"Save only fictional test data and check the dataset ID after redeployment. "
+     +(d.sandbox_checkout_allowed?"New sandbox checkout is allowed in this demo, but is not durable.":"New sandbox checkout is safely disabled until a persistent mount is verified.");
+   }else if(d.storage==="mounted-sqlite"){
+    warning.textContent="SQLite is located beneath a verified mount. "
+     +"Use external backups, keep a single application instance and confirm provider records after changes. "
+     +"Dataset ID: "+d.storage_epoch+".";
+   }else{
+    warning.textContent="Local SQLite persistence is not independently verified. "
+     +"Back up the database file before resetting your development environment.";
+   }
  }catch(e){el("judge-health").textContent="Readiness check unavailable: "+e.message;}
 }
 el("expense-category").innerHTML=categoryOptions("other");
