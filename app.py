@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, Query
+from fastapi import FastAPI, HTTPException, Request, Query, Body
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
@@ -1892,11 +1892,60 @@ def invited_participant_calendar(request:Request):
                                invited["agenda_changed_at"],invited["event_created"])
 
 
+def participant_share_breakdown(c, invitation):
+    """Private aggregated cost explanation; never exposes other people's data.
+
+    Recalculate the expected share from the same deterministic allocator used
+    by the organizer. Flag local inconsistencies rather than presenting a
+    corrupted quote as an amount suitable for approval.
+    """
+    event_id=invitation["event_id"]
+    event=c.execute("SELECT strategy FROM events WHERE id=?", (event_id,)).fetchone()
+    people=[dict(row) for row in c.execute(
+        "SELECT id,weight,share_cents FROM people WHERE event_id=? ORDER BY id",
+        (event_id,)
+    )]
+    category_rows=c.execute(
+        """SELECT category,SUM(cents) AS total_cents FROM expenses
+           WHERE event_id=? GROUP BY category ORDER BY category""",
+        (event_id,)
+    ).fetchall()
+    categories=[{"category":row["category"],"total_cents":row["total_cents"]}
+                for row in category_rows]
+    budget=sum(row["total_cents"] for row in category_rows)
+    allocated=sum(int(p["share_cents"]) for p in people)
+    expected={}
+    try:
+        if people and budget>=0:
+            expected=allocate(budget,people,event["strategy"])
+    except (ValueError,TypeError,KeyError):
+        expected={}
+    consistent=(bool(people) and bool(expected)
+                and allocated==budget
+                and all(p["share_cents"]==expected.get(p["id"]) for p in people)
+                and expected.get(invitation["person_id"])==invitation["share_cents"]
+                and budget>=0)
+    return {
+        "total_cents":budget,
+        "allocated_cents":allocated,
+        "share_cents":invitation["share_cents"],
+        "participant_count":len(people),
+        "split_method":event["strategy"],
+        "categories":categories,
+        "allocation_consistent":consistent,
+        "notice":("Fictional estimated costs only. Shares use exact-cent largest-"
+                  "remainder rounding. This breakdown does not request or "
+                  "verify a PayPal payment."),
+    }
+
+
 @app.get("/api/participant/overview")
 def participant_overview(request: Request):
     with db() as c:
         invitation = participant_from_invite(c,request)
+        breakdown=participant_share_breakdown(c,invitation)
         return {
+            "share_breakdown":breakdown,
             "event_name":invitation["event_name"],
             "event_date":invitation["event_date"],
             "agenda_revision":invitation["agenda_revision"],
@@ -2002,11 +2051,29 @@ def participant_rsvp(request: Request, data: RSVPInput):
     }
 
 
+class ParticipantQuoteApproval(BaseModel):
+    model_config=ConfigDict(extra="forbid",strict=True)
+    expected_share_cents: int = Field(ge=1,le=10_000_000)
+    expected_total_cents: int = Field(ge=0,le=10_000_000)
+
+
 @app.post("/api/participant/approve")
-def participant_approve(request: Request):
-    # A single bearer-capability approval, not a PayPal charge or identity proof.
+def participant_approve(
+    request: Request, data: ParticipantQuoteApproval | None = Body(default=None)
+):
+    # Capability-only consent, never a charge or proof of identity. The
+    # browser submits the exact cost quote it displayed. Legacy API callers
+    # can omit it, but NO caller may approve an inconsistent allocation.
     with db() as c:
         invitation=participant_from_invite(c,request)
+        breakdown=participant_share_breakdown(c,invitation)
+        if not breakdown["allocation_consistent"]:
+            raise HTTPException(409,
+                "Local cost allocation is inconsistent; ask the organizer to review before approving")
+        if data is not None and (data.expected_share_cents != invitation["share_cents"]
+             or data.expected_total_cents != breakdown["total_cents"]):
+            raise HTTPException(409,
+                "The reviewed share or budget changed; refresh the invitation before approving")
         if invitation["status"]!="unpaid":
             raise HTTPException(409,"Contribution already recorded")
         if invitation["rsvp_status"]=="declined":
