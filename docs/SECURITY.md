@@ -84,7 +84,7 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 
 ## Private sandbox reconciliation manifest (November 4, 2026)
 
-- The authenticated `GET /api/paypal/reconciliation-export` endpoint returns
+- The organizer-only `GET /api/paypal/reconciliation-export` endpoint returns
   an **explicitly requested, read-only, complete local snapshot** for manual
   PayPal Sandbox review, not payment creation/capture. It includes current
   local payment IDs, fictional event and participant associations, amounts,
@@ -94,7 +94,7 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
   provider API keys, internal request/capture idempotency secrets or raw webhook
   events. It does include private participant names and provider IDs; **never
   share, commit, post publicly or email without appropriate protection**.
-- The response uses no-store/private headers, download disposition, a
+- Separately enabled guest-judge credentials are explicitly forbidden from accessing this export. The response uses no-store/private headers, download disposition, a
   schema-specific `kind`, `importable: false`, and a SHA-256 digest of the
   record array. The digest can detect accidental content changes but **is
   not authenticated or a proof of PayPal payment**. The planning restore API
