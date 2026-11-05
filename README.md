@@ -317,6 +317,14 @@ external payment verification.
 
 ## Guided, sandbox-safe evaluation for hackathon judges
 
+The public guest demonstration also includes a fully browser-local
+**Resilience lab** tab. It mirrors the exact-cent no-show and fictional
+replacement search without accessing the protected workspace, PayPal,
+Gemini, or shared SQLite. The public calculator never writes back to the
+selected event, approvals, payments or localStorage; only the existing
+fictional event editor can save local demo changes. This provides judges
+a safe immediate way to evaluate an interactive contingency scenario.
+
 The public [judge walkthrough](https://circlesplit-ai-demo.onrender.com/judge)
 now includes a five-stage, interactive checklist: public browser simulation,
 Gemini proposal, private-link share consent, optional PayPal Sandbox capture,

@@ -6,7 +6,7 @@
   const STEPS = Object.freeze([
     Object.freeze({
       id: "public", label: "Public simulation", title: "Explore the fictional planning demo",
-      expected: "Try a $10 budget split among 3 people: the shares must be $3.34, $3.33 and $3.33. All contributions on this page remain SIMULATED.",
+      expected: "Try a $10 split among 3 people ($3.34, $3.33, $3.33). In the public Resilience lab, two no-shows from a $220 / 20-person group with a $12 cap need one extra fictional attendee. All contributions are SIMULATED.",
       href: "#judge-public", scope: "No account required"
     }),
     Object.freeze({
