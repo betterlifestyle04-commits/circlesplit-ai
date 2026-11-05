@@ -27,6 +27,33 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Safe preflight for new PayPal Sandbox checkout
+
+In the protected organizer **Contributions** tab, **Check readiness**
+performs a read-only `GET /api/paypal/checkout-readiness/{event_id}/{person_id}`
+and shows why a fictional participant is or is not eligible for a **new**
+PayPal Sandbox order: approval/withdrawal, declined RSVP, unpaid positive
+share, existing or uncertain prior order, full-event exact-cent allocation,
+configuration, and the optional verified-durable-storage requirement. This
+endpoint does not contact PayPal, create an order, move money or mutate the
+ledger. A green result is a *local readiness signal*, not a PayPal provider
+status check or guarantee that checkout will succeed.
+
+**PayPal test** now runs that preflight, requires explicit confirmation
+including the exact USD amount, and redirects only to an HTTPS
+`sandbox.paypal.com` hostname after order creation. The server independently
+**repeats local checks in the same SQLite transaction that inserts the new
+order**, including verifying every participant's exact allocation against the
+current event expenses. If local data is inconsistent, the server returns 409
+before allocating any payment row or making a PayPal request, regardless of
+what an earlier read-only preflight said.
+
+Once an order may exist, a timeout, lost response, or unexpected redirect
+must **never** trigger another checkout. Use **Activity → Safe payment
+recovery** and compare against the provider's sandbox records. All PayPal
+traffic remains sandbox only; this does not address ephemeral storage or
+external payment verification.
+
 ## Guided, sandbox-safe evaluation for hackathon judges
 
 The public [judge walkthrough](https://circlesplit-ai-demo.onrender.com/judge)
