@@ -38,6 +38,10 @@ def attendance_stress_curve(total_cents, people, strategy, maximum_absent, max_s
     tested_maximum = min(maximum_absent, len(candidates))
     baseline = allocate(total_cents, people, strategy)
     initial_peak = max(baseline.values())
+    # New fictional attendees have weight 1 and receive distinct IDs beyond
+    # all existing IDs, including the members removed in the stress scenario.
+    next_id = max(ids)
+
     first_breach = None
     rows = []
     for absent_count in range(tested_maximum + 1):
@@ -49,7 +53,34 @@ def attendance_stress_curve(total_cents, people, strategy, maximum_absent, max_s
         over = highest > max_share_cents
         if over and first_breach is None:
             first_breach = absent_count
+
+        # Exhaustively test the bounded 0..50 additional-attendee counts rather
+        # than assuming largest-remainder allocations are strictly monotonic.
+        # This preserves exact-cent correctness for weighted group allocations.
+        replacement_limit = min(50, 200 - len(remaining))
+        best_peak, best_count, feasible_count = highest, 0, (0 if not over else None)
+        tested = 1
+        if over:
+            projected_people = list(remaining)
+            for count in range(1, replacement_limit + 1):
+                projected_people.append({"id": next_id + count, "weight": 1})
+                projected_shares = allocate(total_cents, projected_people, strategy)
+                projected_peak = max(projected_shares.values())
+                tested += 1
+                if (projected_peak, count) < (best_peak, best_count):
+                    best_peak, best_count = projected_peak, count
+                if projected_peak <= max_share_cents:
+                    feasible_count = count
+                    best_peak, best_count = projected_peak, count
+                    break
         rows.append({
+            "replacements_feasible": feasible_count is not None,
+            "minimum_replacements_needed": feasible_count,
+            "best_replacement_count": best_count,
+            "best_replacement_largest_share_cents": best_peak,
+            "replacement_gap_cents": max(0, best_peak - max_share_cents),
+            "maximum_replacements_considered": replacement_limit,
+            "replacement_candidates_tested": tested,
             "absent_people": absent_count,
             "remaining_people": len(remaining),
             "largest_share_cents": highest,
