@@ -10,6 +10,25 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Checkout preflight and fail-closed allocation check (November 5, 2026)
+
+- The protected `GET /api/paypal/checkout-readiness/{event_id}/{person_id}`
+  only reads local data and checks PayPal **configuration**, not provider
+  availability. It reports non-secret, finite blocker codes and an amount.
+  A green result is advisory and not a payment or capture authorization.
+- The actual `POST /api/paypal/orders/{event_id}/{person_id}` reuses the
+  same local checks *inside the SQLite write transaction* before inserting
+  any payment attempt. All participant shares must exactly match the
+  deterministic allocator for the current event expenses. A corrupted or
+  stale allocation is rejected with HTTP 409 and does not reach PayPal.
+- The hosted page asks for explicit confirmation and validates that the
+  approval redirect uses HTTPS on the PayPal Sandbox hostname. If a provider
+  response times out or has an unexpected redirect, the local lock remains
+  and organizers must reconcile that existing attempt rather than retry.
+- This is not external settlement verification. The gate cannot make Free
+  SQLite durable, guarantee an upstream order did not exist before a reset,
+  or replace independent identities or real financial controls.
+
 ## Public guided judge walkthrough (November 5, 2026)
 
 - `/judge` is deliberately public, uses a static five-stage walkthrough and
