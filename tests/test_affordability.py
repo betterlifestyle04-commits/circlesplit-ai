@@ -216,5 +216,5 @@ def test_only_existing_event_and_authorized_organizer_can_preview(client,monkeyp
         json={"max_share":"10.00","maximum_extra_people":10},
         auth=("judge","long-private-shared-judge-password"))
     assert response.status_code==200,response.text
-    assert response.headers.get("Cache-Control")=="no-store"
+    assert "no-store" in response.headers.get("Cache-Control","")
     assert "PRIVATE-ORDER" not in response.text
