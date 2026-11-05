@@ -5,6 +5,22 @@ from fastapi.testclient import TestClient
 from domain import cents, allocate
 import paypal
 
+
+async def approved_sandbox_details_from_local_payment(order_id):
+    """Offline PayPal GET stub for an authorized Sandbox buyer approval."""
+    import app
+    with app.db() as c:
+        p=c.execute("SELECT * FROM payments WHERE order_id=?",(order_id,)).fetchone()
+        assert p is not None
+        return {
+            "id":order_id,"intent":"CAPTURE","status":"APPROVED",
+            "purchase_units":[{
+                "custom_id":f'{p["event_id"]}:{p["person_id"]}',
+                "reference_id":f'{p["event_id"]}-{p["person_id"]}',
+                "amount":{"currency_code":"USD","value":f'{p["amount_cents"]/100:.2f}'}
+            }]
+        }
+
 def test_strict_cents():
     assert cents("1.23")==123
     for bad in ["0","-1","nan","1.999","100000.01","infinity",None]:
@@ -113,6 +129,7 @@ def test_mocked_capture_and_webhook_replay(client,monkeypatch):
         }]}}]}
     monkeypatch.setattr(paypal,"order",fake_order)
     monkeypatch.setattr(paypal,"capture",fake_capture)
+    monkeypatch.setattr(paypal,"details",approved_sandbox_details_from_local_payment)
     client.post(f"/api/paypal/orders/{eid}/{pid}")
     assert client.post("/api/paypal/capture",json={"order_id":"TEST-ORDER-456"}).status_code==200
     assert client.post("/api/paypal/capture",json={"order_id":"TEST-ORDER-456"}).json()["already_recorded"] is True
@@ -964,6 +981,7 @@ def test_history_tracks_one_verified_capture_and_no_duplicate_webhook(client,mon
     async def verified_webhook(*args): return True
     monkeypatch.setattr(paypal,"order",fake_order)
     monkeypatch.setattr(paypal,"capture",fake_capture)
+    monkeypatch.setattr(paypal,"details",approved_sandbox_details_from_local_payment)
     monkeypatch.setattr(paypal,"verify_webhook",verified_webhook)
     assert client.post(f"/api/paypal/orders/{eid}/{pid}").status_code==200
     path=f"/api/events/{eid}/history"
@@ -1542,6 +1560,7 @@ def test_capture_timeout_stays_locked_until_existing_order_is_reconciled(client,
             ).fetchone()["status"]=="capturing"
         raise HTTPException(502,"PayPal sandbox request failed")
     monkeypatch.setattr(paypal,"capture",failed_capture)
+    monkeypatch.setattr(paypal,"details",approved_sandbox_details_from_local_payment)
     first=client.post("/api/paypal/capture",json={"order_id":"SAFE-RECOVERY-ORDER-9"})
     assert first.status_code==502
     again=client.post("/api/paypal/capture",json={"order_id":"SAFE-RECOVERY-ORDER-9"})
