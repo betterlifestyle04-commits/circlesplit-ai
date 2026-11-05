@@ -414,6 +414,24 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
       <div style="overflow-x:auto"><table><thead><tr><th>Participant</th><th>Weight</th><th>Current</th><th>Projected</th><th>Change</th></tr></thead>
       <tbody id="scenario-shares"><tr><td colspan="5" class="muted">Run a scenario to see participant impacts.</td></tr></tbody></table></div>
     </div>
+    <div class="card" style="margin-top:20px">
+      <div class="section-heading"><h2>Affordability target</h2><span class="pill neutral">Exact cents · No changes</span></div>
+      <p class="small muted">Find the minimum extra fictional attendees needed so that <b>every person's hypothetical share</b> stays at or below your target. We test every group size up to your limit, including weighted splits. New attendees are assumed to have weight 1.</p>
+      <p id="affordability-target" class="small muted">Select an event to calculate affordability.</p>
+      <form id="affordability-form" class="formgrid" style="margin-top:12px">
+        <div class="field"><label for="affordability-cap">Maximum per-person share (USD)</label>
+          <input id="affordability-cap" value="10.00" placeholder="e.g. 10.00" inputmode="decimal" required></div>
+        <div class="field"><label for="affordability-extra">Maximum additional attendees to consider</label>
+          <input id="affordability-extra" type="number" min="0" max="50" step="1" value="50" required></div>
+        <div class="field"><label for="affordability-strategy">Hypothetical allocation</label>
+          <select id="affordability-strategy" class="select">
+            <option value="equal">Equal split</option><option value="weighted">Weighted split</option>
+          </select></div>
+        <button class="btn primary" id="affordability-run" type="submit">Find affordable group size</button>
+      </form>
+      <div id="affordability-results" class="empty" role="status" aria-live="polite" style="margin-top:15px">Enter your target and calculate a safe what-if plan.</div>
+      <p class="notice" style="margin-top:12px">Advisory only. A new attendee has not agreed to pay, and a result does not change the existing expense plan, approval, private invitation, or PayPal Sandbox order. Real changes can be locked after checkout begins.</p>
+    </div>
   </section>
     <section id="closeout" class="tabpan">
    <div class="title"><div><div class="eyebrow">EVENT CLOSEOUT PREVIEW</div>
@@ -850,7 +868,7 @@ function explainMember(id){
  }catch(err){el("split-explanation").textContent="Unable to explain this share: "+err.message}
 }
 function focusNew(){setTimeout(function(){el("new-name").focus()},100)}
-function selectEvent(id){eventId=Number(id);resetAgendaEditor();cancelEventDetailsEditor();cancelExpenseEditor();cancelParticipantEditor();clearCloseout();el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();render()}
+function selectEvent(id){eventId=Number(id);resetAgendaEditor();cancelEventDetailsEditor();cancelExpenseEditor();cancelParticipantEditor();clearCloseout();el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();resetAffordability();render()}
 async function cloneSelectedEvent(){
  const e=event();if(!e)return;
  const name=window.prompt("New event name (expenses and participants will be copied, payments will not)",("Copy of "+e.name).slice(0,90));
@@ -869,6 +887,65 @@ function resetScenario(){
  const result=el("scenario-results"),table=el("scenario-shares");
  if(result){result.className="empty";result.textContent="Choose assumptions and click Calculate scenario.";}
  if(table)table.innerHTML='<tr><td colspan="5" class="muted">No scenario calculated.</td></tr>';
+}
+function resetAffordability(){
+ const root=el("affordability-results");
+ if(root){root.className="empty";root.textContent="Enter your target and calculate a safe what-if plan.";}
+}
+async function previewAffordability(evt){
+ evt.preventDefault();
+ const chosenEvent=event();
+ if(!chosenEvent){notice("Create or select an event before checking affordability.",true);return;}
+ const eid=chosenEvent.id,button=el("affordability-run");
+ const assumptions={
+  max_share:el("affordability-cap").value.trim(),
+  maximum_extra_people:Number(el("affordability-extra").value),
+  strategy:el("affordability-strategy").value
+ };
+ const assumptionsKey=JSON.stringify(assumptions);
+ button.disabled=true;button.textContent="Calculating…";
+ try{
+  const d=await post("/api/events/"+eid+"/affordability",assumptions);
+  if(event()?.id!==eid||JSON.stringify({
+      max_share:el("affordability-cap").value.trim(),
+      maximum_extra_people:Number(el("affordability-extra").value),
+      strategy:el("affordability-strategy").value
+     })!==assumptionsKey){
+    resetAffordability();return;
+  }
+  const rec=d?.recommendation;
+  if(!d||d.mode!=="SANDBOX_PLANNING_ONLY"||d.read_only!==true||
+     typeof d.feasible!=="boolean"||!rec||
+     d.event_id!==eid||typeof d.has_existing_sandbox_orders!=="boolean"||
+     ![d.cap_cents,d.budget_cents,d.current_people,d.approved_people,d.tested_maximum_extra_people,
+       d.remaining_largest_share_gap_cents,rec.additional_people,rec.total_people,
+       rec.largest_share_cents,rec.smallest_share_cents].every(Number.isSafeInteger)||
+     (d.feasible&&!Number.isSafeInteger(d.minimum_additional_people))||
+     (!d.feasible&&d.minimum_additional_people!==null)||
+     (d.current_largest_share_cents!==null&&!Number.isSafeInteger(d.current_largest_share_cents)))
+    throw Error("Invalid affordability preview response.");
+  const root=el("affordability-results");
+  root.className="";
+  const status=d.feasible?
+    "Within target: "+d.minimum_additional_people+" additional attendee(s) needed.":
+    "Not achievable within "+d.tested_maximum_extra_people+" additional attendee(s).";
+  root.innerHTML='<p class="pill '+(d.feasible?"":"orange")+'">'+safe(d.feasible?"Target achievable":"Further changes needed")+'</p>'+
+    '<p style="margin:14px 0 7px"><strong>'+safe(status)+'</strong></p>'+
+    '<div class="row between" style="padding:9px 0"><span>Per-person limit</span><b>'+money(d.cap_cents)+'</b></div>'+
+    '<div class="row between" style="padding:9px 0"><span>Current largest exact share</span><b>'+
+      (d.current_largest_share_cents===null?"No participants yet":money(d.current_largest_share_cents))+'</b></div>'+
+    '<div class="row between" style="padding:9px 0"><span>Suggested group</span><b>'+
+      rec.total_people+' people (+'+rec.additional_people+')</b></div>'+
+    '<div class="row between" style="padding:9px 0"><span>Projected largest share</span><b>'+money(rec.largest_share_cents)+'</b></div>'+
+    '<div class="row between" style="padding:9px 0"><span>Projected smallest share</span><b>'+money(rec.smallest_share_cents)+'</b></div>'+
+    (d.feasible?'':'<p class="notice" style="margin-top:10px">Even the lowest maximum share found is '+
+      money(d.remaining_largest_share_gap_cents)+' above your target. Consider reducing costs, raising the cap, or revisiting weights.</p>')+
+    (d.has_existing_sandbox_orders?'<p class="notice" style="margin-top:10px">Sandbox checkout already started for this event. Its actual budget may be locked; this scenario does not bypass that lock.</p>':
+      d.approved_people?'<p class="notice" style="margin-top:10px">Existing approvals must be reviewed again before any actual budget or participant changes.</p>':'')+
+    '<p class="small muted" style="margin-top:12px">'+safe(d.notice)+'</p>';
+  notice("Affordability calculated using the exact-cent server allocator. The event and payment ledger are unchanged.",false);
+ }catch(err){el("affordability-results").className="empty";el("affordability-results").textContent="Calculation unavailable: "+err.message;notice("Affordability preview: "+err.message,true);}
+ finally{button.disabled=false;button.textContent="Find affordable group size";}
 }
 function signedMoney(v){return (v>0?"+":v<0?"−":"")+money(Math.abs(v));}
 async function previewScenario(evt){
@@ -1691,6 +1768,7 @@ function render(){
  let select=el("event-select");select.innerHTML=events.map(function(x){return '<option value="'+x.id+'">'+safe(x.name)+'</option>'}).join("");if(e)select.value=e.id;
  el("ai-indicator").textContent=state.ai_configured?"AI key set · verify with test":"AI not connected";
   const scenarioTarget=el("scenario-target");if(scenarioTarget)scenarioTarget.textContent=e?"Current event: "+e.name+" · "+money(e.total_cents)+" · "+e.people.length+" participants":"No event selected. Create one in Events.";
+  const affordabilityTarget=el("affordability-target");if(affordabilityTarget)affordabilityTarget.textContent=e?"Testing: "+e.name+" · "+money(e.total_cents)+" · "+e.people.length+" participants":"Select an event in Events first.";
 
  if(!e){renderPlanning(null);renderEventCategories(null);el("rsvp-summary").textContent="No event selected.";showAgenda(null);showTasks(null);el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
  renderPlanning(e);
@@ -1787,6 +1865,8 @@ el("ai-plan-form").addEventListener("submit",generateTaskPlan);
 el("bulk-people-form").addEventListener("submit",importParticipants);
 el("scenario-form").addEventListener("submit",previewScenario);
 ["scenario-adjustment","scenario-people","scenario-strategy"].forEach(function(id){el(id).addEventListener("input",resetScenario);});
+el("affordability-form").addEventListener("submit",previewAffordability);
+["affordability-cap","affordability-extra","affordability-strategy"].forEach(function(id){el(id).addEventListener("input",resetAffordability);});
 el("agenda-form").addEventListener("submit",saveAgenda);
 el("task-form").addEventListener("submit",createTask);el("backup-file").addEventListener("change",previewPlanningBackup);
 el("planning-form").addEventListener("submit",savePlanning);
