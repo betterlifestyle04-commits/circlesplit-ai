@@ -13,6 +13,7 @@ There is deliberately NO operation that overwrites or imports into a live DB.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -81,7 +82,7 @@ def _open_readonly(path: Path) -> sqlite3.Connection:
 def _inventory(path: str | Path) -> dict:
     source = _regular_file(path)
     try:
-        with _open_readonly(source) as connection:
+        with closing(_open_readonly(source)) as connection:
             check = connection.execute("PRAGMA integrity_check").fetchone()
             if check != ("ok",):
                 raise SnapshotError("SQLite integrity_check failed.")
@@ -187,6 +188,7 @@ def create(source: str | Path, output: str | Path) -> dict:
     tmp_manifest = None
     db_published = False
     manifest_published = False
+    succeeded = False
     try:
         fd, tmp_db_name = tempfile.mkstemp(prefix=".circlesplit-db-",suffix=".sqlite3",
                                           dir=str(dest.parent))
@@ -195,9 +197,10 @@ def create(source: str | Path, output: str | Path) -> dict:
         tmp_db.chmod(0o600)
         # Live DB may be in WAL mode or receiving writes; copying its bytes
         # directly would be an inconsistent financial snapshot.
-        with _open_readonly(src) as source_db:
-            with sqlite3.connect(str(tmp_db), timeout=20) as target_db:
+        with closing(_open_readonly(src)) as source_db:
+            with closing(sqlite3.connect(str(tmp_db), timeout=20)) as target_db:
                 source_db.backup(target_db, pages=256, sleep=0.05)
+                target_db.commit()
         if tmp_db.stat().st_size > MAX_BYTES:
             raise SnapshotError("SQLite snapshot exceeds the operator size limit.")
         inspected = _inventory(tmp_db)
@@ -226,14 +229,18 @@ def create(source: str | Path, output: str | Path) -> dict:
         manifest_published = True
         if verify(dest) != manifest:
             raise SnapshotError("Post-publication snapshot verification failed.")
+        succeeded = True
         return manifest
     except (OSError, sqlite3.DatabaseError) as exc:
         raise SnapshotError("Offline snapshot failed; inspect permissions and available disk space.") from exc
     finally:
         # If sidecar creation or validation fails, never leave a seemingly
         # complete orphan DB or accidentally remove a prior user's file.
-        if db_published and not manifest_published:
-            dest.unlink(missing_ok=True)
+        if not succeeded:
+            if manifest_published:
+                _manifest_path(dest).unlink(missing_ok=True)
+            if db_published:
+                dest.unlink(missing_ok=True)
         for item in (tmp_db, tmp_manifest):
             if item is not None:
                 item.unlink(missing_ok=True)
