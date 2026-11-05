@@ -267,6 +267,24 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
   instance ownership and an identity model before real users. Never claim that
   this diagnostic creates durable storage, real bank accounts, or true escrow.
 
+## Aggregated local Sandbox recovery-risk overview (November 5, 2026)
+
+`GET /api/paypal/recovery` includes a protected read-only `risk` summary
+calculated over the **entire current local SQLite ledger**, independent of
+its paginated order list. The status categories distinguish known-created
+orders, ambiguous order-creation attempts, previously attempted captures,
+and malformed/inconsistent local records. There is **no remote provider
+lookup, mutation, reconciliation, or retry**. Reported unverified request
+face value is not collected or lost money; a payment may exist upstream even
+if its local database record has vanished. Exceeding the 60-minute age
+threshold never permits automatic duplicate order/capture requests.
+
+The summary uses aggregate counts only and never includes account details,
+participant names, approval tokens, request IDs, provider order IDs, or
+capture IDs. It inherits the existing hosted organizer Basic-auth and
+no-store security policy. A clean local overview cannot prove actual PayPal
+settlement or durable offsite storage.
+
 ## Complete PayPal Sandbox recovery queue (November 4, 2026)
 
 - The owner/judge-authenticated `GET /api/paypal/recovery` now derives category totals and `attention_count` from **all local payment records**, never just a truncated response. Previously, it counted only the newest 200 rows and could understate unresolved payment attempts.
