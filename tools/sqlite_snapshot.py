@@ -27,6 +27,12 @@ import sys
 import tempfile
 import uuid
 
+# Direct CLI execution adds tools/ rather than the project root to sys.path.
+# Import only repository-owned, read-only ledger audit code.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ledger_audit import local_ledger_audit
+
 KIND = "circlesplit-sandbox-sqlite-snapshot"
 SCHEMA_VERSION = 1
 MAX_BYTES = 512 * 1024 * 1024
@@ -34,6 +40,7 @@ MAX_MANIFEST_BYTES = 8192
 REQUIRED_TABLES = ("events", "expenses", "people", "payments",
                    "webhook_events", "storage_identity")
 COUNT_KEYS = REQUIRED_TABLES + ("verified_captures", "unresolved_payments")
+MAX_LEDGER_AUDIT_ROWS = 50_000
 
 
 class SnapshotError(Exception):
@@ -262,8 +269,43 @@ def create(source: str | Path, output: str | Path) -> dict:
                 Path(str(tmp_db)+suffix).unlink(missing_ok=True)
 
 
+def _ledger_review(path: Path) -> dict:
+    """Independent, read-only semantic audit; never expose payment identifiers.
+
+    Hash/integrity checks can pass even if payments refer to the wrong event,
+    or a completed capture is not reflected in its participant's status.
+    A bounded number of rows avoids loading an unbounded financial ledger.
+    """
+    try:
+        with closing(_open_readonly(path)) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only=ON")
+            size = conn.execute("SELECT COUNT(*) FROM payments").fetchone()[0]
+            if size > MAX_LEDGER_AUDIT_ROWS:
+                raise SnapshotError("Ledger too large for bounded offline semantic audit.")
+            # max_findings=0 ensures no per-person or provider identifiers are
+            # retained in the report; issue_counts are aggregated by code.
+            result = local_ledger_audit(conn, max_findings=0)
+            if result["payment_records_checked"] != size:
+                raise SnapshotError("Ledger audit did not inspect every payment.")
+            return {
+                "status": result["status"],
+                "payment_records_checked": result["payment_records_checked"],
+                "unresolved_orders": result["unresolved_orders"],
+                "issue_count": result["issue_count"],
+                "issue_counts": result["issue_counts"],
+            }
+    except sqlite3.DatabaseError as exc:
+        raise SnapshotError("Offline ledger audit requires a complete compatible payment schema.") from exc
+
+
 def drill(snapshot: str | Path) -> dict:
-    """Isolated rehearsal of restoring data for inspection, never the live DB."""
+    """Isolated, read-only recovery rehearsal with local payment integrity review.
+
+    Returns a review status, not a PayPal settlement or operational sign-off.
+    Even when semantic issues exist, backup evidence is preserved for manual
+    investigation rather than modifying a potentially inconsistent ledger.
+    """
     source = _regular_file(snapshot)
     original = verify(source)
     with tempfile.TemporaryDirectory(prefix="circlesplit-restore-drill-") as folder:
@@ -276,7 +318,8 @@ def drill(snapshot: str | Path) -> dict:
         if (inventory["database_epoch"] != original["database_epoch"]
                 or inventory["counts"] != original["counts"]):
             raise SnapshotError("Isolated restore rehearsal did not preserve ledger counts.")
-    return original
+        review = _ledger_review(candidate)
+    return {**original, "ledger_review": review}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -299,12 +342,24 @@ def main(argv: list[str] | None = None) -> int:
     except (SnapshotError, OSError) as exc:
         print("FAILED: " + str(exc), file=sys.stderr)
         return 2
-    # No names, private tokens or provider order/capture identifiers in output.
-    print(json.dumps({"status":"PASS","operation":args.action,
-          "database_epoch_prefix":manifest["database_epoch"][:12],
-          "snapshot_sha256":manifest["snapshot_sha256"],
-          "counts":manifest["counts"]},sort_keys=True))
-    return 0
+    # A structurally verified backup can still contain inconsistent payments.
+    # Distinguish that from a clean rehearsal and signal CI/operators via
+    # a dedicated nonzero exit code. No names or payment IDs are printed.
+    review = manifest.get("ledger_review")
+    needs_review = bool(review and review["status"] == "needs_review")
+    output = {
+        "status": "NEEDS_REVIEW" if needs_review else "PASS",
+        "operation": args.action,
+        "database_epoch_prefix": manifest["database_epoch"][:12],
+        "snapshot_sha256": manifest["snapshot_sha256"],
+        "counts": manifest["counts"],
+    }
+    if review is not None:
+        output["local_ledger_review"] = review
+        output["warning"] = ("Read-only local database checks cannot prove "
+                             "PayPal settlement or make lost records recoverable.")
+    print(json.dumps(output, sort_keys=True))
+    return 3 if needs_review else 0
 
 
 if __name__ == "__main__":

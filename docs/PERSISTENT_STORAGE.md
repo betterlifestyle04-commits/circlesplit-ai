@@ -130,6 +130,20 @@ Windows operators must restrict NTFS ACLs manually.
 The `verify` command compares size, SHA-256, schema and database identity
 and re-counts records without writing data. The `drill` command verifies
 the copy, reads a temporary *isolated* rehearsal copy, and discards it.
+The isolated `drill` now also runs the existing **read-only local ledger
+audit** on the copied database, checking payment/event/participant links,
+exact stored amount agreement, completed-capture consistency, duplicate
+capture IDs and multiple orders per person. The command returns only
+aggregated issue codes and counts. An unresolved Sandbox order is counted
+but is **not** automatically an integrity violation.
+
+The CLI exits `0` for a complete, locally consistent drill, `2` for
+snapshot/integrity/schema verification failure, or `3` when the backup
+is structurally intact but local payment anomalies require manual review.
+A report of `NEEDS_REVIEW` must never trigger a payment retry or automated
+financial import. The semantic scan is limited to 50,000 payment records
+to avoid unbounded processing.
+
 Neither operation restores data into the running service. For actual disaster
 recovery, stop the service, compare private manifests and the Sandbox provider
 ledger externally, and design an operator-reviewed migration plan. **Never
