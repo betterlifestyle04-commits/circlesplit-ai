@@ -27,6 +27,34 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Browser-local database continuity warnings
+
+The protected organizer workspace now remembers a **privacy-minimal
+checkpoint in the current browser**: the 12-character dataset incarnation
+prefix, verified PayPal Sandbox capture count, webhook-event count, and
+observation timestamp. It never saves participant names, amounts, order or
+capture IDs, invitation links, credentials, full database contents or
+payment provider responses in browser storage.
+
+On startup, CircleSplit compares the protected `GET /api/judge-readiness`
+response to the previous checkpoint. A **different incarnation** or a
+**drop in previously observed capture/webhook counts** shows a prominent
+warning across the workspace, without overwriting the earlier checkpoint.
+Healthy observations update the previous **highest counts**. The Activity
+tab allows an explicit read-only refresh and an acknowledgement that can
+replace the browser baseline only after a fresh, unchanged dataset check,
+and only after the operator confirms they have separately investigated
+the old PayPal Sandbox records.
+
+This is a **local warning signal, not an external backup, automatic
+monitor, cryptographic receipt, or provider reconciliation**. It is
+browser-specific, cannot detect data loss before a first observation,
+cannot prevent resets, and cannot recover deleted transactions. Browsers
+with storage disabled show that the warning mechanism is unavailable.
+Never create a new payment merely because a local record disappeared.
+For private manual investigation, use the existing read-only
+reconciliation export and browser-only snapshot comparison.
+
 ## Verified Sandbox buyer approval before capture
 
 Starting a capture now performs a fresh **PayPal Sandbox GET of the existing
