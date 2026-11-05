@@ -2467,6 +2467,44 @@ def add_bulk(eid: int, data: BulkInput):
         record_history(c,eid,"expenses_bulk_added",details={"count":len(clean),"total_cents":sum(x[1] for x in clean)})
     return {"ok":True,"added":len(clean)}
 
+def sandbox_payment_epoch(c):
+    """Read the physical SQLite incarnation inside the payment snapshot."""
+    identity = c.execute(
+        "SELECT incarnation_id FROM storage_identity WHERE id=1"
+    ).fetchone()
+    if not identity or not identity["incarnation_id"]:
+        raise HTTPException(409,
+            "Local Sandbox database identity is unavailable. Investigate "
+            "the existing PayPal order; do not retry any charge.")
+    return identity["incarnation_id"]
+
+
+def same_sandbox_payment_after_provider(c, original, expected_epoch):
+    """Bind a late provider result to its exact original local payment.
+
+    A remote GET or capture occurs OUTSIDE the SQLite transaction. Render
+    Free can recreate SQLite and reuse numeric IDs. Checking only payment.id
+    (or even order_id) is insufficient to identify the original request.
+    This helper runs INSIDE the new write transaction before any mutation.
+    """
+    if sandbox_payment_epoch(c) != expected_epoch:
+        raise HTTPException(409,
+            "Local Sandbox database changed while PayPal was responding. "
+            "Investigate the original provider order manually; do not retry.")
+    latest = c.execute(
+        "SELECT * FROM payments WHERE id=?", (original["id"],)
+    ).fetchone()
+    stable = (
+        "id", "event_id", "person_id", "amount_cents", "request_id",
+        "capture_key", "order_id", "created",
+    )
+    if latest is None or any(latest[key] != original[key] for key in stable):
+        raise HTTPException(409,
+            "Local Sandbox payment record changed while PayPal was responding. "
+            "Investigate the original provider order manually; do not retry.")
+    return latest
+
+
 def settle_verified_sandbox_capture(c, payment, capture_id):
     """Record exactly one global PayPal sandbox capture atomically.
 
@@ -2671,6 +2709,7 @@ async def check_existing_order(order_id: str):
         if row is None:
             raise HTTPException(404, "Unknown sandbox order")
         record = dict(row)
+        epoch = sandbox_payment_epoch(c)
     if record["status"] == "completed":
         if not record["capture_id"]:
             raise HTTPException(409,"Local payment status lacks a verified capture identifier")
@@ -2678,33 +2717,49 @@ async def check_existing_order(order_id: str):
     if record["status"] not in ("created","capturing"):
         raise HTTPException(409, "Order cannot be verified from this state")
     details = await paypal.details(order_id)
-    if details.get("id") != order_id or details.get("intent") != "CAPTURE":
+    if not isinstance(details, dict) or details.get("id") != order_id or details.get("intent") != "CAPTURE":
         raise HTTPException(409, "PayPal order reference or intent mismatch")
     units = details.get("purchase_units")
     if not isinstance(units, list) or len(units) != 1:
         raise HTTPException(409, "PayPal order does not have exactly one purchase unit")
     unit = units[0]
-    amount = unit.get("amount") or {}
+    if not isinstance(unit, dict) or not isinstance(unit.get("amount"), dict):
+        raise HTTPException(409, "Invalid PayPal Sandbox purchase unit or amount")
+    amount = unit["amount"]
     if (amount.get("currency_code") != "USD"
         or not paypal.same_amount(amount.get("value"),record["amount_cents"])):
         raise HTTPException(409, "Sandbox order amount or currency mismatch")
     if unit.get("custom_id") not in (None, f'{record["event_id"]}:{record["person_id"]}'):
         raise HTTPException(409, "Sandbox order participant mismatch")
+    if unit.get("reference_id") not in (None, f'{record["event_id"]}-{record["person_id"]}'):
+        raise HTTPException(409, "Sandbox order event reference mismatch")
     status = details.get("status")
     if status == "COMPLETED":
         verified = paypal.completed_capture(details,record["amount_cents"])
         if not verified:
             raise HTTPException(409, "PayPal reports completion but no matching capture was found")
         with db() as c:
-            latest=c.execute("SELECT * FROM payments WHERE id=?", (record["id"],)).fetchone()
+            latest = same_sandbox_payment_after_provider(c, record, epoch)
             settle_verified_sandbox_capture(c,latest,verified["id"])
         return {"status":"COMPLETED","action":"done","verified":True}
+    # A webhook or a concurrent capture can change local state during the
+    # upstream GET. Never offer a stale capture/approval action.
+    with db() as c:
+        latest = same_sandbox_payment_after_provider(c, record, epoch)
+        if latest["status"] == "completed":
+            if not latest["capture_id"]:
+                raise HTTPException(409,"Local completion lacks a verified capture identifier")
+            return {"status":"COMPLETED","action":"done","verified":True}
+        if latest["status"] not in ("created","capturing"):
+            raise HTTPException(409,
+                "Local Sandbox order changed during provider reconciliation")
+        current_status = latest["status"]
     if status == "APPROVED":
         # A previous capture may still be in flight or its result ambiguous.
         # Never suggest a second capture request after we mark it capturing.
-        return {"status":status,"action":"capture" if record["status"]=="created" else "pending",
+        return {"status":status,"action":"capture" if current_status=="created" else "pending",
                 "verified":False,
-                "note":"Capture was already attempted; continue checking this order, never start a second capture." if record["status"]=="capturing" else ""}
+                "note":"Capture was already attempted; continue checking this order, never start a second capture." if current_status=="capturing" else ""}
     if status in ("CREATED","PAYER_ACTION_REQUIRED"):
         approval_url = paypal.approval_link(details)
         return {"status":status,"action":"approve" if approval_url else "pending",
@@ -2760,6 +2815,7 @@ async def capture_order(data: CaptureInput):
         if p["status"] != "created":
             raise HTTPException(409,"Capture already attempted or order not ready; use Check PayPal to reconcile")
         record = dict(p)
+        epoch = sandbox_payment_epoch(c)
     # A mistaken/early capture must NOT mark the local order 'capturing':
     # first verify the existing upstream order is approved and that its
     # participant reference, exact cents, currency and intent still agree.
@@ -2770,18 +2826,14 @@ async def capture_order(data: CaptureInput):
         # An earlier webhook/remote capture could have already completed.
         # Reconcile this exact provider capture, NEVER capture again.
         with db() as c:
-            latest=c.execute("SELECT * FROM payments WHERE id=?",(record["id"],)).fetchone()
-            if latest is None or latest["order_id"]!=record["order_id"]:
-                raise HTTPException(409,"Local payment changed during provider reconciliation")
+            latest=same_sandbox_payment_after_provider(c,record,epoch)
             settled=settle_verified_sandbox_capture(c,latest,previous_capture)
         return {"ok":True,"status":"completed","mode":"PAYPAL_SANDBOX",
                 "already_recorded":not settled,"reconciled_only":True}
     # Protect against a webhook or parallel capture changing the local row
     # while the PayPal GET was in flight. Only one request can acquire lock.
     with db() as c:
-        latest=c.execute("SELECT * FROM payments WHERE id=?",(record["id"],)).fetchone()
-        if latest is None or latest["order_id"]!=record["order_id"]:
-            raise HTTPException(409,"Local payment changed while checking PayPal")
+        latest=same_sandbox_payment_after_provider(c,record,epoch)
         if latest["status"]=="completed" and latest["capture_id"]:
             return {"ok":True,"already_recorded":True,"status":"completed"}
         if latest["status"]!="created":
@@ -2798,7 +2850,7 @@ async def capture_order(data: CaptureInput):
     if not verified:
         raise HTTPException(409,"PayPal has not confirmed the exact completed capture")
     with db() as c:
-        latest=c.execute("SELECT * FROM payments WHERE id=?", (record["id"],)).fetchone()
+        latest=same_sandbox_payment_after_provider(c,record,epoch)
         settle_verified_sandbox_capture(c,latest,verified["id"])
     return {"ok":True,"status":"completed","mode":"PAYPAL_SANDBOX"}
 
