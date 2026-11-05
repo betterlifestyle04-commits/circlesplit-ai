@@ -10,6 +10,36 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Signed Sandbox webhook outcome audit (November 6, 2026)
+
+The existing public `POST /api/paypal/webhook` still requires valid
+PayPal signature verification before any database mutation. A non-object
+JSON envelope or invalid webhook event identifier fails locally with
+HTTP 400; a failed signature still cannot create payment or audit rows.
+Valid signed `PAYMENT.CAPTURE.COMPLETED` events with an unknown local
+order, missing order reference, malformed capture resource or mismatched
+currency/cents now receive a **non-settlement outcome** recorded in
+`webhook_events.outcome`. Other provider event types are counted
+separately. Exact matches use the preexisting global capture uniqueness
+and payment state settlement guard. A conflicting capture raises HTTP
+409 and rolls back the event insertion to allow provider retry/manual
+investigation, preserving financial correctness.
+
+The migration introduces a non-null `outcome` column defaulting to
+`legacy_unclassified`. Previous signed webhook IDs are preserved and
+**not** retrospectively declared paid. The protected read-only
+`GET /api/paypal/webhook-audit` returns aggregate outcome counts;
+the Activity UI validates those counts and renders only fixed labels
+and numbers. Neither API nor UI exposes webhook, capture or order IDs,
+credential material, invitation tokens, event metadata or raw
+provider payloads.
+
+The audit is local-only. Render Free SQLite loss can erase webhook
+observations, and a signed unmatched capture may arrive before local
+order creation finishes. The feature does not automatically retry
+captures, recreate orders, reconcile PayPal, or restore lost records.
+Manual operator comparison with PayPal Sandbox remains required.
+
 ## Hosted judge credentials cannot operate PayPal Sandbox (November 5, 2026)
 
 On `CIRCLESPLIT_HOSTED=1`, Basic authentication marks successful
