@@ -21,11 +21,23 @@ function response(){
   first_target_breach_at_absences:2,
   projections:[
    {absent_people:0,remaining_people:20,largest_share_cents:1100,
-    smallest_share_cents:1100,largest_share_increase_cents:0,over_target:false},
+    smallest_share_cents:1100,largest_share_increase_cents:0,over_target:false,
+    replacements_feasible:true,minimum_replacements_needed:0,
+    best_replacement_count:0,best_replacement_largest_share_cents:1100,
+    replacement_gap_cents:0,maximum_replacements_considered:50,
+    replacement_candidates_tested:1},
    {absent_people:1,remaining_people:19,largest_share_cents:1158,
-    smallest_share_cents:1157,largest_share_increase_cents:58,over_target:false},
+    smallest_share_cents:1157,largest_share_increase_cents:58,over_target:false,
+    replacements_feasible:true,minimum_replacements_needed:0,
+    best_replacement_count:0,best_replacement_largest_share_cents:1158,
+    replacement_gap_cents:0,maximum_replacements_considered:50,
+    replacement_candidates_tested:1},
    {absent_people:2,remaining_people:18,largest_share_cents:1223,
-    smallest_share_cents:1222,largest_share_increase_cents:123,over_target:true}
+    smallest_share_cents:1222,largest_share_increase_cents:123,over_target:true,
+    replacements_feasible:true,minimum_replacements_needed:1,
+    best_replacement_count:1,best_replacement_largest_share_cents:1158,
+    replacement_gap_cents:0,maximum_replacements_considered:50,
+    replacement_candidates_tested:2}
   ],notice:"Read-only no-show preview, no state changes."
  };
 }
@@ -89,6 +101,10 @@ test("preview uses only protected read-only planning endpoint and renders exact 
  assert.match(h.el("attendance-risk-results").innerHTML,/Target breached once 2 attendee/);
  assert.match(h.el("attendance-risk-results").innerHTML,/\$12\.23/);
  assert.match(h.el("attendance-risk-results").innerHTML,/Above cap/);
+ assert.match(h.el("attendance-risk-results").innerHTML,/Possible recovery/);
+ assert.match(h.el("attendance-risk-results").innerHTML,/adding 1 hypothetical attendee/);
+ assert.match(h.el("attendance-risk-results").innerHTML,/Extra attendees to restore cap/);
+ assert.match(h.el("attendance-risk-results").innerHTML,/\+1 hypothetical/);
  assert.equal(h.el("attendance-risk-run").disabled,false);
  assert.equal(h.messages.at(-1)[1],false);
  assert.doesNotMatch(script,/\/api\/paypal\/orders|\/api\/paypal\/capture/);
@@ -103,6 +119,37 @@ test("already-over-target warning and checkout lock are explicit",async()=>{
  await h.run(evt());
  assert.match(h.el("attendance-risk-results").innerHTML,/current roster already exceeds/i);
  assert.match(h.el("attendance-risk-results").innerHTML,/Sandbox checkout already started/);
+});
+
+test("unreachable target shows honest bounded failure instead of implying a charge",async()=>{
+ const d=response();
+ d.cap_cents=1;
+ d.first_target_breach_at_absences=0;
+ d.projections.forEach((r,i)=>{
+  r.over_target=true;
+  r.replacements_feasible=false;
+  r.minimum_replacements_needed=null;
+  r.best_replacement_count=50;
+  r.best_replacement_largest_share_cents=[315,319,324][i];
+  r.replacement_gap_cents=r.best_replacement_largest_share_cents-1;
+  r.replacement_candidates_tested=51;
+ });
+ const h=harness({result:d});
+ await h.run(evt());
+ const rendered=h.el("attendance-risk-results").innerHTML;
+ assert.match(rendered,/cannot be restored within 50 hypothetical extra attendee/);
+ assert.match(rendered,/\$3\.14 above the cap/);
+ assert.match(rendered,/Not achievable within \+50/);
+ assert.equal(h.calls.length,1);
+});
+
+test("tampered replacement count is rejected as an invalid server response",async()=>{
+ const d=response();
+ d.projections[2].minimum_replacements_needed=200;
+ const h=harness({result:d});
+ await h.run(evt());
+ assert.match(h.el("attendance-risk-results").textContent,/Invalid attendance risk preview/);
+ assert.equal(h.messages.at(-1)[1],true);
 });
 
 test("missing event prevents request",async()=>{

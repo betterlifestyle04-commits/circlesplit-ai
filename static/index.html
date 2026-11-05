@@ -434,7 +434,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
     </div>
     <div class="card" style="margin-top:20px">
       <div class="section-heading"><h2>No-show stress test</h2><span class="pill neutral">Exact cents · No changes</span></div>
-      <p class="small muted">See how remaining fictional attendees' maximum shares could change if people cannot attend. With weighted splits, the illustration keeps one highest-weight participant and then excludes the next highest weights. This is <b>one adverse scenario, not a forecast or proven worst case</b>.</p>
+      <p class="small muted">See how remaining fictional attendees' maximum shares could change if people cannot attend—and how many new fictional attendees would be needed to recover your target. New participants have weight 1; we check every count up to 50 or the 200-person group cap. With weighted splits, the illustration keeps one highest-weight participant and then excludes the next highest weights. This is <b>one adverse scenario, not a forecast or proven worst case</b>.</p>
       <p id="attendance-risk-target" class="small muted">Select an event to explore attendance risk.</p>
       <form id="attendance-risk-form" class="formgrid" style="margin-top:12px">
         <div class="field"><label for="attendance-risk-cap">Maximum acceptable share (USD)</label>
@@ -448,7 +448,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
         <button class="btn primary" type="submit" id="attendance-risk-run">Stress-test attendance</button>
       </form>
       <div id="attendance-risk-results" class="empty" role="status" aria-live="polite" style="margin-top:15px">Enter assumptions to preview a read-only attendance stress scenario.</div>
-      <p class="notice" style="margin-top:12px">The full original budget is held constant even though real costs could fall. This preview does not cancel invitations, change approved shares, redistribute settled funds, initiate checkout or affect PayPal Sandbox records.</p>
+      <p class="notice" style="margin-top:12px">The full original budget is held constant even though real costs could fall. Suggested attendees are fictional—not actual RSVPs, consent, or funding. This preview does not cancel invitations, change approved shares, redistribute settled funds, initiate checkout or affect PayPal Sandbox records.</p>
     </div>
   </section>
     <section id="closeout" class="tabpan">
@@ -1007,6 +1007,27 @@ async function previewAttendanceRisk(evt){
          r.smallest_share_cents,r.largest_share_increase_cents].every(Number.isSafeInteger)||
        r.absent_people!==i||r.remaining_people!==d.current_people-i||
        r.remaining_people<1||r.largest_share_cents<r.smallest_share_cents||
+       !Number.isSafeInteger(r.maximum_replacements_considered)||
+       !Number.isSafeInteger(r.replacement_candidates_tested)||
+       !Number.isSafeInteger(r.best_replacement_count)||
+       !Number.isSafeInteger(r.best_replacement_largest_share_cents)||
+       !Number.isSafeInteger(r.replacement_gap_cents)||
+       r.maximum_replacements_considered<0||r.maximum_replacements_considered>50||
+       r.maximum_replacements_considered>200-r.remaining_people||
+       r.replacement_candidates_tested<1||
+       r.replacement_candidates_tested>r.maximum_replacements_considered+1||
+       r.best_replacement_count<0||
+       r.best_replacement_count>r.maximum_replacements_considered||
+       r.best_replacement_largest_share_cents<0||
+       r.replacement_gap_cents!==Math.max(0,r.best_replacement_largest_share_cents-d.cap_cents)||
+       typeof r.replacements_feasible!=="boolean"||
+       (r.replacements_feasible?
+        !Number.isSafeInteger(r.minimum_replacements_needed)||
+        r.minimum_replacements_needed<0||
+        r.minimum_replacements_needed>r.maximum_replacements_considered||
+        r.best_replacement_largest_share_cents>d.cap_cents||
+        r.best_replacement_count!==r.minimum_replacements_needed:
+        r.minimum_replacements_needed!==null)||
        typeof r.over_target!=="boolean";
      }))throw Error("Invalid attendance risk preview response.");
   const root=el("attendance-risk-results");root.className="";
@@ -1015,17 +1036,31 @@ async function previewAttendanceRisk(evt){
    "Within target for all "+d.tested_maximum_absent+" modeled absence(s).":
    breach===0?"The current roster already exceeds the per-person target.":
    "Target breached once "+breach+" attendee(s) are absent in this scenario.";
+  const breachedRow=breach===null?null:rows[breach];
+  const recovery=breachedRow===null?"No additional attendees required within modeled absences.":
+   breachedRow.replacements_feasible?
+   "For the first modeled breach ("+breach+" no-show(s)), adding "+
+    breachedRow.minimum_replacements_needed+" hypothetical attendee(s) with weight 1 would bring "+
+    "the largest projected share down to "+money(breachedRow.best_replacement_largest_share_cents)+".":
+   "For the first modeled breach, the target cannot be restored within "+
+    breachedRow.maximum_replacements_considered+" hypothetical extra attendee(s). "+
+    "The best largest share tested remains "+money(breachedRow.replacement_gap_cents)+" above the cap.";
   root.innerHTML='<p class="pill '+(breach===null?"":"orange")+'">'+
    safe(breach===null?"Within modeled target":"Attendance exposure")+'</p>'+
    '<p style="margin:12px 0"><strong>'+safe(status)+'</strong></p>'+
    '<div class="row between" style="padding:7px 0"><span>Current largest share</span><b>'+money(d.current_largest_share_cents)+'</b></div>'+
    '<div class="row between" style="padding:7px 0"><span>Per-person target</span><b>'+money(d.cap_cents)+'</b></div>'+
-   '<div style="overflow-x:auto;margin-top:12px"><table><thead><tr><th>No-shows</th><th>Remaining</th><th>Largest share</th><th>Increase</th><th>Target</th></tr></thead><tbody>'+
+   '<p class="notice" style="margin-top:12px"><b>Possible recovery:</b> '+safe(recovery)+'</p>'+
+   '<div style="overflow-x:auto;margin-top:12px"><table><thead><tr><th>No-shows</th><th>Remaining</th><th>Largest share</th><th>Increase</th><th>Target</th><th>Extra attendees to restore cap</th></tr></thead><tbody>'+
    rows.map(function(r){return '<tr><td>'+r.absent_people+'</td><td>'+r.remaining_people+
      '</td><td><b>'+money(r.largest_share_cents)+'</b></td><td>'+
      (r.largest_share_increase_cents>=0?"+":"−")+money(Math.abs(r.largest_share_increase_cents))+
      '</td><td><span class="pill '+(r.over_target?"orange":"")+'">'+
-     (r.over_target?"Above cap":"Within cap")+'</span></td></tr>';}).join("")+
+     (r.over_target?"Above cap":"Within cap")+'</span></td><td>'+
+     (r.replacements_feasible?
+       (r.minimum_replacements_needed===0?"None needed":"+"+r.minimum_replacements_needed+" hypothetical"):
+       "Not achievable within +"+r.maximum_replacements_considered)+
+     '</td></tr>';}).join("")+
    '</tbody></table></div>'+
    (d.tested_maximum_absent<d.requested_maximum_absent?
      '<p class="small muted">The test stops before all participants would be absent.</p>':'')+

@@ -75,6 +75,23 @@ organizer's chosen cap. With 20 equally split attendees and a fictional
 $220 budget, a $12 cap is breached after two modeled no-shows:
 the largest hypothetical share rises from $11.00 to $12.23.
 
+Each row also solves an actionable *what-if* recovery question:
+**How many new fictional attendees would bring everyone remaining back below
+the selected cap, with the unchanged event budget?** It tests every new
+headcount from zero to the first affordable split, at most 50 additional
+attendees, never exceeding the 200-person event limit. Hypothetical new
+participants always have weight 1. There is no assumption that the
+largest-remainder rounding rule is monotonic: every tested headcount uses
+`allocate` again. If no candidate reaches the cap, the UI explicitly
+reports the unachievable search bound and best observed remaining gap.
+
+With the fictional $220 event, 20 equally split members and a $12 cap:
+zero or one no-show needs no extra member; two no-shows leave 18 people
+at up to $12.23, so **one additional hypothetical attendee** restores
+the largest share to $11.58; five no-shows require **four additional
+hypothetical attendees** to restore the target. These are planning
+calculations, not invitations or commitment to pay.
+
 This is **one reproducible adverse scenario, not a probability forecast
 or a mathematically certified worst case** across all possible absences.
 Real attendance cancellations might also lower venue or catering costs,

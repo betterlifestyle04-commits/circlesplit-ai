@@ -7,6 +7,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] Public guided judge navigation, local-only progress, copyable fictional prompt and source-only health checks (November 5, 2026)
 - [x] Protected Scenario Lab affordability targets: minimum additional attendees to keep all exact-cent equal/weighted shares under a chosen cap, without modifying approvals or Sandbox records (November 5, 2026)
 - [x] Protected Scenario Lab no-show stress test with exact-cent attendance sensitivity curve, cap-breach alert and no payment or approval mutations (November 5, 2026)
+- [x] No-show recovery suggestions: bounded exhaustive exact-cent search for the minimum extra fictional attendees restoring a per-person target, with explicit infeasibility and group-size limits (November 5, 2026)
 - [x] Exact-cent equal/weighted group allocation, event planning and expense/participant CRUD
 - [x] Explicit share approvals, consent invalidation after budget edits, separate simulations
 - [x] Participant-visible aggregate cost explanation and stale-share consent guard (November 4, 2026)
