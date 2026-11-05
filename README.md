@@ -27,6 +27,40 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Compare encrypted backup generations before trusting a recovery
+
+The offline operator tool supports a **read-only** comparison of two
+independently authenticated encrypted SQLite backups. Unlike a byte-level
+checksum, the comparison can detect changes to a database incarnation,
+missing formerly known Sandbox orders or capture IDs, decreasing verified
+capture/webhook counts, changed amounts or payment states for an existing
+provider order, and missing request-key attempts **within the same
+database incarnation**. Local payment auto-increment IDs are never used
+to match records across different database incarnations.
+
+\`\`\`bash
+python tools/encrypted_snapshot.py compare \
+  --previous /private/backups/older.csb \
+  --current /private/backups/newer.csb \
+  --previous-key-file /private/keys/older.passphrase \
+  --current-key-file /private/keys/newer.passphrase
+\`\`\`
+
+The old and new archives can use different passphrase files. Each is
+independently decrypted, authenticated and checked in an isolated
+temporary directory. The command shows only aggregate comparisons,
+never provider order IDs, capture IDs, request keys or participant data.
+
+Exit code **0** means the two local backup generations have no detected
+differences requiring review; **3** means a possible reset, regression,
+local ledger inconsistency or nonchronological comparison requires a
+manual review; **2** means an archive cannot be safely inspected.
+The presence of an old order in a backup and absence in the current
+database **never means the provider order ceased to exist**. Inspect
+PayPal Sandbox directly before ever attempting any new order. This
+command does not upload, restore, retry, capture or refund payments,
+and it does not provide external disaster recovery by itself.
+
 ## Encrypted offline Sandbox backups (operator-only)
 
 For a development machine or a future operator-accessible durable volume,
