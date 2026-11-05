@@ -55,6 +55,36 @@ members: a $10.00 per-person cap requires **two more hypothetical
 attendees**, giving 22 shares of exactly $10.00 each. This is an
 advisory estimate only; no one is charged or invited.
 
+## No-show attendance stress test (Scenario Lab)
+
+In **Workspace → Scenario Lab → No-show stress test**, an organizer can
+estimate the effect of one explicit, **hypothetical absence sequence** on
+the remaining fictional members' shares. The read-only protected
+`POST /api/events/{eid}/attendance-risk` accepts:
+
+- `max_share`: positive USD with at most two decimal places, at most $100,000.
+- `maximum_absent`: integer 0–20, capped to leave at least one participant.
+- `strategy`: optional `equal` or `weighted` allocation assumption.
+
+The model keeps one highest-weight attendee and progressively drops the
+other higher-weight attendees (stable IDs break ties). It recalculates the
+**full unchanged planned budget** for each hypothetical remaining group
+with the same integer-cent allocator as real planning. It reports the
+first modeled no-show count at which the largest share exceeds the
+organizer's chosen cap. With 20 equally split attendees and a fictional
+$220 budget, a $12 cap is breached after two modeled no-shows:
+the largest hypothetical share rises from $11.00 to $12.23.
+
+This is **one reproducible adverse scenario, not a probability forecast
+or a mathematically certified worst case** across all possible absences.
+Real attendance cancellations might also lower venue or catering costs,
+which the unchanged-budget assumption deliberately ignores. The preview
+does **not** remove members, rebalance approved shares, withdraw consent,
+refund or charge anyone, or call PayPal Sandbox. Once checkout has
+begun, real reallocation requires independent investigation and consent;
+never interpret this forecast as authority to retry or redistribute an
+existing sandbox charge.
+
 ## Compare encrypted backup generations before trusting a recovery
 
 The offline operator tool supports a **read-only** comparison of two

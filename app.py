@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
 
 from domain import allocate, cents
+from attendance_risk import attendance_stress_curve
 from calendar_export import build_ics
 import paypal
 from security import cross_origin_mutation, protect_response
@@ -1621,6 +1622,72 @@ def preview_affordability(eid: int, data: AffordabilityInput):
             "No event, approval, invitation, or PayPal Sandbox state changed. "
             "Adding people to a real event requires actual consent and may be "
             "blocked once payment checkout starts."
+        ),
+    }
+
+
+class AttendanceRiskInput(BaseModel):
+    """A bounded, illustrative absence preview; no writes or provider calls."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    max_share: str = Field(min_length=1, max_length=12,
+        pattern=r"^\d+(?:\.\d{1,2})?$")
+    maximum_absent: int = Field(ge=0, le=20)
+    strategy: Literal["equal", "weighted"] | None = None
+
+
+@app.post("/api/events/{eid}/attendance-risk")
+def preview_attendance_risk(eid: int, data: AttendanceRiskInput):
+    """Reallocate a hypothetical full budget across a reduced fictional roster.
+
+    The model retains a highest-weight person and removes other higher-weight
+    people first. This is an intentionally specified adverse scenario, NOT a
+    statistically expected turnout or an exhaustive worst-case combination.
+    """
+    try:
+        cap = cents(data.max_share)
+    except ValueError as exc:
+        raise HTTPException(422, "Enter a positive USD limit at most $100,000.00") from exc
+    with db() as c:
+        event_row = require_event(c, eid)
+        people = [dict(p) for p in c.execute(
+            "SELECT id,weight,approved,status FROM people WHERE event_id=? ORDER BY id",
+            (eid,)
+        ).fetchall()]
+        total = c.execute(
+            "SELECT COALESCE(SUM(cents),0) FROM expenses WHERE event_id=?", (eid,)
+        ).fetchone()[0]
+        prior_orders = c.execute(
+            "SELECT COUNT(*) FROM payments WHERE event_id=?", (eid,)
+        ).fetchone()[0]
+        strategy = data.strategy or event_row["strategy"]
+    if not people:
+        raise HTTPException(422, "Add a participant to preview a no-show scenario")
+    try:
+        curve = attendance_stress_curve(total, people, strategy,
+                                       data.maximum_absent, cap)
+    except ValueError as exc:
+        raise HTTPException(409, "Cannot forecast the stored participant weights") from exc
+    return {
+        "event_id": eid,
+        "mode": "SANDBOX_PLANNING_ONLY",
+        "read_only": True,
+        "strategy": strategy,
+        "budget_cents": total,
+        "cap_cents": cap,
+        "current_people": len(people),
+        "requested_maximum_absent": data.maximum_absent,
+        **curve,
+        "has_existing_sandbox_orders": prior_orders > 0,
+        "approved_people": sum(bool(p["approved"]) for p in people),
+        "paid_or_simulated_people": sum(p["status"] != "unpaid" for p in people),
+        "notice": (
+            "Illustrative high-impact absence sequence, not a prediction or a "
+            "mathematically certified worst case: one highest-weight attendee "
+            "stays, then other higher-weight attendees leave first. The full "
+            "planned budget is assumed unchanged, though real expenses may fall. "
+            "No roster, share, approval, invitation or PayPal Sandbox record "
+            "was changed. Existing payments must never be redistributed "
+            "or captured based on this preview."
         ),
     }
 
