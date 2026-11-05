@@ -10,6 +10,27 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Provider-verified Sandbox capture authorization (November 5, 2026)
+
+- Direct `POST /api/paypal/capture` no longer marks a record `capturing`
+  just because it is locally `created`. It first GETs that exact order
+  from PayPal Sandbox and verifies the order ID, `CAPTURE` intent, one
+  purchase unit, USD amount and recorded event/participant reference.
+- Any unapproved order, malformed provider response or failed GET cannot
+  issue a capture, and the local status remains `created`. Only the
+  upstream `APPROVED` status can proceed to the transactional local
+  `capturing` lock and one capture attempt.
+- A remotely `COMPLETED` order with exactly one independently matching
+  capture can be reconciled locally without sending another capture
+  request. An ambiguous completed response is rejected for investigation.
+- Once a capture attempt is recorded, timeouts and invalid outcomes keep
+  it locked; a returned buyer URL never bypasses this rule. The browser
+  now checks the **existing** order and seeks explicit confirmation
+  before requesting a capture.
+- Checks are supported by mocked failure, tampering, replay and race
+  tests; they do **not** establish current PayPal availability, durable
+  database recovery, real funds or verified identities.
+
 ## Checkout preflight and fail-closed allocation check (November 5, 2026)
 
 - The protected `GET /api/paypal/checkout-readiness/{event_id}/{person_id}`
