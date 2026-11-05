@@ -147,6 +147,38 @@ def test_change_to_existing_provider_order_amount_is_detected(archives):
     assert report["current"]["local_issue_count"]==0
 
 
+def test_order_state_cannot_regress_from_created_to_creating(archives):
+    conn,older,newer,key1,key2,make_new=archives
+    conn.execute("UPDATE payments SET status='creating' WHERE id=2")
+    result=make_new()
+    assert result["status"]=="NEEDS_REVIEW"
+    assert result["shared_order_status_regressions"]==1
+    assert result["shared_order_completion_regressions"]==0
+    assert result["current"]["local_issue_count"]==0
+
+
+def test_same_epoch_request_amount_drift_with_unknown_provider_order(archives):
+    conn,older,newer,key1,key2,make_new=archives
+    conn.execute("INSERT INTO people VALUES(3,1,'PRIVATE NEW',200,'unpaid')")
+    conn.execute(
+        "INSERT INTO payments VALUES(3,1,3,'creating',200,NULL,NULL,'PRIVATE-REQ-UNKNOWN')"
+    )
+    conn.commit()
+    source=older.parent.parent/"demo.sqlite3"
+    extra_old=older.parent/"unknown-baseline.csb"
+    backup.seal(source,extra_old,key1)
+    conn.execute("UPDATE payments SET amount_cents=240 WHERE id=3")
+    conn.execute("UPDATE people SET share_cents=240 WHERE id=3")
+    conn.commit()
+    backup.seal(source,newer,key2)
+    result=backup.compare(extra_old,newer,key1,key2)
+    assert result["status"]=="NEEDS_REVIEW"
+    assert result["same_epoch_request_amount_changes"]==1
+    assert result["provider_orders_shared"]==2
+    assert result["current"]["local_issue_count"]==0
+    assert "PRIVATE-REQ-UNKNOWN" not in json.dumps(result)
+
+
 def test_capture_id_replaced_with_another_capture_is_detected(archives):
     conn,older,newer,key1,key2,make_new=archives
     conn.execute("UPDATE payments SET capture_id='PRIVATE-CAPTURE-NEW' WHERE id=1")
