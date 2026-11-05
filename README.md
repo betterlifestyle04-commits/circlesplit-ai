@@ -480,6 +480,36 @@ PayPal, resends a request, changes a payment, or reveals provider IDs in
 the aggregate summary. For any uncertain request, inspect the original
 provider transaction manually rather than creating/capturing another order.
 
+## Signed PayPal Sandbox webhook delivery triage
+
+**Protected Workspace → Activity → Signed webhook delivery audit** now
+distinguishes eight outcomes for signature-verified provider notifications:
+locally recorded capture, repeated already-recorded capture, unknown
+local order, missing order reference, amount/currency mismatch,
+invalid capture payload, another signed event type, or historical
+unclassified event. The protected `GET /api/paypal/webhook-audit`
+returns **counts only**. It does not return webhook IDs, order IDs,
+capture IDs, participant names, secret keys or full provider payloads.
+
+The existing webhook path now safely rejects non-object envelopes and
+invalid event IDs before PayPal signature verification, handles malformed
+nested capture data without a server exception, and stores only an
+outcome string alongside the existing deduplicated event ID. It settles
+a signed `PAYMENT.CAPTURE.COMPLETED` event only when the local order
+exists, provider capture is completed and exact USD cents match, and
+the existing global capture uniqueness guard accepts settlement.
+Conflicting reused capture IDs **still return HTTP 409** without
+acknowledging the event as successfully processed.
+
+Unknown provider orders, mismatched amounts, invalid capture payloads
+and previously unclassified events require **manual** review in
+PayPal Sandbox. An event may arrive while order creation is in flight
+or may refer to an order lost during a database reset. No provider
+GET, capture retry, automatic replay, payment import or charge is
+performed by the audit. A clean local count is **not** evidence that
+all remote notifications were delivered or that the SQLite database
+will persist.
+
 ## Safe payment recovery across large demo ledgers
 
 The protected **Activity → Safe payment recovery** view prioritizes unresolved
