@@ -10,6 +10,29 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Offline SQLite snapshot controls (November 5, 2026)
+
+- `tools/sqlite_snapshot.py` is **offline operator code only**. It adds no
+  HTTP routes, public file serving, payment import or automatic provider
+  interaction. `create` uses SQLite's supported backup API while preserving
+  committed WAL records; it checkpoints and converts the private staged
+  output to a standalone SQLite file before publishing it.
+- Private output files use restrictive permissions (POSIX directory 0700,
+  files 0600), refuse overwrites and symlink sources, and are ignored by
+  Git. Their matching manifest only contains incarnation, aggregates,
+  timestamp, checksum and size. The raw SQLite DB still contains sensitive
+  bearer-invitation hashes, PayPal Sandbox references and idempotency keys:
+  store encrypted offsite, never publicly upload or share.
+- `verify` checks SHA-256, size, integrity, expected financial schema and
+  aggregate counts. `drill` rehearses reading a copy in an isolated
+  temporary directory, then removes it. No command restores or overwrites
+  the live payment database. A checksum alone cannot authenticate the
+  snapshot or prove upstream settlement.
+- The active Free hosting is still ephemeral; nothing here performs
+  background backups or upgrades paid infrastructure. An actual financial
+  restore/migration requires controlled downtime, external PayPal Sandbox
+  reconciliation and deliberate operator review to avoid double charges.
+
 ## Browser-local reset/rollback sentinel (November 5, 2026)
 
 - On initial authorized workspace load, the browser can remember a **short**
