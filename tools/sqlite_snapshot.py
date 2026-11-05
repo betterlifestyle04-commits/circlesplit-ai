@@ -201,6 +201,17 @@ def create(source: str | Path, output: str | Path) -> dict:
             with closing(sqlite3.connect(str(tmp_db), timeout=20)) as target_db:
                 source_db.backup(target_db, pages=256, sleep=0.05)
                 target_db.commit()
+        # SQLite backup can inherit WAL journal mode from its source.
+        # A portable snapshot MUST be a standalone database file, not a
+        # database that still needs temporary -wal/-shm siblings.
+        with closing(sqlite3.connect(str(tmp_db),timeout=20)) as copied:
+            copied.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            mode=copied.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
+            if mode.lower()!="delete":
+                raise SnapshotError("SQLite snapshot could not enter standalone journal mode.")
+            copied.commit()
+        if any(Path(str(tmp_db)+suffix).exists() for suffix in ("-wal","-shm")):
+            raise SnapshotError("SQLite snapshot still has uncheckpointed journal sidecars.")
         if tmp_db.stat().st_size > MAX_BYTES:
             raise SnapshotError("SQLite snapshot exceeds the operator size limit.")
         inspected = _inventory(tmp_db)
@@ -244,6 +255,11 @@ def create(source: str | Path, output: str | Path) -> dict:
         for item in (tmp_db, tmp_manifest):
             if item is not None:
                 item.unlink(missing_ok=True)
+        # Remove ONLY sidecars created for our own random staging filename.
+        # On any error, avoid leaving temporary private ledger bytes behind.
+        if tmp_db is not None:
+            for suffix in ("-wal","-shm","-journal"):
+                Path(str(tmp_db)+suffix).unlink(missing_ok=True)
 
 
 def drill(snapshot: str | Path) -> dict:
