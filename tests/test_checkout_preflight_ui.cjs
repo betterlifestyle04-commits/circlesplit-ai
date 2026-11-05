@@ -14,7 +14,7 @@ const code=html.slice(start,end);
 function harness({report,confirm=true,postResponse={
  mode:"PAYPAL_SANDBOX",
  approval_url:"https://www.sandbox.paypal.com/checkoutnow?token=TEST"
-},requestError=null,selectedEvent=1}={}){
+},requestError=null,selectedEvent=1,canManageSandbox=true}={}){
  const elements=new Map(),calls=[],messages=[],redirects=[];
  const model={event:selectedEvent};
  const nodes=[];
@@ -32,6 +32,7 @@ function harness({report,confirm=true,postResponse={
   return value;
  }};
  const context=vm.createContext({
+  state:{sandbox_order_actions_allowed:canManageSandbox},
   el,document:doc,
   request:async url=>{
    calls.push(["GET",url]);
@@ -159,4 +160,15 @@ test("server-supplied messages are displayed with textContent not unsafe HTML",a
  assert.equal(h.el("checkout-readiness-details").children[0].children[0].textContent,
   malicious);
  assert.doesNotMatch(code,/innerHTML/);
+});
+
+test("judge UI cannot initiate provider order even if local preflight looks eligible",async()=>{
+ const judge=harness({report:ready,canManageSandbox:false});
+ await judge.checkout(8);
+ assert.equal(judge.calls.length,0);
+ assert.equal(judge.redirects.length,0);
+ assert.match(judge.messages[0][0],/Judge access cannot create PayPal Sandbox/);
+ // Read-only local diagnostics remain usable for judge sessions.
+ await judge.inspect(8);
+ assert.deepEqual(judge.calls,[["GET","/api/paypal/checkout-readiness/1/8"]]);
 });
