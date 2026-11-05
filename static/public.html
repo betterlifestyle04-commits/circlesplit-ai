@@ -68,6 +68,7 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
  <button data-view="overview" class="active">▦ &nbsp; Overview</button>
  <button data-view="events">◫ &nbsp; Event planner</button>
  <button data-view="contributions">⇄ &nbsp; Contributions</button>
+ <button data-view="resilience">◇ &nbsp; Resilience lab</button>
  <button data-view="integration">✦ &nbsp; AI + PayPal</button>
   <a href="/judge" style="display:block;padding:12px 15px;color:#80e6c8;font-weight:800;text-decoration:none">✓ &nbsp; For judges ↗</a>
  </nav>
@@ -78,7 +79,7 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
  <div class="content">
  <section id="overview" class="panel active">
   <div class="hero">
-    <div><div class="eyebrow">The future of group spending</div><h1>Make money the easy part of getting together.</h1><p>Plan events, divide expenses fairly and track contributions — all in one clear space.</p><div class="buttons"><button class="btn primary" data-go="events">Explore event planner</button><button class="btn dark" data-go="integration">See AI + PayPal workflow</button><a class="btn" href="/judge" style="background:#e4fff3;color:#0b4d47;border-color:#e4fff3">Judge walkthrough ↗</a></div></div>
+    <div><div class="eyebrow">The future of group spending</div><h1>Make money the easy part of getting together.</h1><p>Plan events, divide expenses fairly and track contributions — all in one clear space.</p><div class="buttons"><button class="btn primary" data-go="events">Explore event planner</button><button class="btn dark" data-go="resilience">Test group resilience</button><button class="btn dark" data-go="integration">See AI + PayPal workflow</button><a class="btn" href="/judge" style="background:#e4fff3;color:#0b4d47;border-color:#e4fff3">Judge walkthrough ↗</a></div></div>
     <div class="orb" aria-hidden="true"></div>
   </div>
   <div class="note"><b>Demo mode:</b> This publicly accessible version uses fictional data saved only in your browser. Approvals and payments are simulations. No PayPal orders or AI API requests are made from this page. <a href="/judge" style="font-weight:800;color:#087f73">See how judges can test the real integrations →</a></div>
@@ -91,7 +92,7 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
   <div class="grid"><div class="card"><div class="row"><h3>Upcoming group events</h3><button class="btn sm" data-go="events">Manage events</button></div><div id="eventSummary"></div></div>
   <div class="card"><div class="eyebrow">How it works</div><h3 style="margin:10px 0">Clear budgets. Fair shares.</h3>
   <ol><li>Create a group event and enter expenses.</li><li>Add participants and choose equal or weighted splitting.</li><li>Approve shares and simulate a contribution.</li><li>Inspect the flow intended for PayPal sandbox checkout.</li></ol>
-  <button class="btn primary" data-go="contributions">Try contributions</button></div></div>
+  <button class="btn primary" data-go="contributions">Try contributions</button> <button class="btn" data-go="resilience">Preview cancellation risk</button></div></div>
  </section>
  <section id="events" class="panel">
  <div class="sectionhead"><div><div class="eyebrow">Group planning</div><h2>Create, split, simplify.</h2><p>Amounts are allocated in integer cents with exact totals.</p></div><button class="btn sm" id="reset">Reset demo</button></div>
@@ -111,6 +112,34 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
   <div class="note"><b>Simulation only:</b> the buttons below do not contact PayPal or charge anyone. Real sandbox integration is restricted to the organizer testing workspace.</div>
   <div class="card"><div class="row"><h3 id="contribTitle">Contributions</h3><button class="btn sm" data-go="events">Edit event</button></div><div id="funding"></div><div class="tablewrap"><table><thead><tr><th>Participant</th><th>Share</th><th>Consent</th><th>Status</th><th>Action</th></tr></thead><tbody id="contribRows"></tbody></table></div></div>
  </section>
+ <section id="resilience" class="panel">
+  <div class="sectionhead"><div><div class="eyebrow">Fictional contingency planning</div>
+    <h2>Plan for a smaller group.</h2>
+    <p>Explore how absent attendees affect costs—and how many additional people could restore your per-person target.</p></div>
+    <button class="btn sm" data-go="events">Edit selected event</button></div>
+  <div class="note"><b>Browser-only preview:</b> No API request, account, real-money payment, invitation, or database mutation. The scenario assumes all planned costs remain unchanged and a specified group leaves; it is not a forecast of real attendance.</div>
+  <div class="grid">
+   <div class="card">
+    <h3>Set your assumptions</h3>
+    <p id="recovery-event" class="small muted">Choose an event in Event planner.</p>
+    <form id="recovery-form" class="fieldset" style="margin-top:15px">
+     <label class="small" for="recoveryCap">Maximum acceptable share (USD)</label>
+     <input id="recoveryCap" value="12.00" inputmode="decimal" placeholder="e.g. 12.00" required>
+     <label class="small" for="recoveryAbsent">Maximum hypothetical no-shows (0–20)</label>
+     <input type="number" id="recoveryAbsent" min="0" max="20" step="1" value="5" required>
+     <label class="small" for="recoveryStrategy">Allocation method</label>
+     <select id="recoveryStrategy"><option value="equal">Equal split</option><option value="weighted">Weighted split</option></select>
+     <button class="btn primary" type="submit">Calculate resilience</button>
+    </form>
+    <p class="small muted" style="margin-top:12px">The model keeps one highest-weight participant and removes the next higher weights first (stable ID ties). New fictional attendees have weight 1. This is <b>one adverse illustration, not a worst-case guarantee</b>.</p>
+   </div>
+   <div class="card">
+    <h3>What would help?</h3>
+    <p class="small muted">The solver tries each possible replacement group size up to 50 extra people or the 200-person limit. It uses exact-cent rounding on every candidate.</p>
+    <div id="recovery-results" role="status" aria-live="polite" class="empty">Choose your target and calculate. This never changes the event or its simulated contributions.</div>
+   </div>
+  </div>
+ </section>
  <section id="integration" class="panel">
  <div class="sectionhead"><div><div class="eyebrow">Behind the product</div><h2>AI planning meets verified payments.</h2><p>The implemented integrations live in a separately protected organizer workspace.</p></div></div>
  <div class="grid">
@@ -126,6 +155,7 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
  <div class="footer">CircleSplit AI · PayPal AI Hackathon prototype · Demo values are fictional · All browser changes are local · <a href="https://github.com/betterlifestyle04-commits/circlesplit-ai" target="_blank" rel="noopener noreferrer">Open source</a></div>
  </div>
 </main></div>
+<script src="/static/public_recovery.js"></script>
 <script>
 "use strict";
 const STORAGE="circlesplit-public-demo-v1";
@@ -141,6 +171,10 @@ function sample(){
 function restore(){try{let m=JSON.parse(localStorage.getItem(STORAGE));if(m&&Array.isArray(m.events)&&Number.isSafeInteger(m.next)){model=m;return}}catch(e){}model=sample()}
 function save(){try{localStorage.setItem(STORAGE,JSON.stringify(model))}catch(e){}}
 function message(s){$("message").textContent=s;$("message").classList.add("show")}
+function resetRecovery(){
+ $("recovery-results").className="empty";
+ $("recovery-results").textContent="Choose your target and calculate. This never changes the event or its simulated contributions.";
+}
 function event(){return model.events.find(e=>e.id===chosen)||model.events[0]}
 function locked(e){return e.people.some(p=>p.status!=="unpaid")}
 function total(e){return e.expenses.reduce((s,x)=>s+x.cents,0)}
@@ -158,6 +192,9 @@ function allocate(e){
 }
 function render(){
  const e=event(),all=model.events;
+ $("recovery-event").textContent=e?
+  "Selected: "+e.name+" · "+usd(total(e))+" · "+e.people.length+" participants":
+  "Create an event and add participants to explore resilience.";
  $("kEvents").textContent=all.length;
  $("kBudget").textContent=usd(all.reduce((s,x)=>s+total(x),0));
  $("kPeople").textContent=all.reduce((s,x)=>s+x.people.length,0);
@@ -177,17 +214,17 @@ function render(){
  $("funding").innerHTML='<div class="row" style="margin-top:18px"><b>'+usd(paid(e))+' of '+usd(total(e))+'</b><span class="muted small">'+pct+'% simulated</span></div><div class="progress"><div style="width:'+pct+'%"></div></div>';
  $("contribRows").innerHTML=e.people.map(x=>'<tr class="mini"><td>'+escapeHtml(x.name)+'</td><td>'+usd(x.share_cents)+'</td><td>'+(x.approved?"Yes":"Pending")+'</td><td><span class="pill '+(x.status==="demo_paid"?"amber":"gray")+'">'+(x.status==="demo_paid"?"SIMULATED":"Unpaid")+'</span></td><td>'+(x.status!=="unpaid"?"—":x.approved?'<button class="btn sm" data-simulate="'+x.id+'">Simulate</button>':'<button class="btn sm" data-approve="'+x.id+'">Approve</button>')+'</td></tr>').join("")||'<tr><td colspan="5">Add participants first</td></tr>';
 }
-function change(fn){const e=event();try{fn(e);save();render()}catch(err){message(err.message)}}
+function change(fn){const e=event();try{fn(e);save();resetRecovery();const next=event();if(next)$("recoveryStrategy").value=next.strategy;render()}catch(err){message(err.message)}}
 function amount(str){if(!/^\d{1,7}(\.\d{1,2})?$/.test(str))throw Error("Use a positive USD amount with up to 2 decimals");const [a,b=""]=str.split(".");const n=Number(a)*100+Number(b.padEnd(2,"0"));if(n<=0||n>10000000)throw Error("Amount outside demo limits");return n}
 document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.addEventListener("click",()=>{
  const v=b.dataset.view||b.dataset.go;
  document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("active",p.id===v));
  document.querySelectorAll("nav button").forEach(n=>n.classList.toggle("active",n.dataset.view===v));
- $("pageTitle").textContent=({overview:"Overview",events:"Event planner",contributions:"Contributions",integration:"AI + PayPal"})[v];
+ $("pageTitle").textContent=({overview:"Overview",events:"Event planner",contributions:"Contributions",resilience:"Resilience lab",integration:"AI + PayPal"})[v];
  window.scrollTo({top:0,behavior:"smooth"});render();
 }));
-$("eventSelect").addEventListener("change",e=>{chosen=Number(e.target.value);render()});
-$("reset").addEventListener("click",()=>{if(confirm("Reset fictional public demo data in this browser?")){model=sample();chosen=1;save();render();message("Demo restored.")}});
+$("eventSelect").addEventListener("change",e=>{chosen=Number(e.target.value);resetRecovery();const current=event();if(current)$("recoveryStrategy").value=current.strategy;render()});
+$("reset").addEventListener("click",()=>{if(confirm("Reset fictional public demo data in this browser?")){model=sample();chosen=1;save();resetRecovery();$("recoveryStrategy").value="equal";render();message("Demo restored.")}});
 $("addEvent").addEventListener("submit",e=>{e.preventDefault();change(()=>{const name=$("eventName").value.trim();if(name.length<3)throw Error("Enter a longer event name");const id=++model.next;model.events.unshift({id,name,date:$("eventDate").value,strategy:"equal",expenses:[],people:[]});chosen=id;$("addEvent").reset();$("eventDate").value=new Date().toISOString().slice(0,10)})});
 $("addExpense").addEventListener("submit",e=>{e.preventDefault();change(x=>{if(locked(x))throw Error("Cannot edit after recording a contribution");const title=$("expenseTitle").value.trim();if(title.length<2)throw Error("Enter an expense title");x.expenses.push({id:++model.next,title,cents:amount($("expenseAmount").value.trim())});allocate(x);$("addExpense").reset()})});
 $("addPerson").addEventListener("submit",e=>{e.preventDefault();change(x=>{if(locked(x))throw Error("Cannot edit after recording a contribution");const name=$("personName").value.trim(),weight=Number($("personWeight").value);if(name.length<2||!Number.isInteger(weight)||weight<1||weight>10)throw Error("Invalid participant or weight");x.people.push({id:++model.next,name,weight,share_cents:0,approved:false,status:"unpaid"});allocate(x);$("addPerson").reset();$("personWeight").value="1"})});
@@ -201,6 +238,50 @@ change(x=>{
  if(b.dataset.simulate){const p=x.people.find(y=>y.id===Number(b.dataset.simulate));if(!p||!p.approved||p.status!=="unpaid")throw Error("Approval required");p.status="demo_paid";message("SIMULATED contribution recorded. No PayPal charge was made.")}
 });
 });
-restore();$("eventDate").value=new Date().toISOString().slice(0,10);render();
+$("recovery-form").addEventListener("submit",function(evt){
+ evt.preventDefault();
+ const root=$("recovery-results");
+ try{
+  const e=event();
+  if(!e||!Array.isArray(e.people)||!e.people.length)throw Error("Add fictional participants in Event planner first");
+  const absent=Number($("recoveryAbsent").value);
+  if(!Number.isInteger(absent)||absent<0||absent>20)throw Error("No-shows must be an integer from 0 to 20");
+  const cap=amount($("recoveryCap").value.trim());
+  const strategy=$("recoveryStrategy").value;
+  const result=window.CircleSplitPublicRecovery.preview({
+   total_cents:total(e),people:e.people,strategy,maximum_absent:absent,max_share_cents:cap
+  });
+  if(result.mode!=="BROWSER_LOCAL_FICTIONAL_DEMO"||result.read_only!==true)
+   throw Error("Unexpected local calculation result");
+  const breach=result.first_target_breach_at_absences;
+  const first=breach===null?null:result.projections[breach];
+  const summary=breach===null?
+   "Within the cap in all "+result.tested_maximum_absent+" modeled absence scenarios.":
+   first.replacements_feasible?
+    "At "+breach+" modeled no-show(s), "+first.minimum_replacements_needed+
+     " extra fictional attendee(s) would restore the target.":
+    "At "+breach+" modeled no-show(s), the cap cannot be restored within "+
+     first.maximum_replacements_considered+" additional fictional attendee(s).";
+  root.className="";
+  root.innerHTML='<p><strong>'+escapeHtml(summary)+'</strong></p>'+
+   '<div class="tablewrap"><table><thead><tr><th>No-shows</th><th>Remaining</th><th>Highest share</th><th>Target</th><th>Recovery attendees</th></tr></thead><tbody>'+
+   result.projections.map(r=>'<tr><td>'+r.absent_people+'</td><td>'+r.remaining_people+
+    '</td><td>'+usd(r.largest_share_cents)+'</td><td>'+(r.over_target?"Above":"Within")+
+    '</td><td>'+(r.replacements_feasible?
+     (r.minimum_replacements_needed===0?"None needed":"+"+r.minimum_replacements_needed):
+     "Not within +"+r.maximum_replacements_considered)+'</td></tr>').join("")+
+   '</tbody></table></div><p class="small muted">These hypothetical additions are not RSVPs, consent or payments. No event data was changed.</p>';
+ }catch(err){
+  root.className="empty";
+  root.textContent="Cannot calculate: "+err.message;
+ }
+});
+["recoveryCap","recoveryAbsent","recoveryStrategy"].forEach(id=>{
+ $(id).addEventListener("input",resetRecovery);
+ $(id).addEventListener("change",resetRecovery);
+});
+restore();$("eventDate").value=new Date().toISOString().slice(0,10);
+const initial=event();if(initial)$("recoveryStrategy").value=initial.strategy;
+render();
 </script>
 </body></html>
