@@ -1326,7 +1326,28 @@ async function checkCheckoutReadiness(pid, beginCheckout=false){
 }
 async function paypalCheckout(pid){return checkCheckoutReadiness(pid,true)}
 async function verifyPayPalOrder(id){try{let result=await post("/api/paypal/order-status/"+encodeURIComponent(id));await load();if(result.verified){notice("Verified PayPal sandbox capture. Contribution recorded.",false)}else if(result.action==="approve"&&result.approval_url){if(window.confirm("PayPal is still waiting for sandbox buyer approval. Resume this existing checkout?"))window.location.assign(result.approval_url);else notice("Order not yet approved. No payment has been captured.",true)}else if(result.action==="capture"){if(window.confirm("PayPal confirms the sandbox buyer approved this order. Capture the approved test payment now?")){await post("/api/paypal/capture",{order_id:id});await load();notice("PayPal sandbox capture verified and recorded.",false)}else notice("PayPal approved the order; capture not requested.",true)}else notice("PayPal reports "+result.status+". "+(result.note||"No completed capture was verified. Do not start another payment while the result is uncertain."),true)}catch(err){notice("PayPal status check: "+err.message,true)}}
-async function paymentReturn(){let p=new URLSearchParams(window.location.search);if(p.get("payment")==="cancelled"){history.replaceState(null,"",location.pathname);switchTab("activity");notice("Buyer cancelled PayPal sandbox checkout. No confirmed capture. Use Check PayPal to resume the existing order if appropriate.",true);return;}if(p.get("payment")!=="return"||!p.get("token"))return;let token=p.get("token");history.replaceState(null,"",location.pathname);switchTab("activity");await run(function(){return post("/api/paypal/capture",{order_id:token})},"PayPal sandbox capture verified and recorded.")}
+async function paymentReturn(){
+ const params=new URLSearchParams(window.location.search);
+ const outcome=params.get("payment");
+ if(outcome!=="cancelled"&&outcome!=="return")return;
+ // Remove the return token before making provider calls or displaying errors.
+ history.replaceState(null,"",location.pathname);
+ switchTab("activity");
+ if(outcome==="cancelled"){
+  notice("Buyer cancelled PayPal Sandbox checkout. No confirmed capture. Check the existing order in Activity; never create another automatically.",true);
+  return;
+ }
+ const orderId=params.get("token");
+ if(!orderId||!/^[A-Za-z0-9-]{5,50}$/.test(orderId)){
+  notice("PayPal Sandbox return is missing a valid existing order reference. Open Activity to investigate; no capture was sent.",true);
+  return;
+ }
+ notice("Returned from PayPal Sandbox. Checking the existing order first; buyer return alone does not prove a capture.",false);
+ // The existing-order endpoint validates ID, USD cents, intent and buyer
+ // status. Only a verified APPROVED result may offer a separate, explicit
+ // capture confirmation. Never directly capture just because a URL returned.
+ await verifyPayPalOrder(orderId);
+}
 async function downloadPlanningBackup(){
  const button=el("backup-export");button.disabled=true;
  try{
