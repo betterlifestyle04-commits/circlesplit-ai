@@ -46,6 +46,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
  <div class="top"><div class="crumb">Workspace / <b id="crumb">Overview</b></div><div class="top-right"><span class="sandbox">● SANDBOX ONLY</span><span class="avatar">CS</span></div></div>
  <div class="content">
   <div id="message" class="status" role="status" aria-live="polite"></div>
+  <div id="continuity-alert" class="banner" role="alert" aria-live="assertive"
+       style="display:none;margin:0 0 18px;border:2px solid #aa6722"></div>
    <div class="capsule small" style="border:1px solid #cdeae3;margin:0 0 20px">
      <b>Integration testing workspace</b> · All PayPal payments are sandbox-only. Use fictional participants.
      <a href="/judge">Read the judge walkthrough ↗</a>
@@ -447,6 +449,18 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <section id="activity" class="tabpan">
   <div class="title"><div><div class="eyebrow">PAYMENT LEDGER</div><h1>Payment activity & safe recovery</h1>
    <p class="sub">Track sandbox payment requests without confusing order creation, capture attempts, and completed test payments.</p></div></div>
+  <div class="card">
+    <div class="section-heading"><h2>Dataset continuity monitor</h2><span class="pill orange">This browser only</span></div>
+    <p class="notice">This browser remembers a short database identifier and two aggregate counts. If the hosted database changes or previously observed verified Sandbox capture/webhook counts go backwards, you'll see a warning across the workspace. No names, payment IDs, invitation links or credentials are stored in the browser checkpoint. This check does not contact PayPal.</p>
+    <p id="continuity-status" role="status" aria-live="polite" class="small muted">Checking the current database…</p>
+    <p id="continuity-details" class="small muted">No previous browser checkpoint found yet.</p>
+    <div class="row wrap" style="margin-top:13px">
+     <button type="button" class="btn small secondary" id="continuity-check">Check dataset now</button>
+     <button type="button" class="btn small" id="continuity-acknowledge" disabled>Acknowledge after external reconciliation</button>
+    </div>
+    <p class="notice" style="margin-top:12px">A warning cannot be cleared merely by refreshing. Acknowledging sets a new <strong>browser-only</strong> baseline after manual investigation; it does not restore lost records, verify PayPal captures, produce an external backup or unlock any checkout. Private-browser sessions and other devices have separate baselines.</p>
+  </div>
+  <div class="space"></div>
   <div class="card"><div class="section-heading"><h2>PayPal sandbox orders</h2>
    <button class="btn small" onclick="load()">Refresh records</button></div><div id="transaction-list"></div></div>
   <div class="space"></div>
@@ -509,6 +523,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/event-details.js"></script>
 <script src="/static/schedule.js"></script>
 <script src="/static/reconciliation_compare.js"></script>
+<script src="/static/storage_continuity.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -1797,9 +1812,18 @@ el("quickstart-name").addEventListener("input",()=>{
 });
 el("new-form").addEventListener("submit",createEvent);el("ai-form").addEventListener("submit",analyze);
 document.querySelectorAll("[data-tab]").forEach(function(x){x.addEventListener("click",function(){switchTab(x.dataset.tab)})});
+const continuityMonitor=window.CircleSplitContinuity.setup(
+ document,()=>window.localStorage,
+ ()=>request("/api/judge-readiness"),
+ message=>window.confirm(message)
+);
 async function checkReadiness(){
  try{
    let d=await request("/api/judge-readiness");
+   // This only observes one already-authorized, read-only status response.
+   // A dataset switch or count regression preserves the previous baseline
+   // until an organizer explicitly acknowledges external reconciliation.
+   continuityMonitor.observe(d);
    el("judge-health").textContent="Gemini key: "+(d.ai_key_present?"present":"missing")+
     " · PayPal sandbox keys: "+(d.paypal_key_pair_present?"present":"missing")+
     " · Webhook ID: "+(d.webhook_id_present?"present":"missing")+
@@ -1821,7 +1845,10 @@ async function checkReadiness(){
     warning.textContent="Local SQLite persistence is not independently verified. "
      +"Back up the database file before resetting your development environment.";
    }
- }catch(e){el("judge-health").textContent="Readiness check unavailable: "+e.message;}
+ }catch(e){
+   el("judge-health").textContent="Readiness check unavailable: "+e.message;
+   el("continuity-status").textContent="Continuity check unavailable; previous browser warning, if any, has not been cleared.";
+ }
 }
 el("expense-category").innerHTML=categoryOptions("other");
 el("new-date").value=new Date().toISOString().slice(0,10);load().then(paymentReturn);checkReadiness();

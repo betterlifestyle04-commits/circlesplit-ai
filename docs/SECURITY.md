@@ -10,6 +10,28 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Browser-local reset/rollback sentinel (November 5, 2026)
+
+- On initial authorized workspace load, the browser can remember a **short**
+  database incarnation prefix, aggregate current-local verified-capture and
+  webhook-event counts, and observation date. No participant identifiers,
+  PayPal order or capture IDs, invitation tokens, credentials, or raw
+  reconciliation manifest contents enter this checkpoint.
+- Reopening in the *same browser profile* compares those previous values
+  to the protected read-only `/api/judge-readiness` response. A changed
+  incarnation or decreased count triggers a workspace-wide warning.
+  Unresolved warnings do **not** overwrite the earlier stored checkpoint;
+  healthy observations move high-water counts forward.
+- Explicit acknowledgement after external manual investigation requires
+  confirmation and a *fresh unchanged* server observation. This only
+  replaces the local browser checkpoint; it is not proof of PayPal
+  settlement or a reconstruction of lost orders. Browser storage can be
+  disabled, erased or altered by local users; it is **not trusted**, shared
+  across devices, a durable backup, or an automated offsite monitor.
+- The feature adds no new payment mutation, external storage, hosted
+  secret, third-party request or identity credential. The existing
+  Sandbox-only, no-automatic-retry rules still apply.
+
 ## Provider-verified Sandbox capture authorization (November 5, 2026)
 
 - Direct `POST /api/paypal/capture` no longer marks a record `capturing`
