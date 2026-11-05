@@ -9,6 +9,19 @@ from urllib.parse import urlsplit
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
+def owner_only_sandbox_action(method, path):
+    """Judge credentials may inspect, but must NEVER initiate provider actions.
+
+    Deliberately guards all non-webhook POST routes under /api/paypal/,
+    including future PayPal mutating routes, rather than enumerating just
+    the current create/capture endpoints. Signature-verified webhooks must
+    remain accessible without an organizer password.
+    """
+    return (method == "POST" and isinstance(path, str)
+            and path.startswith("/api/paypal/")
+            and path != "/api/paypal/webhook")
+
+
 def _parsed_origin(value):
     """Normalize a web origin while rejecting malformed or non-origin strings."""
     if not isinstance(value, str) or not value or value != value.strip():

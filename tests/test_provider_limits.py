@@ -66,14 +66,21 @@ def test_ai_shared_judge_budget_and_owner_isolation(client):
 
 
 def test_orders_and_reconciliation_budgets_are_separate(client):
+    # Only owner credentials may reach PayPal Sandbox action budgets.
     for i in range(6):
-        r = client.post("/api/paypal/orders/1/999", auth=JUDGE)
+        r = client.post("/api/paypal/orders/1/999", auth=OWNER)
         assert r.status_code == 503
         assert r.headers["X-RateLimit-Remaining"] == str(5 - i)
-    assert client.post("/api/paypal/orders/1/999", auth=JUDGE).status_code == 429
-    # A throttled creation request does not throttle read-only recovery itself.
+    assert client.post("/api/paypal/orders/1/999", auth=OWNER).status_code == 429
+    # A blocked judge request never consumes either owner or judge provider quotas.
+    judge = client.post("/api/paypal/orders/1/999", auth=JUDGE)
+    assert judge.status_code == 403
+    assert "X-RateLimit-Limit" not in judge.headers
+    # Read-only recovery is still accessible to the judge.
     assert client.get("/api/paypal/recovery", auth=JUDGE).status_code == 200
     assert client.post("/api/paypal/capture", auth=JUDGE,
+                       json={"order_id": "UNRECOGNIZED"}).status_code == 403
+    assert client.post("/api/paypal/capture", auth=OWNER,
                        json={"order_id": "UNRECOGNIZED"}).status_code == 404
     assert client.post("/api/ai/parse", auth=JUDGE, json={"note": "Completely separate bucket"}).status_code == 503
 

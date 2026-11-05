@@ -14,6 +14,7 @@ function harness(result,{confirmed=true,error=null}={}){
  const calls=[],downloads=[],messages=[];
  const button={disabled:false};
  const context=vm.createContext({
+  state:{sandbox_order_actions_allowed:true},
   window:{confirm(){calls.push("confirm");return confirmed}},
   el:()=>button,
   request:async url=>{calls.push(url);if(error)throw Error(error);return result},

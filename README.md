@@ -619,6 +619,34 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - **API:** authenticated `GET /api/planning-backup` (download) and `POST /api/planning-backup/restore` (validated import), both inaccessible to public visitors and participant-link holders.
 - **Important:** This mitigates *planning data loss only if the owner regularly downloads and securely retains the file*. It does not provide continuous backups, preserve payment history, restore approvals or guarantee recovery of PayPal activity. Durable database storage and individual authentication are still required before production use.
 
+## Separate organizer and judge payment permissions
+
+On the hosted demo, the organizer's `DEMO_USERNAME` /
+`DEMO_PASSWORD` is the **owner** role. If an optional, separately
+configured judge credential is enabled (`JUDGE_ACCESS_ENABLED=1`,
+`JUDGE_USERNAME`, `JUDGE_PASSWORD` with an explicit expiry), that
+credential has the **judge** role, not the ability to transact.
+
+Judges can explore the shared fictional event workspace, simulate
+contributions, inspect read-only checkout prerequisites and local
+payment recovery summaries, and evaluate planning features. They
+**cannot** create a PayPal Sandbox order, check an existing provider
+order (which can perform reconciliation), capture a Sandbox payment, or
+download a private reconciliation manifest. The API enforces the
+restriction **before PayPal is contacted**, including for future
+non-webhook `POST /api/paypal/*` actions. The workspace visibly
+explains the limitation and disables restricted controls; this UI
+is only an aid, not the authorization boundary.
+
+An independent PayPal-signed webhook remains available to the
+provider, with signature checks unchanged. A separate judge login
+can be turned off or allowed to expire without affecting owner
+credentials. The default owner username happens to be `judge`
+in some demo setups, but owner permissions depend on the **owner
+credential** authenticated, not its label. Both roles still share
+the fictional organizer database: this is not multi-tenant identity
+security or a real customer account system.
+
 ## Database-incarnation guard for in-flight Sandbox order creation
 
 PayPal Sandbox order creation is a two-step local/remote operation: first
