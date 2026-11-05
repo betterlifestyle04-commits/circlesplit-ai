@@ -8,7 +8,7 @@ import httpx
 from fastapi import HTTPException
 
 BASE = "https://api-m.sandbox.paypal.com"
-_ORDER_ID = re.compile(r"[A-Za-z0-9-]{5,50}\\Z")
+_ORDER_ID = re.compile(r"[A-Za-z0-9-]{5,50}\Z")
 
 
 def valid_sandbox_order_id(value):
