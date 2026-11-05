@@ -509,6 +509,15 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   </div>
   <div class="space"></div>
   <div class="card">
+   <div class="section-heading"><h2>Signed webhook delivery audit</h2>
+    <button class="btn small secondary" type="button" id="webhook-audit-run" onclick="loadWebhookAudit()">Refresh signed events</button></div>
+   <p class="small muted">Review signed Sandbox notifications retained in the local database. Unknown orders, incorrect amounts and malformed capture notifications require manual provider investigation. This audit does not contact PayPal or change payments.</p>
+   <p id="webhook-audit-status" role="status" aria-live="polite" class="small muted">Open Activity to inspect signed webhook deliveries.</p>
+   <div id="webhook-audit-metrics" class="row wrap" style="margin-top:12px"></div>
+   <p id="webhook-audit-disclosure" class="notice" style="margin-top:12px">A clean local audit does not prove PayPal settlement, delivery completeness or database durability.</p>
+  </div>
+  <div class="space"></div>
+  <div class="card">
    <div class="section-heading"><h2>Sandbox recovery risk overview</h2><span class="pill neutral">All local records · Read only</span></div>
    <p class="small muted">Before inspecting individual orders, review this complete local-ledger triage. It separates unknown order creation, uncertain capture attempts, pending confirmations, and inconsistent records. These categories are <b>not</b> proof of loss or settlement.</p>
    <p id="recovery-risk-status" role="status" aria-live="polite" class="small muted">Open Activity to assess the current local ledger.</p>
@@ -570,6 +579,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/reconciliation_compare.js"></script>
 <script src="/static/storage_continuity.js"></script>
 <script src="/static/recovery_triage.js"></script>
+<script src="/static/webhook_audit.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -602,7 +612,7 @@ async function request(path,opts){
 }
 function post(path,body){return request(path,{method:"POST",body:JSON.stringify(body||{})})}
 async function run(action,msg){try{await action();await load();if(msg)notice(msg,false)}catch(e){notice(e.message,true)}}
-function switchTab(tab){currentTab=tab;document.querySelectorAll(".tabpan").forEach(function(x){x.classList.toggle("active",x.id===tab)});document.querySelectorAll("[data-tab]").forEach(function(x){x.classList.toggle("active",x.dataset.tab===tab)});el("crumb").textContent=tab.charAt(0).toUpperCase()+tab.slice(1);render();if(tab==="history")loadEventHistory();if(tab==="closeout")loadCloseout();if(tab==="activity")loadRecovery();if(tab==="events")loadEventTemplates()}
+function switchTab(tab){currentTab=tab;document.querySelectorAll(".tabpan").forEach(function(x){x.classList.toggle("active",x.id===tab)});document.querySelectorAll("[data-tab]").forEach(function(x){x.classList.toggle("active",x.dataset.tab===tab)});el("crumb").textContent=tab.charAt(0).toUpperCase()+tab.slice(1);render();if(tab==="history")loadEventHistory();if(tab==="closeout")loadCloseout();if(tab==="activity"){loadRecovery();loadWebhookAudit();}if(tab==="events")loadEventTemplates()}
 function openPulseAction(id,tab){
  if(!state.events.some(e=>e.id===id)){notice("Event not available. Refresh the dashboard.",true);return;}
  selectEvent(id);switchTab(tab);
@@ -1331,6 +1341,31 @@ async function copyEventMessage(){
 }
 function approvePerson(pid){let e=event();run(function(){return post("/api/events/"+e.id+"/people/"+pid+"/approve")},"Organizer demo approval recorded; not verified participant consent.")}
 function simulate(pid){let e=event();run(function(){return post("/api/events/"+e.id+"/people/"+pid+"/simulate")},"SIMULATED contribution recorded — no PayPal transaction.")}
+async function loadWebhookAudit(){
+ const status=el("webhook-audit-status"),metrics=el("webhook-audit-metrics");
+ const disclosure=el("webhook-audit-disclosure"),button=el("webhook-audit-run");
+ button.disabled=true;
+ status.textContent="Checking locally retained signed notifications…";
+ metrics.replaceChildren();
+ try{
+  const result=await request("/api/paypal/webhook-audit");
+  const view=window.CircleSplitWebhookAudit.presentation(result);
+  status.textContent=view.headline;
+  for(const item of view.rows){
+   const element=document.createElement("span");
+   element.className="pill "+(item.needsReview&&item.count?"orange":"neutral");
+   element.textContent=item.label+": "+item.count;
+   metrics.appendChild(element);
+  }
+  disclosure.textContent=view.notice;
+ }catch(_err){
+  status.textContent="Signed webhook delivery audit unavailable. Inspect PayPal Sandbox manually.";
+  metrics.replaceChildren();
+  disclosure.textContent="No provider calls, automatic retries or payment mutations were initiated by this audit.";
+ }finally{
+  button.disabled=false;
+ }
+}
 async function runLedgerAudit(){
  const button=el("ledger-audit-run"),status=el("ledger-audit-status"),findings=el("ledger-audit-findings");
  button.disabled=true;
@@ -1969,7 +2004,7 @@ function render(){
 async function load(){try{state=await request("/api/state");clearCloseout();historyCache=null;el("history-export").disabled=true;if(!state.events.some(function(e){return e.id===eventId}))eventId=state.events.length?state.events[0].id:null;render();let t=await request("/api/transactions");window.circleTransactions=t.transactions;renderInsights();renderPulse();
  if(currentTab==="history")await loadEventHistory();
  if(currentTab==="closeout")await loadCloseout();
- if(currentTab==="activity")await loadRecovery();
+ if(currentTab==="activity"){await loadRecovery();await loadWebhookAudit();}
  el("transaction-list").innerHTML=t.transactions.length?'<div class="notice">Order created ≠ payment captured. Click Check PayPal to resume buyer approval or reconcile a previously approved sandbox order.</div><div class="space"></div><div style="overflow-x:auto"><table><thead><tr><th>Person</th><th>Event</th><th>Amount</th><th>Status</th><th>Verify</th></tr></thead><tbody>'+t.transactions.map(function(p){let id=String(p.order_id||"");let canCheck=state.sandbox_order_actions_allowed!==false&&p.status!=="completed"&&/^[A-Za-z0-9-]{5,50}$/.test(id);return '<tr><td>'+safe(p.person_name)+'</td><td>'+safe(p.event_name)+'</td><td>'+money(p.amount_cents)+'</td><td><span class="pill '+(p.status==="completed"?"":"orange")+'">'+safe(p.status==="completed"?"VERIFIED CAPTURE":p.status==="created"?"ORDER CREATED — NOT PAID":p.status)+'</span></td><td>'+(canCheck?'<button class="btn small secondary" onclick="verifyPayPalOrder(\''+id+'\')">Check PayPal</button>':p.status==="completed"?"Verified":"—")+'</td></tr>'}).join("")+'</tbody></table></div>':'<div class="empty">No real PayPal sandbox orders created yet.</div>'}catch(e){notice(e.message,true)}}
 async function analyze(evt){evt.preventDefault();if(applyingProposal)return;proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").textContent="Analyzing your note...";const target=event();const targetId=target?target.id:null;el("ai-button").disabled=true;try{if(!targetId)throw Error("Select an event before analyzing costs.");let p=await post("/api/ai/parse",{note:el("ai-note").value});if(event()?.id!==targetId)throw Error("Event changed during AI analysis. Re-run for the selected event.");proposal=p;proposalEventId=targetId;el("ai-rationale").textContent=(p.rationale||"Review before applying")+" · Target event: "+target.name;el("ai-proposal").className="stack";el("ai-proposal").innerHTML=p.expenses.map(function(x,i){return '<div class="formgrid"><div class="field"><label>Expense</label><input class="pro-title" value="'+safe(x.title)+'"></div><div class="field"><label>USD</label><input class="pro-amount" value="'+safe(x.amount)+'"></div><div class="field full"><label>Category — review and adjust</label><select class="pro-category select">'+categoryOptions(x.category)+'</select></div></div>'}).join("")||'<div class="empty">No explicit prices were identified in the note.</div>';el("ai-apply").disabled=!p.expenses.length}catch(e){el("ai-proposal").className="empty";el("ai-proposal").textContent=e.message;notice(e.message,true)}finally{el("ai-button").disabled=false}}
 async function generateTaskPlan(evt){
