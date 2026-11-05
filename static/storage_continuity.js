@@ -44,6 +44,10 @@
       validCount(data.captures) && validCount(data.webhooks) &&
       validTimestamp(data.observed_at);
   }
+  function usableStorage(storage) {
+    try { return typeof storage==="function"?storage():storage; }
+    catch (_) { return null; }
+  }
   function load(storage) {
     try {
       if (!storage || typeof storage.getItem !== "function") return {state:"unavailable"};
@@ -146,7 +150,7 @@
     function observe(readiness) {
       const current=snapshot(readiness);
       latest=current;
-      const previous=load(typeof storage==="function"?storage():storage);
+      const previous=load(usableStorage(storage));
       if (previous.state==="unavailable") {
         lastReport={kind:"unavailable",current,previous:null};
         return show("unavailable",current,null);
@@ -156,14 +160,14 @@
         return show("invalid",current,null);
       }
       if (previous.state==="empty") {
-        const stored=save(typeof storage==="function"?storage():storage,current);
+        const stored=save(usableStorage(storage),current);
         lastReport={kind:stored?"first":"unavailable",current,previous:null};
         return show(lastReport.kind,current,null);
       }
       const result=assess(previous.value,current);
       if (!result.concern) {
         const merged=newestCheckpoint(previous.value,current);
-        if (!save(typeof storage==="function"?storage():storage,merged)) {
+        if (!save(usableStorage(storage),merged)) {
           lastReport={kind:"unavailable",current,previous:previous.value};
           return show("unavailable",current,previous.value);
         }
@@ -175,9 +179,11 @@
       if (busy) return;
       busy=true;checkButton.disabled=true;acceptButton.disabled=true;
       message.textContent="Checking protected dataset identity and aggregate counts…";
+      let failed=false;
       try {
         observe(await fetchReadiness());
       } catch (_) {
+        failed=true;
         message.textContent="Dataset check unavailable. The previous browser checkpoint was not changed.";
         // Never clear an existing warning because a network check failed.
         if(lastReport?.kind==="new-dataset" || lastReport?.kind==="count-regression" ||
@@ -186,7 +192,8 @@
         }
       } finally {
         busy=false;checkButton.disabled=false;
-        if(lastReport) show(lastReport.kind,lastReport.current,lastReport.previous);
+        if(!failed && lastReport) show(lastReport.kind,lastReport.current,lastReport.previous);
+        if(failed) acceptButton.disabled=true;
       }
     }
     async function acknowledge() {
@@ -209,15 +216,16 @@
             latestServer.webhooks!==latest.webhooks) {
           throw Error("The current dataset changed. Inspect the latest results first.");
         }
-        const stored=load(typeof storage==="function"?storage():storage);
+        const stored=load(usableStorage(storage));
         const old=lastReport.previous;
-        if (lastReport.kind!=="invalid" &&
-            (stored.state!=="stored" || stored.value.epoch!==old.epoch ||
-             stored.value.captures!==old.captures ||
-             stored.value.webhooks!==old.webhooks)) {
+        if ((lastReport.kind==="invalid" && stored.state!=="invalid") ||
+            (lastReport.kind!=="invalid" &&
+             (stored.state!=="stored" || stored.value.epoch!==old.epoch ||
+              stored.value.captures!==old.captures ||
+              stored.value.webhooks!==old.webhooks))) {
           throw Error("The browser checkpoint changed in another tab.");
         }
-        if (!save(typeof storage==="function"?storage():storage,latestServer)) {
+        if (!save(usableStorage(storage),latestServer)) {
           throw Error("Browser storage rejected the new checkpoint.");
         }
         latest=latestServer;
