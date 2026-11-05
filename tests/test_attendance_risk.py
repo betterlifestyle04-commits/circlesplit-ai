@@ -46,6 +46,13 @@ def test_equal_splits_are_exact_cent_and_five_missing_people_change_shares(clien
     ]
     assert d["projections"][0]["over_target"] is False
     assert d["projections"][2]["over_target"] is True
+    assert [p["minimum_replacements_needed"] for p in d["projections"]] == [
+        0, 0, 1, 2, 3, 4,
+    ]
+    assert d["projections"][2]["best_replacement_largest_share_cents"] == 1158
+    assert d["projections"][2]["replacement_candidates_tested"] == 2
+    assert d["projections"][5]["replacements_feasible"] is True
+    assert d["projections"][5]["best_replacement_count"] == 4
     assert client.get("/api/state").json() == before
 
 
@@ -65,6 +72,13 @@ def test_weighted_absence_selection_is_documented_deterministic_and_uses_real_al
     assert [p["largest_share_increase_cents"] for p in d["projections"]] == [
         0, 2501, 5001
     ]
+    # Losing the higher-weight member does not imply a new member can cover
+    # their old weight. The solver reuses the real allocator, not headcounts.
+    assert [p["minimum_replacements_needed"] for p in d["projections"]] == [
+        0, 1, 2,
+    ]
+    assert d["projections"][1]["best_replacement_largest_share_cents"] == 6001
+    assert d["projections"][2]["best_replacement_largest_share_cents"] == 6001
 
 
 def test_one_person_clamps_requested_max_without_empty_roster(client):
@@ -83,6 +97,45 @@ def test_one_person_clamps_requested_max_without_empty_roster(client):
     assert len(d["projections"]) == 1
     assert d["first_target_breach_at_absences"] == 0
     assert d["projections"][0]["largest_share_cents"] == 3000
+    assert d["projections"][0]["minimum_replacements_needed"] == 1
+    assert d["projections"][0]["best_replacement_largest_share_cents"] == 1500
+
+
+def test_no_recovery_within_fifty_attendees_does_not_claim_affordable(client):
+    d = call(client, seed(client)["id"], "0.01", 3).json()
+    assert d["read_only"] is True
+    for row in d["projections"]:
+        assert row["replacements_feasible"] is False
+        assert row["minimum_replacements_needed"] is None
+        assert row["maximum_replacements_considered"] == 50
+        assert row["replacement_candidates_tested"] == 51
+        assert row["best_replacement_count"] == 50
+        assert row["replacement_gap_cents"] > 0
+
+
+def test_replacement_search_enforces_two_hundred_person_limit():
+    people = [{"id": i, "weight": 1} for i in range(1, 201)]
+    d = attendance_stress_curve(10_000, people, "equal", 1, 1)
+    full = d["projections"][0]
+    assert full["remaining_people"] == 200
+    assert full["maximum_replacements_considered"] == 0
+    assert full["replacement_candidates_tested"] == 1
+    assert full["replacements_feasible"] is False
+    assert full["minimum_replacements_needed"] is None
+    one_absent = d["projections"][1]
+    assert one_absent["maximum_replacements_considered"] == 1
+    assert one_absent["replacement_candidates_tested"] == 2
+    assert one_absent["replacements_feasible"] is False
+
+
+def test_never_claims_sandbox_checkout_or_real_rsvp_from_replacement_preview(client):
+    eid = seed(client)["id"]
+    d = call(client, eid, "12.00", 3).json()
+    assert "checkout_url" not in d
+    assert "paypal_order" not in d
+    assert "invitation" not in d
+    assert d["mode"] == "SANDBOX_PLANNING_ONLY"
+    assert d["projections"][2]["minimum_replacements_needed"] == 1
 
 
 def test_empty_event_is_not_a_valid_stress_scenario(client):
