@@ -432,6 +432,24 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
       <div id="affordability-results" class="empty" role="status" aria-live="polite" style="margin-top:15px">Enter your target and calculate a safe what-if plan.</div>
       <p class="notice" style="margin-top:12px">Advisory only. A new attendee has not agreed to pay, and a result does not change the existing expense plan, approval, private invitation, or PayPal Sandbox order. Real changes can be locked after checkout begins.</p>
     </div>
+    <div class="card" style="margin-top:20px">
+      <div class="section-heading"><h2>No-show stress test</h2><span class="pill neutral">Exact cents · No changes</span></div>
+      <p class="small muted">See how remaining fictional attendees' maximum shares could change if people cannot attend. With weighted splits, the illustration keeps one highest-weight participant and then excludes the next highest weights. This is <b>one adverse scenario, not a forecast or proven worst case</b>.</p>
+      <p id="attendance-risk-target" class="small muted">Select an event to explore attendance risk.</p>
+      <form id="attendance-risk-form" class="formgrid" style="margin-top:12px">
+        <div class="field"><label for="attendance-risk-cap">Maximum acceptable share (USD)</label>
+          <input id="attendance-risk-cap" value="15.00" placeholder="e.g. 15.00" inputmode="decimal" required></div>
+        <div class="field"><label for="attendance-risk-absent">Maximum no-shows to simulate (0–20)</label>
+          <input id="attendance-risk-absent" type="number" min="0" max="20" step="1" value="5" required></div>
+        <div class="field full"><label for="attendance-risk-strategy">Hypothetical allocation</label>
+          <select id="attendance-risk-strategy" class="select">
+            <option value="equal">Equal split</option><option value="weighted">Weighted split</option>
+          </select></div>
+        <button class="btn primary" type="submit" id="attendance-risk-run">Stress-test attendance</button>
+      </form>
+      <div id="attendance-risk-results" class="empty" role="status" aria-live="polite" style="margin-top:15px">Enter assumptions to preview a read-only attendance stress scenario.</div>
+      <p class="notice" style="margin-top:12px">The full original budget is held constant even though real costs could fall. This preview does not cancel invitations, change approved shares, redistribute settled funds, initiate checkout or affect PayPal Sandbox records.</p>
+    </div>
   </section>
     <section id="closeout" class="tabpan">
    <div class="title"><div><div class="eyebrow">EVENT CLOSEOUT PREVIEW</div>
@@ -868,7 +886,7 @@ function explainMember(id){
  }catch(err){el("split-explanation").textContent="Unable to explain this share: "+err.message}
 }
 function focusNew(){setTimeout(function(){el("new-name").focus()},100)}
-function selectEvent(id){eventId=Number(id);resetAgendaEditor();cancelEventDetailsEditor();cancelExpenseEditor();cancelParticipantEditor();clearCloseout();el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();resetAffordability();render()}
+function selectEvent(id){eventId=Number(id);resetAgendaEditor();cancelEventDetailsEditor();cancelExpenseEditor();cancelParticipantEditor();clearCloseout();el("split-explanation").textContent="Select Explain next to a person to see how their share was calculated.";historyCache=null;el("history-export").disabled=true;el("communication-draft").value="";proposal=null;proposalEventId=null;el("ai-apply").disabled=true;el("ai-proposal").className="empty";el("ai-proposal").textContent="Select AI assistant to analyze costs for the chosen event.";taskDraft=null;taskDraftEventId=null;el("ai-plan-apply").disabled=true;el("ai-plan-preview").className="empty";el("ai-plan-preview").textContent="Select an event and generate a new plan.";el("ai-plan-rationale").textContent="The selected event changed; earlier suggestions were cleared.";resetScenario();resetAffordability();resetAttendanceRisk();render()}
 async function cloneSelectedEvent(){
  const e=event();if(!e)return;
  const name=window.prompt("New event name (expenses and participants will be copied, payments will not)",("Copy of "+e.name).slice(0,90));
@@ -948,6 +966,81 @@ async function previewAffordability(evt){
  finally{button.disabled=false;button.textContent="Find affordable group size";}
 }
 function signedMoney(v){return (v>0?"+":v<0?"−":"")+money(Math.abs(v));}
+function resetAttendanceRisk(){
+ const root=el("attendance-risk-results");
+ if(root){root.className="empty";root.textContent="Enter assumptions to preview a read-only attendance stress scenario.";}
+}
+async function previewAttendanceRisk(evt){
+ evt.preventDefault();
+ const selected=event();
+ if(!selected){notice("Create or select an event before testing attendance risk.",true);return;}
+ const eid=selected.id,button=el("attendance-risk-run");
+ const assumptions={
+  max_share:el("attendance-risk-cap").value.trim(),
+  maximum_absent:Number(el("attendance-risk-absent").value),
+  strategy:el("attendance-risk-strategy").value
+ };
+ const key=JSON.stringify(assumptions);
+ button.disabled=true;button.textContent="Calculating…";
+ try{
+  const d=await post("/api/events/"+eid+"/attendance-risk",assumptions);
+  if(event()?.id!==eid||JSON.stringify({
+    max_share:el("attendance-risk-cap").value.trim(),
+    maximum_absent:Number(el("attendance-risk-absent").value),
+    strategy:el("attendance-risk-strategy").value
+  })!==key){resetAttendanceRisk();return;}
+  const rows=d?.projections;
+  if(!d||d.mode!=="SANDBOX_PLANNING_ONLY"||d.read_only!==true||
+     d.event_id!==eid||d.scenario_rule!=="retain_highest_weight_remove_next_highest"||
+     typeof d.has_existing_sandbox_orders!=="boolean"||
+     !["equal","weighted"].includes(d.strategy)||
+     ![d.budget_cents,d.cap_cents,d.current_people,d.current_largest_share_cents,
+       d.tested_maximum_absent,d.requested_maximum_absent,d.approved_people].every(Number.isSafeInteger)||
+     d.current_people<1||d.tested_maximum_absent<0||d.tested_maximum_absent>20||
+     !Array.isArray(rows)||rows.length!==d.tested_maximum_absent+1||
+     !(d.first_target_breach_at_absences===null||
+       (Number.isSafeInteger(d.first_target_breach_at_absences)&&
+        d.first_target_breach_at_absences>=0&&
+        d.first_target_breach_at_absences<=d.tested_maximum_absent))||
+     rows.some(function(r,i){return !r||
+       ![r.absent_people,r.remaining_people,r.largest_share_cents,
+         r.smallest_share_cents,r.largest_share_increase_cents].every(Number.isSafeInteger)||
+       r.absent_people!==i||r.remaining_people!==d.current_people-i||
+       r.remaining_people<1||r.largest_share_cents<r.smallest_share_cents||
+       typeof r.over_target!=="boolean";
+     }))throw Error("Invalid attendance risk preview response.");
+  const root=el("attendance-risk-results");root.className="";
+  let breach=d.first_target_breach_at_absences;
+  const status=breach===null?
+   "Within target for all "+d.tested_maximum_absent+" modeled absence(s).":
+   breach===0?"The current roster already exceeds the per-person target.":
+   "Target breached once "+breach+" attendee(s) are absent in this scenario.";
+  root.innerHTML='<p class="pill '+(breach===null?"":"orange")+'">'+
+   safe(breach===null?"Within modeled target":"Attendance exposure")+'</p>'+
+   '<p style="margin:12px 0"><strong>'+safe(status)+'</strong></p>'+
+   '<div class="row between" style="padding:7px 0"><span>Current largest share</span><b>'+money(d.current_largest_share_cents)+'</b></div>'+
+   '<div class="row between" style="padding:7px 0"><span>Per-person target</span><b>'+money(d.cap_cents)+'</b></div>'+
+   '<div style="overflow-x:auto;margin-top:12px"><table><thead><tr><th>No-shows</th><th>Remaining</th><th>Largest share</th><th>Increase</th><th>Target</th></tr></thead><tbody>'+
+   rows.map(function(r){return '<tr><td>'+r.absent_people+'</td><td>'+r.remaining_people+
+     '</td><td><b>'+money(r.largest_share_cents)+'</b></td><td>'+
+     (r.largest_share_increase_cents>=0?"+":"−")+money(Math.abs(r.largest_share_increase_cents))+
+     '</td><td><span class="pill '+(r.over_target?"orange":"")+'">'+
+     (r.over_target?"Above cap":"Within cap")+'</span></td></tr>';}).join("")+
+   '</tbody></table></div>'+
+   (d.tested_maximum_absent<d.requested_maximum_absent?
+     '<p class="small muted">The test stops before all participants would be absent.</p>':'')+
+   (d.has_existing_sandbox_orders?
+     '<p class="notice" style="margin-top:12px">Sandbox checkout already started. These are hypothetical amounts only; never reallocate captured contributions.</p>':
+     d.approved_people?
+     '<p class="notice" style="margin-top:12px">Existing approvals do not cover changed shares. Reconfirm consent before changing any actual budget.</p>':'')+
+   '<p class="small muted" style="margin-top:12px">'+safe(d.notice)+'</p>';
+  notice("No-show stress test calculated. No participant, approval or PayPal record changed.",false);
+ }catch(err){
+  el("attendance-risk-results").className="empty";
+  el("attendance-risk-results").textContent="Attendance stress test unavailable: "+err.message;
+  notice("Attendance preview: "+err.message,true);
+ }finally{button.disabled=false;button.textContent="Stress-test attendance";}
+}
 async function previewScenario(evt){
  evt.preventDefault();const e=event();
  if(!e){notice("Create an event before using Scenario lab.",true);return;}
@@ -1769,6 +1862,7 @@ function render(){
  el("ai-indicator").textContent=state.ai_configured?"AI key set · verify with test":"AI not connected";
   const scenarioTarget=el("scenario-target");if(scenarioTarget)scenarioTarget.textContent=e?"Current event: "+e.name+" · "+money(e.total_cents)+" · "+e.people.length+" participants":"No event selected. Create one in Events.";
   const affordabilityTarget=el("affordability-target");if(affordabilityTarget)affordabilityTarget.textContent=e?"Testing: "+e.name+" · "+money(e.total_cents)+" · "+e.people.length+" participants":"Select an event in Events first.";
+  const attendanceRiskTarget=el("attendance-risk-target");if(attendanceRiskTarget)attendanceRiskTarget.textContent=e?"Testing: "+e.name+" · "+money(e.total_cents)+" · "+e.people.length+" participants":"Select an event in Events first.";
 
  if(!e){renderPlanning(null);renderEventCategories(null);el("rsvp-summary").textContent="No event selected.";showAgenda(null);showTasks(null);el("event-detail").innerHTML='<div class="empty">Create your first event.</div>';el("expense-rows").innerHTML="";el("people-rows").innerHTML="";el("contrib-rows").innerHTML="";el("transaction-list").textContent="";return}
  renderPlanning(e);
@@ -1867,6 +1961,8 @@ el("scenario-form").addEventListener("submit",previewScenario);
 ["scenario-adjustment","scenario-people","scenario-strategy"].forEach(function(id){el(id).addEventListener("input",resetScenario);});
 el("affordability-form").addEventListener("submit",previewAffordability);
 ["affordability-cap","affordability-extra","affordability-strategy"].forEach(function(id){el(id).addEventListener("input",resetAffordability);});
+el("attendance-risk-form").addEventListener("submit",previewAttendanceRisk);
+["attendance-risk-cap","attendance-risk-absent","attendance-risk-strategy"].forEach(function(id){el(id).addEventListener("input",resetAttendanceRisk);});
 el("agenda-form").addEventListener("submit",saveAgenda);
 el("task-form").addEventListener("submit",createTask);el("backup-file").addEventListener("change",previewPlanningBackup);
 el("planning-form").addEventListener("submit",savePlanning);
