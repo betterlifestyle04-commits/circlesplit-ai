@@ -40,6 +40,15 @@ weighted split method, and aggregate cost categories. Check that the private
 view reveals no other person's name or share. Approving the quoted amount
 records consent only: it does not initiate PayPal or move money.
 
+Before PayPal Sandbox checkout: In **Contributions**, select
+**Check readiness** on the fictional participant. The read-only preflight
+should explain missing approval, declined RSVP, an already-started order, or
+any inconsistent share allocation. After approving an unchanged share,
+**PayPal test** repeats readiness checks, requests explicit confirmation,
+and creates a new sandbox-only order if locally eligible. It cannot confirm
+provider availability or settlement. Never retry an uncertain creation
+response; inspect Activity and PayPal Sandbox instead.
+
 PayPal: Make a fresh fictional event costing $11.00 USD with one participant. Approve the share; select PayPal test. Use a *PayPal SANDBOX personal buyer account* obtained from PayPal Developer Dashboard (never a live PayPal account or real card). Complete checkout; on return, CircleSplit should show VERIFIED CAPTURE under Activity. If the flow is interrupted, use Activity → Check PayPal to resume or reconcile the *existing order*, not create duplicates.
 
 The test environment is sandbox only. The protected integration workspace uses shared fictional data and temporary SQLite storage; it may reset after deployment. If judges prefer not to use a sandbox buyer account, the under-3-minute YouTube video documents our confirmed capture and the repository contains the integration and tests.

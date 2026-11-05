@@ -2325,6 +2325,88 @@ def settle_verified_sandbox_capture(c, payment, capture_id):
     return True
 
 
+def checkout_local_readiness(c, eid: int, pid: int):
+    """Return the local PayPal SANDBOX checkout facts in the SAME DB snapshot.
+
+    The preflight GET is informational. Actual POST order creation calls this
+    again while holding the SQLite write transaction: a stale browser cannot
+    authorize a charge, and this helper makes no provider API requests.
+    """
+    require_event(c, eid)
+    person = c.execute(
+        "SELECT * FROM people WHERE id=? AND event_id=?", (pid, eid)
+    ).fetchone()
+    if person is None:
+        raise HTTPException(404, "Participant not found")
+    problems = []
+    def block(code, explanation):
+        problems.append({"code": code, "explanation": explanation})
+
+    if not person["approved"] or person["approval_withdrawn_at"]:
+        block("approval_required",
+              "Current share approval is required. A withdrawn share must be "
+              "approved again through the participant's private link.")
+    if person["rsvp_status"] == "declined":
+        block("attendance_declined",
+              "Participant declined attendance. Review the plan before checkout.")
+    if person["status"] != "unpaid" or person["share_cents"] < 1:
+        block("not_payable",
+              "Only an unpaid, positive fictional share is eligible for checkout.")
+    prior = c.execute(
+        "SELECT status FROM payments WHERE person_id=? LIMIT 1",
+        (pid,)
+    ).fetchone()
+    if prior:
+        block("existing_order",
+              "A Sandbox order already exists or was attempted. Use Activity "
+              "to investigate the existing payment; never create a second order.")
+    quote = participant_share_breakdown(c, {
+        "event_id": eid, "person_id": pid,
+        "share_cents": person["share_cents"]
+    })
+    if not quote["allocation_consistent"]:
+        block("allocation_inconsistent",
+              "The recorded shares do not match the current exact-cent event "
+              "allocation. Ask the organizer to investigate; do not charge.")
+    return person, problems
+
+
+def checkout_readiness_report(c, eid: int, pid: int):
+    """Explain blockers; never contact PayPal, create rows or disclose secrets."""
+    person, problems = checkout_local_readiness(c, eid, pid)
+    return person, problems
+
+
+@app.get("/api/paypal/checkout-readiness/{eid}/{pid}")
+def paypal_checkout_readiness(eid: int, pid: int):
+    """Protected read-only preflight; POST performs identical local checks."""
+    mount = storage_readiness(DB)
+    configured = paypal.configured()
+    with db() as c:
+        person, blockers = checkout_readiness_report(c, eid, pid)
+    # Platform/environment blockers are presented separately from consent.
+    if not mount["sandbox_checkout_allowed"]:
+        blockers.insert(0, {
+            "code": "durable_storage_required",
+            "explanation": "New Sandbox checkout is disabled until the configured "
+                           "durable-storage requirement is satisfied."
+        })
+    if not configured:
+        blockers.insert(0, {
+            "code": "sandbox_not_configured",
+            "explanation": "PayPal Sandbox credentials are not configured for this demo."
+        })
+    return {
+        "mode": "PAYPAL_SANDBOX",
+        "can_create_order": len(blockers) == 0,
+        "amount_cents": int(person["share_cents"]),
+        "blockers": blockers,
+        "notice": ("Read-only local preflight, not a PayPal availability check "
+                   "or capture authorization. The server rechecks all conditions "
+                   "before creating an order. Never retry an uncertain payment.")
+    }
+
+
 @app.post("/api/paypal/orders/{eid}/{pid}")
 async def create_order(eid: int, pid: int, request: Request):
     readiness = storage_readiness(DB)
@@ -2336,15 +2418,9 @@ async def create_order(eid: int, pid: int, request: Request):
             "Existing orders may still be checked and reconciled.")
     if not paypal.configured(): raise HTTPException(503, "PayPal sandbox unconfigured")
     with db() as c:
-        p = c.execute("SELECT * FROM people WHERE id=? AND event_id=?", (pid,eid)).fetchone()
-        if not p: raise HTTPException(404,"Participant not found")
-        if not p["approved"] or p["approval_withdrawn_at"]:
-            raise HTTPException(409,"Valid current approval required")
-        if p["rsvp_status"] == "declined": raise HTTPException(409,"Declined attendance; new checkout blocked")
-        if p["status"] != "unpaid" or p["share_cents"] < 1:
-            raise HTTPException(409,"Contribution not payable")
-        if c.execute("SELECT 1 FROM payments WHERE person_id=? LIMIT 1",(pid,)).fetchone():
-            raise HTTPException(409,"An order already exists; do not create another")
+        p, blockers = checkout_local_readiness(c, eid, pid)
+        if blockers:
+            raise HTTPException(409, blockers[0]["explanation"])
         amount = p["share_cents"]
         create_key, capture_key = str(uuid.uuid4()), str(uuid.uuid4())
         record = c.execute(

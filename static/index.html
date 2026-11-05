@@ -285,6 +285,12 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
    <div class="banner"><b>Sandbox notice:</b> organizer approvals are demo overrides and are <strong>not verified participant consent</strong>. Invitation links are bearer-based, not identity verification. Simulated contributions are test records, not PayPal confirmations. Only real verified sandbox captures count as sandbox payments.</div><div class="space"></div>
    <div class="card"><div class="section-heading"><h2 id="contrib-heading">Contributions</h2><button class="btn small" onclick="switchTab('events')">Manage event</button></div><div id="contrib-progress"></div>
     <div id="rsvp-summary" class="notice" style="margin:15px 0" aria-live="polite">Attendance responses will appear here.</div>
+    <div class="capsule" style="margin:15px 0">
+      <div class="row wrap"><strong>Sandbox checkout safety check</strong><span class="pill neutral">Read-only preflight</span></div>
+      <p class="small muted" style="margin:7px 0">Select Check readiness on a participant to see the exact local checkout blockers before attempting a test order. This view never calls PayPal or changes a payment. PayPal test rechecks before creating a Sandbox order.</p>
+      <p id="checkout-readiness-status" class="small" role="status" aria-live="polite">Choose a participant to inspect.</p>
+      <div id="checkout-readiness-details" class="small" aria-live="polite"></div>
+    </div>
     <div class="space"></div>
       <div id="participant-invite-panel" class="capsule" style="display:none;margin-bottom:16px">
         <div class="row between"><strong>Private participant invitation</strong><span class="pill orange">7-day expiry</span></div>
@@ -1263,7 +1269,62 @@ async function compareLocalReconciliationFiles(){
   button.disabled=false;
  }
 }
-async function paypalCheckout(pid){let e=event();try{let result=await post("/api/paypal/orders/"+e.id+"/"+pid);if(!result.approval_url||!result.approval_url.startsWith("https://"))throw Error("Invalid PayPal redirect");window.location.assign(result.approval_url)}catch(err){if(/already exists/i.test(err.message)){switchTab("activity");notice("An order already exists for this participant. Use Check PayPal on the Activity page to resume or verify it.",true)}else notice(err.message,true)}}
+const checkoutPreflightInFlight=new Set();
+async function checkCheckoutReadiness(pid, beginCheckout=false){
+ const current=event(),status=el("checkout-readiness-status"),details=el("checkout-readiness-details");
+ if(!current){notice("Select an event before checking Sandbox readiness.",true);return}
+ const eid=current.id;
+ if(checkoutPreflightInFlight.has(pid))return;
+ checkoutPreflightInFlight.add(pid);
+ details.replaceChildren();
+ status.textContent="Checking local checkout rules for participant #"+pid+"…";
+ try{
+  const result=await request("/api/paypal/checkout-readiness/"+eid+"/"+pid);
+  if(event()?.id!==eid)return;
+  if(!result||result.mode!=="PAYPAL_SANDBOX"||
+      typeof result.can_create_order!=="boolean"||
+      !Number.isSafeInteger(result.amount_cents)||
+      !Array.isArray(result.blockers))throw Error("Invalid checkout safety response");
+  const blocked=!result.can_create_order||result.blockers.length>0;
+  // Never use HTML to show a server-returned explanation.
+  status.textContent=blocked?
+   "Sandbox order blocked · "+result.blockers.length+" prerequisite(s) need attention.":
+   "Locally eligible for new Sandbox checkout · "+money(result.amount_cents)+
+   ". No PayPal provider availability has been checked.";
+  if(blocked){
+   const ul=document.createElement("ul");
+   for(const blocker of result.blockers){
+    const item=document.createElement("li");
+    item.textContent=String(blocker.explanation||"Unknown local checkout blocker");
+    ul.appendChild(item);
+   }
+   details.appendChild(ul);
+   if(result.blockers.some(x=>x.code==="existing_order")){
+    notice("An existing or uncertain Sandbox order needs reconciliation in Activity. Never retry order creation.",true);
+   }
+   return;
+  }
+  details.textContent="All local checks passed. A new order would be PayPal Sandbox ONLY. "+result.notice;
+  if(!beginCheckout)return;
+  if(!window.confirm("Start a NEW PayPal Sandbox test order for "+money(result.amount_cents)+
+     "? This may create an order at PayPal even if the response times out. Do not retry an uncertain request."))return;
+  const created=await post("/api/paypal/orders/"+eid+"/"+pid);
+  if(!created||created.mode!=="PAYPAL_SANDBOX"||
+     typeof created.approval_url!=="string")throw Error("Invalid PayPal Sandbox order response");
+  const redirect=new URL(created.approval_url);
+  if(redirect.protocol!=="https:"||
+     !["www.sandbox.paypal.com","sandbox.paypal.com"].includes(redirect.hostname))
+    throw Error("Invalid PayPal Sandbox redirect. Inspect the recorded order in Activity; do not retry.");
+  window.location.assign(redirect.href);
+ }catch(err){
+  if(event()?.id!==eid)return;
+  status.textContent="Checkout preflight or creation unavailable: "+err.message;
+  notice("Sandbox checkout: "+err.message,true);
+ }finally{
+  checkoutPreflightInFlight.delete(pid);
+ }
+}
+async function paypalCheckout(pid){return checkCheckoutReadiness(pid,true)}
 async function verifyPayPalOrder(id){try{let result=await post("/api/paypal/order-status/"+encodeURIComponent(id));await load();if(result.verified){notice("Verified PayPal sandbox capture. Contribution recorded.",false)}else if(result.action==="approve"&&result.approval_url){if(window.confirm("PayPal is still waiting for sandbox buyer approval. Resume this existing checkout?"))window.location.assign(result.approval_url);else notice("Order not yet approved. No payment has been captured.",true)}else if(result.action==="capture"){if(window.confirm("PayPal confirms the sandbox buyer approved this order. Capture the approved test payment now?")){await post("/api/paypal/capture",{order_id:id});await load();notice("PayPal sandbox capture verified and recorded.",false)}else notice("PayPal approved the order; capture not requested.",true)}else notice("PayPal reports "+result.status+". "+(result.note||"No completed capture was verified. Do not start another payment while the result is uncertain."),true)}catch(err){notice("PayPal status check: "+err.message,true)}}
 async function paymentReturn(){let p=new URLSearchParams(window.location.search);if(p.get("payment")==="cancelled"){history.replaceState(null,"",location.pathname);switchTab("activity");notice("Buyer cancelled PayPal sandbox checkout. No confirmed capture. Use Check PayPal to resume the existing order if appropriate.",true);return;}if(p.get("payment")!=="return"||!p.get("token"))return;let token=p.get("token");history.replaceState(null,"",location.pathname);switchTab("activity");await run(function(){return post("/api/paypal/capture",{order_id:token})},"PayPal sandbox capture verified and recorded.")}
 async function downloadPlanningBackup(){
@@ -1610,7 +1671,7 @@ function render(){
    " Awaiting RSVP. A declined RSVP never automatically reallocates costs or refunds a sandbox payment.";
  let pct=e.total_cents?Math.min(100,e.sandbox_cents/e.total_cents*100):0;
  el("contrib-progress").innerHTML='<div class="row between small"><span>Sandbox confirmed: <b>'+money(e.sandbox_cents)+'</b></span><span>Simulated separately: <b>'+money(e.simulated_cents)+'</b></span></div><div class="space"></div><div class="progress"><div class="fill" style="width:'+pct+'%"></div></div>';
- el("contrib-rows").innerHTML=e.people.map(function(x){let status=x.status==="sandbox_paid"?'<span class="pill">Sandbox paid</span>':x.status==="demo_paid"?'<span class="pill orange">SIMULATED</span>':'<span class="pill neutral">Unpaid</span>';let action=x.status!=="unpaid"?"—":x.rsvp_status==="declined"?'<span class="pill orange">Declined — no new checkout</span>':!x.approved?'<button class="btn small secondary" onclick="approvePerson('+x.id+')">Approve</button>':'<div class="row wrap"><button class="btn small" onclick="simulate('+x.id+')">Simulate</button><button class="btn small primary" onclick="paypalCheckout('+x.id+')" '+(state.paypal_configured?"":"disabled title='Configure PayPal credentials'")+'>PayPal test</button></div>';return '<tr><td class="event-name">'+safe(x.name)+'<div class="muted small">RSVP: '+safe(({going:"Going",maybe:"Maybe",declined:"Can’t attend",pending:"Awaiting response"})[x.rsvp_status]||"Awaiting response")+'</div></td><td class="count">'+money(x.share_cents)+'</td><td>'+(x.approved?(x.approval_source==="participant_link"?"Participant link":"Organizer demo"):"Pending")+'</td><td>'+status+'</td><td><div class="row wrap">'+action+(x.status==="unpaid"?'<button class="btn small secondary" onclick="createParticipantInvitation('+x.id+')">Invite</button><button class="btn small" onclick="revokeParticipantInvitation('+x.id+')">Revoke</button>':"")+'</div></td></tr>'}).join("");
+ el("contrib-rows").innerHTML=e.people.map(function(x){let status=x.status==="sandbox_paid"?'<span class="pill">Sandbox paid</span>':x.status==="demo_paid"?'<span class="pill orange">SIMULATED</span>':'<span class="pill neutral">Unpaid</span>';let action=x.status!=="unpaid"?"—":x.rsvp_status==="declined"?'<span class="pill orange">Declined — no new checkout</span>':!x.approved?'<button class="btn small secondary" onclick="approvePerson('+x.id+')">Approve</button>':'<div class="row wrap"><button class="btn small" onclick="simulate('+x.id+')">Simulate</button><button class="btn small primary" onclick="paypalCheckout('+x.id+')" '+(state.paypal_configured?"":"disabled title='Configure PayPal credentials'")+'>PayPal test</button></div>';return '<tr><td class="event-name">'+safe(x.name)+'<div class="muted small">RSVP: '+safe(({going:"Going",maybe:"Maybe",declined:"Can’t attend",pending:"Awaiting response"})[x.rsvp_status]||"Awaiting response")+'</div></td><td class="count">'+money(x.share_cents)+'</td><td>'+(x.approved?(x.approval_source==="participant_link"?"Participant link":"Organizer demo"):"Pending")+'</td><td>'+status+'</td><td><div class="row wrap">'+action+'<button class="btn small secondary" onclick="checkCheckoutReadiness('+x.id+')">Check readiness</button>'+ (x.status==="unpaid"?'<button class="btn small secondary" onclick="createParticipantInvitation('+x.id+')">Invite</button><button class="btn small" onclick="revokeParticipantInvitation('+x.id+')">Revoke</button>':"")+'</div></td></tr>'}).join("");
 }
 async function load(){try{state=await request("/api/state");clearCloseout();historyCache=null;el("history-export").disabled=true;if(!state.events.some(function(e){return e.id===eventId}))eventId=state.events.length?state.events[0].id:null;render();let t=await request("/api/transactions");window.circleTransactions=t.transactions;renderInsights();renderPulse();
  if(currentTab==="history")await loadEventHistory();
