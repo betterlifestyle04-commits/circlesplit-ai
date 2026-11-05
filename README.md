@@ -27,6 +27,34 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Exact-cent affordability targets (Scenario Lab)
+
+In the protected organizer workspace, **Scenario Lab → Affordability target**
+answers a useful planning question: *How many additional fictional participants
+would we need so that nobody's hypothetical share exceeds $X?*
+
+It performs a **read-only** `POST /api/events/{eid}/affordability` with
+`max_share` (strict positive USD with at most two decimal places),
+`maximum_extra_people` (0–50), and an optional equal/weighted split
+strategy. The server enumerates every eligible group size up to the cap
+using the **same deterministic integer-cent allocation code used for actual
+budgets**, including weighted members and largest-remainder cent rounding.
+Hypothetical new members have weight 1.
+
+The result returns the **minimum additional attendee count** meeting the
+cap, or clearly reports no solution within the limit and shows the smallest
+largest-share observed. It also shows current/estimated highest and lowest
+shares, warns when approvals already exist or Sandbox checkout has begun,
+and never changes a participant, expense, approval, invitation or payment.
+Changing real group membership still requires consent and may be blocked
+by an already started payment. More attendees are an assumption, not a
+booking or collection guarantee.
+
+Example using the fictional seeded $220 event with 20 equally split
+members: a $10.00 per-person cap requires **two more hypothetical
+attendees**, giving 22 shares of exactly $10.00 each. This is an
+advisory estimate only; no one is charged or invited.
+
 ## Compare encrypted backup generations before trusting a recovery
 
 The offline operator tool supports a **read-only** comparison of two
