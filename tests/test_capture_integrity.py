@@ -35,6 +35,23 @@ def mock_orders(monkeypatch):
 
     monkeypatch.setattr(paypal, "order", create)
 
+    async def approved_order(order_id):
+        # Direct capture must first verify buyer approval against the exact
+        # locally registered Sandbox order. No provider network request.
+        import app
+        with app.db() as c:
+            p=c.execute("SELECT * FROM payments WHERE order_id=?",(order_id,)).fetchone()
+            assert p is not None
+            return {
+                "id":order_id,"intent":"CAPTURE","status":"APPROVED",
+                "purchase_units":[{
+                    "reference_id":f'{p["event_id"]}-{p["person_id"]}',
+                    "custom_id":f'{p["event_id"]}:{p["person_id"]}',
+                    "amount":{"currency_code":"USD","value":f'{p["amount_cents"]/100:.2f}'}
+                }]
+            }
+    monkeypatch.setattr(paypal,"details",approved_order)
+
 
 def prepare_orders(client, monkeypatch):
     event = first_event(client)

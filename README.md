@@ -27,6 +27,31 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Verified Sandbox buyer approval before capture
+
+Starting a capture now performs a fresh **PayPal Sandbox GET of the existing
+order** before changing its local state. The backend requires exactly one
+purchase unit, the expected order ID, `CAPTURE` intent, exact USD cents,
+and matching event/participant references when returned. An order that is
+not explicitly `APPROVED` cannot trigger a new capture request. A failed
+provider lookup also leaves the order in its previous `created` state,
+so the organizer can investigate and retry **the status check**, not a
+blind payment request.
+
+If PayPal already reports `COMPLETED` with exactly one verifiable matching
+capture, CircleSplit reconciles that existing capture **without sending
+another capture request**. If an approved order passes inspection, the
+server rechecks local state transactionally and locks it as `capturing`
+**before** the capture request. Any uncertain capture response leaves the
+lock in place; never auto-retry.
+
+Returning from a PayPal Sandbox buyer session now opens the existing-order
+status verification flow rather than automatically capturing on redirect.
+A verified buyer approval can offer an explicit confirm-to-capture step.
+A buyer return alone is not proof of a captured payment. The local lock,
+Free hosting's temporary SQLite and lack of real individual identity still
+limit production use.
+
 ## Safe preflight for new PayPal Sandbox checkout
 
 In the protected organizer **Contributions** tab, **Check readiness**
