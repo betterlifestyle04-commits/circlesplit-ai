@@ -30,6 +30,7 @@ from provider_limits import ProviderLimiter, provider_group
 from storage_readiness import storage_readiness
 from ledger_audit import local_ledger_audit
 from recovery_triage import recovery_risk_summary
+from webhook_audit import signed_webhook_audit
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv("CIRCLESPLIT_DB") or str(ROOT / "circlesplit.sqlite3"))
@@ -208,7 +209,10 @@ def initialize():
           request_id TEXT UNIQUE NOT NULL, capture_key TEXT UNIQUE NOT NULL,
           status TEXT NOT NULL, capture_id TEXT, created TEXT NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, created TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS webhook_events (
+          id TEXT PRIMARY KEY, created TEXT NOT NULL,
+          outcome TEXT NOT NULL DEFAULT 'legacy_unclassified'
+        );
         -- This opaque marker changes when the physical DB is replaced.
         -- It contains no credential, payment reference or participant data.
         CREATE TABLE IF NOT EXISTS storage_identity (
@@ -272,6 +276,14 @@ def initialize():
         CREATE INDEX IF NOT EXISTS participant_invites_person_idx
           ON participant_invites(person_id);
         """)
+        # Existing signed webhook IDs predate outcome classification. Never
+        # assume they represent a verified capture during migration.
+        webhook_columns = {
+            row["name"] for row in c.execute("PRAGMA table_info(webhook_events)")
+        }
+        if "outcome" not in webhook_columns:
+            c.execute("""ALTER TABLE webhook_events ADD COLUMN outcome TEXT
+                         NOT NULL DEFAULT 'legacy_unclassified'""")
         c.execute(
             "INSERT OR IGNORE INTO storage_identity(id,incarnation_id,created_at) VALUES(1,?,?)",
             (str(uuid.uuid4()),now())
@@ -2887,23 +2899,72 @@ async def webhook(request: Request):
     if len(raw)>200_000: raise HTTPException(413,"Webhook too large")
     try: event = json.loads(raw)
     except ValueError: raise HTTPException(400,"Malformed webhook")
-    await paypal.verify_webhook(request.headers,event)
+    # Reject non-object envelopes BEFORE making a remote verification call.
+    # Invalid signatures are always rejected by PayPal before any DB write.
+    if not isinstance(event, dict):
+        raise HTTPException(400, "Invalid webhook event envelope")
     event_id = event.get("id")
-    if not isinstance(event_id,str) or not event_id:
-        raise HTTPException(400,"Missing event ID")
+    if (not isinstance(event_id, str) or not 1 <= len(event_id) <= 128
+            or not event_id.isascii() or not re.fullmatch(r"[A-Za-z0-9._-]+",event_id)):
+        raise HTTPException(400,"Invalid webhook event ID")
+    await paypal.verify_webhook(request.headers,event)
     with db() as c:
         if c.execute("SELECT 1 FROM webhook_events WHERE id=?", (event_id,)).fetchone():
             return {"ok":True,"duplicate":True}
+        outcome="ignored_event_type"
         if event.get("event_type") == "PAYMENT.CAPTURE.COMPLETED":
-            resource = event.get("resource",{})
-            order_id = resource.get("supplementary_data",{}).get("related_ids",{}).get("order_id")
-            p = c.execute("SELECT * FROM payments WHERE order_id=?",(order_id,)).fetchone() if order_id else None
-            if (p and resource.get("status")=="COMPLETED" and resource.get("id")
-                and resource.get("amount",{}).get("currency_code")=="USD"
-                and paypal.same_amount(resource.get("amount",{}).get("value"),p["amount_cents"])):
-                settle_verified_sandbox_capture(c,p,resource["id"])
-        c.execute("INSERT INTO webhook_events(id,created) VALUES(?,?)",(event_id,now()))
-    return {"ok":True}
+            resource=event.get("resource")
+            resource=resource if isinstance(resource,dict) else {}
+            supplementary=resource.get("supplementary_data")
+            supplementary=supplementary if isinstance(supplementary,dict) else {}
+            related=supplementary.get("related_ids")
+            related=related if isinstance(related,dict) else {}
+            order_id=related.get("order_id")
+            amount=resource.get("amount")
+            amount=amount if isinstance(amount,dict) else {}
+            capture_id=resource.get("id")
+            if not isinstance(order_id,str) or not paypal.valid_sandbox_order_id(order_id):
+                outcome="missing_order_reference"
+            else:
+                p=c.execute(
+                    "SELECT * FROM payments WHERE order_id=?",(order_id,)
+                ).fetchone()
+                if p is None:
+                    outcome="unmatched_order"
+                elif (resource.get("status")!="COMPLETED"
+                        or not isinstance(capture_id,str)
+                        or not 1<=len(capture_id)<=128
+                        or not capture_id.isascii()
+                        or not all(ch.isalnum() or ch=="-" for ch in capture_id)
+                        or not isinstance(resource.get("amount"),dict)):
+                    outcome="invalid_capture_payload"
+                elif (amount.get("currency_code")!="USD"
+                        or not paypal.same_amount(amount.get("value"),p["amount_cents"])):
+                    outcome="amount_or_currency_mismatch"
+                else:
+                    # This uses the same global capture uniqueness and local
+                    # payment-state guard as provider GET/capture. If that guard
+                    # rejects a conflict we roll back, preserving provider retry
+                    # and the original local payment state for manual review.
+                    fresh=settle_verified_sandbox_capture(c,p,capture_id)
+                    outcome="capture_recorded" if fresh else "capture_already_recorded"
+        # Only the sanitized aggregate classification is persisted. Never
+        # store the raw provider resource or a second copy of capture/order IDs.
+        c.execute(
+            "INSERT INTO webhook_events(id,created,outcome) VALUES(?,?,?)",
+            (event_id,now(),outcome)
+        )
+    return {"ok":True,"needs_manual_review":outcome in (
+        "unmatched_order","missing_order_reference",
+        "amount_or_currency_mismatch","invalid_capture_payload"
+    )}
+
+@app.get("/api/paypal/webhook-audit")
+def sandbox_webhook_audit():
+    """Read-only aggregate signed webhook outcomes; no provider call or IDs."""
+    with db() as c:
+        return signed_webhook_audit(c)
+
 
 @app.get("/api/paypal/ledger-audit")
 def sandbox_ledger_audit():
