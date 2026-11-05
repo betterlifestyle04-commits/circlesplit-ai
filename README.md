@@ -59,8 +59,23 @@ with a controlled backup policy. A SHA-256 digest is not a digital signature.
 There is deliberately **no REST endpoint, automated upload or command that
 imports/overwrites a live financial ledger**. The `drill` command only copies
 the verified snapshot into a temporary isolated directory, checks that it can
-be read consistently, then deletes that rehearsal copy. Operator access is
-not available to guarantee backups on the active Free Render deployment.
+be read consistently, then deletes that rehearsal copy. It now also runs
+the **same read-only local payment-ledger integrity checks** used by the app
+on that isolated copy: event/participant links, amounts, states, capture IDs
+and duplicate records. It prints only aggregated issue codes and counts,
+never payment IDs, names or secrets.
+
+**Exit status:** `0` = structurally valid and locally consistent; `2` =
+snapshot verification or drill failure; `3` = snapshot integrity verified
+but the local Sandbox ledger has semantic anomalies requiring **manual
+review**. Pending or unverified Sandbox orders are counted separately;
+they are not automatically classified as ledger corruption. Audit work is
+bounded to 50,000 payment rows. The ledger check never calls PayPal, and
+a clean result does **not** establish external settlement or financial
+restoration readiness.
+
+Operator access is not available to guarantee backups on the active Free
+Render deployment.
 External PayPal Sandbox reconciliation remains mandatory after any reset;
 never replay an old payment or create an order merely because a row is missing.
 
