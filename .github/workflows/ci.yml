@@ -13,7 +13,7 @@ jobs:
       - run: pip install -r requirements-ops.txt
       - run: python -m pytest -q
       - run: node --check static/insights.js
-      - run: node --test tests/test_insights.cjs tests/test_operations.cjs tests/test_pulse.cjs tests/test_communications.cjs tests/test_directory.cjs tests/test_categories.cjs tests/test_planning.cjs tests/test_closeout.cjs tests/test_backup.cjs tests/test_templates.cjs tests/test_editing.cjs tests/test_event_details.cjs tests/test_schedule.cjs tests/test_participant_session.cjs tests/test_recovery_ui.cjs tests/test_reconciliation_ui.cjs tests/test_global_ledger_audit_ui.cjs tests/test_reconciliation_compare.cjs tests/test_reconciliation_compare_ui.cjs tests/test_judge_walkthrough.cjs tests/test_checkout_preflight_ui.cjs tests/test_payment_return_ui.cjs tests/test_storage_continuity.cjs tests/test_affordability_ui.cjs
+      - run: node --test tests/test_insights.cjs tests/test_operations.cjs tests/test_pulse.cjs tests/test_communications.cjs tests/test_directory.cjs tests/test_categories.cjs tests/test_planning.cjs tests/test_closeout.cjs tests/test_backup.cjs tests/test_templates.cjs tests/test_editing.cjs tests/test_event_details.cjs tests/test_schedule.cjs tests/test_participant_session.cjs tests/test_recovery_ui.cjs tests/test_reconciliation_ui.cjs tests/test_global_ledger_audit_ui.cjs tests/test_reconciliation_compare.cjs tests/test_reconciliation_compare_ui.cjs tests/test_judge_walkthrough.cjs tests/test_checkout_preflight_ui.cjs tests/test_payment_return_ui.cjs tests/test_storage_continuity.cjs tests/test_affordability_ui.cjs tests/test_attendance_risk_ui.cjs
       - run: node --check static/reconciliation_compare.js
       - run: node --check static/storage_continuity.js
       - run: node --check static/judge_walkthrough.js
@@ -51,4 +51,4 @@ jobs:
           Path("/tmp/circlesplit-participant-inline.js").write_text(scripts[0])
           PY
           node --check /tmp/circlesplit-participant-inline.js
-      - run: python -m compileall -q app.py domain.py paypal.py calendar_export.py security.py provider_limits.py storage_readiness.py ledger_audit.py tools/sqlite_snapshot.py tools/encrypted_snapshot.py
+      - run: python -m compileall -q app.py domain.py paypal.py calendar_export.py security.py provider_limits.py storage_readiness.py ledger_audit.py attendance_risk.py tools/sqlite_snapshot.py tools/encrypted_snapshot.py
