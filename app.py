@@ -25,7 +25,7 @@ from domain import allocate, cents
 from attendance_risk import attendance_stress_curve
 from calendar_export import build_ics
 import paypal
-from security import cross_origin_mutation, protect_response
+from security import cross_origin_mutation, protect_response, owner_only_sandbox_action
 from provider_limits import ProviderLimiter, provider_group
 from storage_readiness import storage_readiness
 from ledger_audit import local_ledger_audit
@@ -98,6 +98,17 @@ async def demo_access_control(request: Request, call_next):
     ):
         return protect_response(JSONResponse(status_code=403,
             content={"detail": "Cross-origin modification blocked"}), request.url.path)
+
+    # A guest judge can explore shared fictional planning data and read-only
+    # local reports, but cannot send PayPal Sandbox requests or initiate
+    # reconciliation that could mark a payment as completed. This applies to
+    # future POST /api/paypal/* routes too, except the signed webhook.
+    if (os.getenv("CIRCLESPLIT_HOSTED") == "1"
+            and owner_only_sandbox_action(request.method, request.url.path)
+            and getattr(request.state, "viewer_role", None) != "owner"):
+        return protect_response(JSONResponse(status_code=403,content={
+            "detail": "Organizer credentials required for PayPal Sandbox payment actions."
+        }),request.url.path)
 
     # Charge a provider-cost quota only after authentication and the
     # cross-origin browser guard have succeeded. This protects shared demo
@@ -653,12 +664,19 @@ def judge_readiness():
     }
 
 @app.get("/api/state")
-def state():
+def state(request: Request):
+    # This is display-only role information; all real permission decisions
+    # happen in server middleware on each request, never in client JS.
+    role=(getattr(request.state,"viewer_role",None) or "owner")
+    can_manage_sandbox=(os.getenv("CIRCLESPLIT_HOSTED") != "1"
+                         or role == "owner")
     with db() as c:
         events = [detailed(c, row["id"]) for row in c.execute(
             "SELECT id FROM events ORDER BY id DESC").fetchall()]
     return {"events": events, "paypal_configured": paypal.configured(),
             "ai_configured": bool(os.getenv("GEMINI_API_KEY")),
+            "viewer_role": role,
+            "sandbox_order_actions_allowed": can_manage_sandbox,
             "environment": "SANDBOX ONLY", "currency": "USD"}
 
 # A planning backup deliberately excludes every funding, consent, RSVP and
@@ -2598,12 +2616,21 @@ def checkout_readiness_report(c, eid: int, pid: int):
 
 
 @app.get("/api/paypal/checkout-readiness/{eid}/{pid}")
-def paypal_checkout_readiness(eid: int, pid: int):
+def paypal_checkout_readiness(eid: int, pid: int, request: Request):
     """Protected read-only preflight; POST performs identical local checks."""
     mount = storage_readiness(DB)
     configured = paypal.configured()
     with db() as c:
         person, blockers = checkout_readiness_report(c, eid, pid)
+    # A judge may read payment prerequisites but never start a provider
+    # request. Report this explicitly instead of offering false readiness.
+    if (os.getenv("CIRCLESPLIT_HOSTED") == "1"
+            and getattr(request.state,"viewer_role",None) != "owner"):
+        blockers.insert(0,{
+            "code":"organizer_credentials_required",
+            "explanation":"Judge access is read-only for PayPal Sandbox payments. "
+                          "Use organizer credentials to start or reconcile orders."
+        })
     # Platform/environment blockers are presented separately from consent.
     if not mount["sandbox_checkout_allowed"]:
         blockers.insert(0, {
