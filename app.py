@@ -1511,6 +1511,120 @@ def preview_scenario(eid: int, data: ScenarioInput):
     }
 
 
+
+class AffordabilityInput(BaseModel):
+    """Strict advisory cap; no intent to change a funded event."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    max_share: str = Field(min_length=1, max_length=12,
+        pattern=r"^\\d+(?:\\.\\d{1,2})?$")
+    maximum_extra_people: int = Field(ge=0, le=50)
+    strategy: Literal["equal", "weighted"] | None = None
+
+
+@app.post("/api/events/{eid}/affordability")
+def preview_affordability(eid: int, data: AffordabilityInput):
+    """Exact-cent, bounded seat search, including unequal weighted allocations.
+
+    This endpoint never changes expenses, allocation, approvals, invites or
+    PayPal Sandbox records, even if checkout has already started.
+    """
+    try:
+        cap = cents(data.max_share)
+    except ValueError as exc:
+        raise HTTPException(422, "Enter a positive USD limit at most $100,000.00") from exc
+    with db() as c:
+        event_row = require_event(c, eid)
+        existing = [dict(p) for p in c.execute(
+            "SELECT id,weight,approved,status FROM people WHERE event_id=? ORDER BY id",
+            (eid,)
+        ).fetchall()]
+        total = c.execute(
+            "SELECT COALESCE(SUM(cents),0) FROM expenses WHERE event_id=?", (eid,)
+        ).fetchone()[0]
+        previous_orders = c.execute(
+            "SELECT COUNT(*) FROM payments WHERE event_id=?", (eid,)
+        ).fetchone()[0]
+        confirmed_statuses = sum(p["status"] != "unpaid" for p in existing)
+        approved_count = sum(bool(p["approved"]) for p in existing)
+        strategy = data.strategy or event_row["strategy"]
+
+    # At most 200 participants are supported. Never silently test more than
+    # the same upper bound enforced by the existing Scenario Lab.
+    max_extra = min(data.maximum_extra_people, max(0, 200-len(existing)))
+    if not existing and max_extra == 0:
+        raise HTTPException(422, "Allow at least one hypothetical attendee to preview affordability")
+
+    next_id = max((p["id"] for p in existing), default=0)
+    best = None
+    first_feasible = None
+    tested = 0
+    current_peak = None
+    try:
+        for added_count in range(max_extra + 1):
+            if not existing and added_count == 0:
+                continue
+            fictional = [
+                {"id":next_id+i+1, "weight":1} for i in range(added_count)
+            ]
+            participants = existing + fictional
+            distribution = allocate(total,participants,strategy)
+            highest = max(distribution.values())
+            lowest = min(distribution.values())
+            tested += 1
+            if added_count == 0:
+                current_peak = highest
+            candidate = {
+                "additional_people":added_count,
+                "total_people":len(participants),
+                "largest_share_cents":highest,
+                "smallest_share_cents":lowest,
+            }
+            if best is None or (highest,added_count) < (
+                best["largest_share_cents"],best["additional_people"]
+            ):
+                best = candidate
+            if highest <= cap:
+                first_feasible = candidate
+                break
+    except ValueError as exc:
+        raise HTTPException(409, "Cannot calculate shares from the saved participant weights") from exc
+
+    chosen = first_feasible if first_feasible is not None else best
+    assert chosen is not None
+    return {
+        "event_id":eid,
+        "mode":"SANDBOX_PLANNING_ONLY",
+        "read_only":True,
+        "strategy":strategy,
+        "budget_cents":total,
+        "cap_cents":cap,
+        "current_people":len(existing),
+        "current_largest_share_cents":current_peak,
+        "requested_maximum_extra_people":data.maximum_extra_people,
+        "tested_maximum_extra_people":max_extra,
+        "candidates_tested":tested,
+        "feasible":first_feasible is not None,
+        "minimum_additional_people":(
+            first_feasible["additional_people"]
+            if first_feasible is not None else None
+        ),
+        "recommendation":chosen,
+        "remaining_largest_share_gap_cents":max(
+            0,chosen["largest_share_cents"]-cap
+        ),
+        "has_existing_sandbox_orders":previous_orders > 0,
+        "approved_people":approved_count,
+        "paid_or_simulated_people":confirmed_statuses,
+        "notice":(
+            "Exact-cent hypothetical only: additional attendees have weight 1. "
+            "The cap applies to every participant, including new attendees. "
+            "No event, approval, invitation, or PayPal Sandbox state changed. "
+            "Adding people to a real event requires actual consent and may be "
+            "blocked once payment checkout starts."
+        ),
+    }
+
+
 ExpenseCategory = Literal["venue","equipment","food","travel","services","other"]
 EXPENSE_CATEGORIES = ("venue","equipment","food","travel","services","other")
 
