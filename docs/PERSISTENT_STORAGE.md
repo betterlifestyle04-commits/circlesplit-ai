@@ -83,6 +83,18 @@ that the PayPal order ceased to exist. Always inspect PayPal Sandbox directly.
 The exported manifest can contain names and payment identifiers, so keep the
 source files private and never commit them. A digest is not a signature.
 
+## In-flight Sandbox order creation during ephemeral database loss
+
+New order creation checks the original database incarnation and original
+payment request keys **after** PayPal Sandbox responds, before saving a
+provider order ID or returning a success response. If Render Free resets
+the SQLite file mid-request, it cannot accidentally assign the old Sandbox
+order to a new payment row that reused the same integer ID. The endpoint
+fails closed and instructs an external provider review. A remote order can
+still exist even when CircleSplit lost its record, and a fresh request on
+a newly reset database could still duplicate a previous attempt. **This
+guard does not substitute for persistent storage or PayPal reconciliation.**
+
 ## Save a reconciliation snapshot before a risky redeploy
 
 If the protected workspace is accessible and contains PayPal Sandbox orders,
