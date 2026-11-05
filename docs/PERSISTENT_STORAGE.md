@@ -98,6 +98,52 @@ only the records still present at export time can be saved. Check any
 uncertain order at PayPal itself. For more than 10,000 payment attempts the
 endpoint rejects the request; use an operator-led encrypted DB backup.
 
+## Optional encrypted, locally generated backup archive
+
+The new `tools/encrypted_snapshot.py` builds on the existing offline SQLite
+backup and audit routines, and combines a consistent snapshot with its
+manifest **inside one AES-256-GCM encrypted `.csb` archive**. It uses a
+different random salt and GCM nonce per archive, scrypt key derivation
+(`N=32768, r=8, p=1`), and authenticates both file contents and the archive
+header. Encryption and decryption are streamed; temporary plaintext
+databases are restricted to isolated directories and removed after use.
+
+```bash
+pip install -r requirements-ops.txt
+mkdir -m 700 -p /private/circlesplit-backups /private/circlesplit-keys
+python tools/encrypted_snapshot.py keygen \
+  --output /private/circlesplit-keys/circlesplit.passphrase
+python tools/encrypted_snapshot.py seal \
+  --source /absolute/path/circlesplit.sqlite3 \
+  --output /private/circlesplit-backups/snapshot-20261105.csb \
+  --key-file /private/circlesplit-keys/circlesplit.passphrase
+python tools/encrypted_snapshot.py verify \
+  --bundle /private/circlesplit-backups/snapshot-20261105.csb \
+  --key-file /private/circlesplit-keys/circlesplit.passphrase
+python tools/encrypted_snapshot.py drill \
+  --bundle /private/circlesplit-backups/snapshot-20261105.csb \
+  --key-file /private/circlesplit-keys/circlesplit.passphrase
+```
+
+The key is a separately generated, unprinted, random private
+`.passphrase` file. On POSIX, destination directories require user ownership
+and mode 0700, and the key file is enforced as 0600. Restrict NTFS ACLs
+manually on Windows. Neither a key nor plaintext SQL data belongs in Git,
+Devpost, screenshots or command-line arguments. Only archive files should
+be copied to independently secured offsite storage; retain the key separately
+with a documented recovery owner. Losing the key makes the encrypted backup
+unusable. Cryptographic authentication does **not** validate external PayPal
+settlement or prove the accuracy of the original ledger.
+
+Both `verify` and `drill` decrypt only to a private temporary folder and
+do not offer an import into the running service. The drill repeats the
+locally bounded payment-ledger semantic audit and uses exit status `3`
+when local contradictions require investigation. There is no scheduled
+backup, hosted uploader, live restore, payment API call, or automatic financial
+replay. The current Render Free service remains ephemeral; operators still
+need access to an actual DB file and a secure offsite storage provider to
+implement durable backups.
+
 ## Operator-only SQLite snapshot and isolated restore drill
 
 For a **local SQLite development copy** or a future operator-accessible
