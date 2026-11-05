@@ -57,6 +57,8 @@ test("walkthrough defines exactly five accessible, separate evaluation scopes",(
  assert.match(html,/PayPal sandbox PERSONAL buyer/);
  assert.match(html,/not the other participants' names or shares/i);
  assert.match(html,/No real funds/);
+ assert.match(html,/Resilience lab/);
+ assert.match(html,/2 hypothetical no-shows require 1 fictional replacement attendee/);
 });
 
 test("progress is local, ignores invalid keys, and needs explicit review",async()=>{
@@ -143,7 +145,8 @@ test("guide provides accurate fictional expectations and sandbox-only guardrails
  assert.match(SAMPLE_PROMPT,/\$180/);
  assert.match(SAMPLE_PROMPT,/\$25/);
  assert.match(SAMPLE_PROMPT,/\$30/);
- assert.match(STEPS[0].expected,/\$3\.34, \$3\.33 and \$3\.33/);
+ assert.match(STEPS[0].expected,/\$3\.34, \$3\.33, \$3\.33/);
+ assert.match(STEPS[0].expected,/two no-shows.*need one extra fictional attendee/);
  assert.match(STEPS[3].expected,/Never retry an uncertain charge/);
  assert.match(STEPS[4].expected,/NOT provider availability/);
  assert.match(html,/checklist is only a navigation aid/i);
