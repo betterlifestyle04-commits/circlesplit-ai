@@ -22,6 +22,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] PayPal SANDBOX OAuth, Orders v2 create/capture, strict server-side amount verification
 - [x] Persisted idempotency keys, duplicate-order lockout, signed webhook verification and replay prevention
 - [x] Fail-closed in-flight PayPal Sandbox order creation: database incarnation, request-key and row-state compare-and-set, ASCII order-ID and trusted checkout URL validation (November 5, 2026)
+- [x] Bound existing-order checks and late capture settlement to original SQLite incarnation and request keys across provider awaits; concurrent capture locks cannot be misreported as new capture permission (November 5, 2026)
 - [x] Global unique sandbox capture IDs, shared transactional settlement guard and ambiguous-capture rejection
 - [x] Read-only PayPal recovery queue and checks of existing orders; no blind capture retry
 - [x] Full-ledger recovery totals, attention-first paginated queue and missing-record investigation safeguards
