@@ -25,9 +25,14 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
   store encrypted offsite, never publicly upload or share.
 - `verify` checks SHA-256, size, integrity, expected financial schema and
   aggregate counts. `drill` rehearses reading a copy in an isolated
-  temporary directory, then removes it. No command restores or overwrites
-  the live payment database. A checksum alone cannot authenticate the
-  snapshot or prove upstream settlement.
+  temporary directory, then removes it. It additionally applies the
+  application's existing bounded local payment-integrity audit to the isolated
+  copy. Aggregate `issue_counts`, `unresolved_orders` and review status
+  are emitted without exposing payment/participant identifiers. A verified
+  database with inconsistent payment links or capture flags produces
+  `NEEDS_REVIEW` and CLI exit 3, not a falsely clean pass.
+  No command restores or overwrites the live payment database. A checksum
+  alone cannot authenticate the snapshot or prove upstream settlement.
 - The active Free hosting is still ephemeral; nothing here performs
   background backups or upgrades paid infrastructure. An actual financial
   restore/migration requires controlled downtime, external PayPal Sandbox
