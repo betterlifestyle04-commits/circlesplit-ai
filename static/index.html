@@ -1285,7 +1285,7 @@ async function checkCheckoutReadiness(pid, beginCheckout=false){
       typeof result.can_create_order!=="boolean"||
       !Number.isSafeInteger(result.amount_cents)||
       !Array.isArray(result.blockers))throw Error("Invalid checkout safety response");
-  const blocked=result.blockers.length>0;
+  const blocked=!result.can_create_order||result.blockers.length>0;
   // Never use HTML to show a server-returned explanation.
   status.textContent=blocked?
    "Sandbox order blocked · "+result.blockers.length+" prerequisite(s) need attention.":
