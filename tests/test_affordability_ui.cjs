@@ -127,7 +127,20 @@ test("switching event while request is in flight discards result",async()=>{
  assert.match(h.el("affordability-results").textContent,/Choose your target|Enter your target/);
  assert.equal(h.calls.length,1);
  assert.equal(h.el("affordability-run").disabled,false);
- assert(h.messages.some(m=>m[1]===true));
+ assert.equal(h.messages.length,0,"A stale response must not show a new-event notice");
+});
+
+test("editing assumptions in flight invalidates an earlier result",async()=>{
+ let release;
+ const pending=new Promise(r=>{release=r});
+ const h=harness({result:()=>pending});
+ const started=h.run(evt());
+ h.el("affordability-cap").value="7.50";
+ release(response(true));
+ await started;
+ assert.equal(h.calls.length,1);
+ assert.match(h.el("affordability-results").textContent,/Enter your target/);
+ assert(!h.el("affordability-results").innerHTML.includes("Within target"));
 });
 
 test("invalid response is not shown as an authoritative affordability result",async()=>{
