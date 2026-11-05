@@ -25,6 +25,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 
 - [x] Global read-only ledger consistency audit, bounded numeric findings and distinct unresolved-order counts (November 4, 2026)
 - [x] Offline operator SQLite snapshot, SHA-256 and schema verification, standalone WAL handling and isolated no-import recovery rehearsal (November 5, 2026)
+- [x] Offline comparison of two authenticated encrypted backup generations with reset-aware provider-order and capture continuity, anonymous regression counts and review-required exit status (November 5, 2026)
 - [x] Optional operator-only AES-256-GCM encrypted snapshot container with separate generated key file, authenticated verify and no-restore drill (November 5, 2026)
 - [x] Isolated recovery drill runs bounded, anonymous semantic payment-ledger audit and returns distinct review-required exit code (November 5, 2026)
 - [x] Browser-local dataset incarnation and capture/webhook count regression warnings, preserving the prior checkpoint until explicit investigation acknowledgement (November 5, 2026)

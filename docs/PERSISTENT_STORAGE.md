@@ -98,6 +98,43 @@ only the records still present at export time can be saved. Check any
 uncertain order at PayPal itself. For more than 10,000 payment attempts the
 endpoint rejects the request; use an operator-led encrypted DB backup.
 
+## Compare two encrypted backup generations safely
+
+Before using any archived ledger as recovery evidence, compare an older
+and a newer encrypted backup **offline**:
+
+```bash
+python tools/encrypted_snapshot.py compare \
+  --previous /private/backups/older.csb \
+  --current /private/backups/newer.csb \
+  --previous-key-file /private/keys/older.passphrase \
+  --current-key-file /private/keys/newer.passphrase
+```
+
+This operation independently authenticates both encrypted files, checks
+each SQLite backup's SHA-256, schema, incarnation and payment-ledger
+consistency, then compares remembered PayPal Sandbox order/capture
+identifiers **in private memory**. Only aggregated numerical differences
+leave the tool. Cross-database comparisons never equate local SQLite
+payment IDs, which can be reused after a reset. Same-database
+comparisons also check whether earlier local request keys vanished.
+
+Any changed incarnation, older known provider order or capture missing,
+decline in ledger/webhook counts, altered previously known amount or
+capture, reverted completion, local audit inconsistency, or backwards
+manifest creation time returns `NEEDS_REVIEW` (exit 3). A clean local
+comparison returns 0; invalid key, corrupted archive or incompatible
+ledger returns 2. Unknown order-creation attempts are counted but
+cannot be safely matched across a different database incarnation.
+
+**Do not assume that missing local evidence means PayPal did not
+process the request.** This check has no PayPal provider access. The
+operator must separately reconcile with their Sandbox dashboard or
+provider API before restoring historical data or retrying a payment.
+The process never imports a ledger, contacts a payment provider or
+uploads confidential archives. Both generations and their keys must
+remain securely retained for the comparison to be useful.
+
 ## Optional encrypted, locally generated backup archive
 
 The new `tools/encrypted_snapshot.py` builds on the existing offline SQLite

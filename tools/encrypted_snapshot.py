@@ -24,6 +24,8 @@ archives offsite and keep keys separately. Encryption does not attest PayPal.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
+from datetime import datetime
 from contextlib import contextmanager
 import json
 import os
@@ -33,6 +35,7 @@ import stat
 import struct
 import sys
 import tempfile
+import sqlite3
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -254,6 +257,181 @@ def drill(bundle: str | Path, key_file: str | Path) -> dict:
     return _open_and_check(bundle, key_file, "drill")
 
 
+
+def _payment_facts(snapshot: Path) -> dict:
+    """Read only bounded local facts. Never return provider IDs to callers."""
+    try:
+        with closing(sqlite_snapshot._open_readonly(snapshot)) as conn:
+            conn.row_factory=sqlite3.Row
+            conn.execute("PRAGMA query_only=ON")
+            count=conn.execute("SELECT COUNT(*) FROM payments").fetchone()[0]
+            if count > sqlite_snapshot.MAX_LEDGER_AUDIT_ROWS:
+                raise ArchiveError("Too many rows for bounded encrypted-backup comparison.")
+            rows=conn.execute(
+                """SELECT request_id,order_id,capture_id,status,amount_cents
+                   FROM payments ORDER BY id"""
+            )
+            orders={}
+            attempts={}
+            captures=set()
+            without_order=0
+            for row in rows:
+                order=row["order_id"]
+                key=row["request_id"]
+                capture=row["capture_id"]
+                item=(row["status"],row["amount_cents"],capture,order)
+                if order:
+                    if order in orders:
+                        raise ArchiveError("Duplicate provider order reference in archived ledger.")
+                    orders[order]=item
+                else:
+                    without_order += 1
+                if key:
+                    if key in attempts:
+                        raise ArchiveError("Duplicate request reference in archived ledger.")
+                    attempts[key]=item
+                if capture:
+                    captures.add(capture)
+            return {"orders":orders,"attempts":attempts,"captures":captures,
+                    "without_order":without_order,"total":count}
+    except sqlite3.DatabaseError as exc:
+        raise ArchiveError("Archived payment table has an incompatible schema.") from exc
+
+
+def compare(previous_bundle: str | Path, current_bundle: str | Path,
+            previous_key_file: str | Path, current_key_file: str | Path) -> dict:
+    """Compare two authenticated archives entirely offline.
+
+    Never match local auto-increment payment IDs across database epochs.
+    Known PayPal Sandbox order/capture IDs and same-epoch request keys are
+    compared only in memory; the report includes aggregate counts, NEVER IDs.
+    A changing database epoch is ALWAYS a review-required event, including
+    when a planned migration appears to have preserved all known references.
+    """
+    previous=_require_bundle(previous_bundle)
+    current=_require_bundle(current_bundle)
+    if previous.samefile(current):
+        raise ArchiveError("Select two different encrypted backup files for comparison.")
+    older_key=_read_key_file(previous_key_file)
+    newer_key=_read_key_file(current_key_file)
+    with tempfile.TemporaryDirectory(prefix="circle-compare-") as directory:
+        base=Path(directory)
+        early=base/"previous"
+        later=base/"current"
+        early.mkdir(mode=0o700)
+        later.mkdir(mode=0o700)
+        earlier_db=_decrypt_bundle(previous,older_key,early)
+        current_db=_decrypt_bundle(current,newer_key,later)
+        try:
+            older=sqlite_snapshot.verify(earlier_db)
+            newer=sqlite_snapshot.verify(current_db)
+            older_audit=sqlite_snapshot._ledger_review(earlier_db)
+            newer_audit=sqlite_snapshot._ledger_review(current_db)
+        except sqlite_snapshot.SnapshotError as exc:
+            raise ArchiveError("At least one decrypted backup failed local integrity checks.") from exc
+        older_rows=_payment_facts(earlier_db)
+        newer_rows=_payment_facts(current_db)
+
+        earlier_time=datetime.fromisoformat(older["generated_at"])
+        current_time=datetime.fromisoformat(newer["generated_at"])
+        reversed_time=current_time < earlier_time
+        replaced=older["database_epoch"]!=newer["database_epoch"]
+
+        older_order_ids=set(older_rows["orders"])
+        new_order_ids=set(newer_rows["orders"])
+        known_shared=older_order_ids & new_order_ids
+        missing_orders=older_order_ids-new_order_ids
+        added_orders=new_order_ids-older_order_ids
+        previously_seen_captures=older_rows["captures"]
+        captures_missing=previously_seen_captures-newer_rows["captures"]
+        # Same provider order should never change amount or an existing
+        # completed capture ID. A transition from no capture to a verified
+        # capture is expected. A completed capture reverting is not.
+        amount_drift=0
+        capture_drift=0
+        completion_regression=0
+        status_regression=0
+        phases={"creating":0,"created":1,"capturing":2,"completed":3}
+        for oid in known_shared:
+            prior=older_rows["orders"][oid]
+            after=newer_rows["orders"][oid]
+            if prior[1]!=after[1]:
+                amount_drift+=1
+            if prior[2] is not None and prior[2]!=after[2]:
+                capture_drift+=1
+            if prior[0]=="completed" and after[0]!="completed":
+                completion_regression+=1
+            if (prior[0] in phases and after[0] in phases and
+                    phases[after[0]]<phases[prior[0]]):
+                status_regression+=1
+
+        # Request keys are local workflow evidence. Only compare them when
+        # we know both snapshots came from the SAME physical DB identity.
+        prior_requests=set(older_rows["attempts"])
+        later_requests=set(newer_rows["attempts"])
+        missing_same_epoch_requests=(
+            len(prior_requests-later_requests) if not replaced else None
+        )
+        same_epoch_request_amount_changes=(
+            sum(older_rows["attempts"][key][1]!=newer_rows["attempts"][key][1]
+                for key in prior_requests & later_requests)
+            if not replaced else None
+        )
+        count_drops={
+            key:older["counts"][key]-newer["counts"][key]
+            for key in ("payments","verified_captures","webhook_events")
+            if newer["counts"][key]<older["counts"][key]
+        }
+        issues=(replaced or reversed_time or bool(missing_orders)
+                or bool(captures_missing) or bool(amount_drift)
+                or bool(capture_drift) or bool(completion_regression)
+                or bool(status_regression) or bool(count_drops)
+                or bool(missing_same_epoch_requests)
+                or bool(same_epoch_request_amount_changes)
+                or older_audit["status"]=="needs_review"
+                or newer_audit["status"]=="needs_review")
+        return {
+            "status":"NEEDS_REVIEW" if issues else "PASS",
+            "mode":"PAYPAL_SANDBOX",
+            "same_database_incarnation":not replaced,
+            "chronological_order_valid":not reversed_time,
+            "previous": {
+                "epoch_prefix":older["database_epoch"][:12],
+                "payment_records":older["counts"]["payments"],
+                "verified_captures":older["counts"]["verified_captures"],
+                "webhook_events":older["counts"]["webhook_events"],
+                "unresolved_payment_records":older_audit["unresolved_orders"],
+                "local_issue_count":older_audit["issue_count"],
+            },
+            "current": {
+                "epoch_prefix":newer["database_epoch"][:12],
+                "payment_records":newer["counts"]["payments"],
+                "verified_captures":newer["counts"]["verified_captures"],
+                "webhook_events":newer["counts"]["webhook_events"],
+                "unresolved_payment_records":newer_audit["unresolved_orders"],
+                "local_issue_count":newer_audit["issue_count"],
+            },
+            "provider_orders_shared":len(known_shared),
+            "prior_provider_orders_missing":len(missing_orders),
+            "new_provider_orders":len(added_orders),
+            "prior_capture_ids_missing":len(captures_missing),
+            "shared_order_amount_changes":amount_drift,
+            "shared_order_capture_conflicts":capture_drift,
+            "shared_order_completion_regressions":completion_regression,
+            "shared_order_status_regressions":status_regression,
+            "prior_local_attempts_missing_same_epoch":missing_same_epoch_requests,
+            "same_epoch_request_amount_changes":same_epoch_request_amount_changes,
+            "aggregate_count_decreases":count_drops,
+            "previous_unknown_provider_order_attempts":older_rows["without_order"],
+            "current_unknown_provider_order_attempts":newer_rows["without_order"],
+            "notice": (
+                "Offline local comparison only; never infer that a missing local "
+                "payment did not exist at PayPal Sandbox. An epoch change or "
+                "discrepancy requires manual provider reconciliation. No "
+                "capture, retry, import, refund, upload or live restore occurs."
+            ),
+        }
+
 def main(argv: list[str] | None = None) -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     cmd=parser.add_subparsers(dest="action",required=True)
@@ -267,6 +445,11 @@ def main(argv: list[str] | None = None) -> int:
         entry=cmd.add_parser(action,help="Decrypt temporarily for read-only checks")
         entry.add_argument("--bundle",required=True)
         entry.add_argument("--key-file",required=True)
+    comparison=cmd.add_parser("compare",help="Compare two authenticated backups without payment replay")
+    comparison.add_argument("--previous",required=True)
+    comparison.add_argument("--current",required=True)
+    comparison.add_argument("--previous-key-file",required=True)
+    comparison.add_argument("--current-key-file",required=True)
     args=parser.parse_args(argv)
     try:
         if args.action=="keygen":
@@ -278,8 +461,15 @@ def main(argv: list[str] | None = None) -> int:
             data=seal(args.source,args.output,args.key_file)
         elif args.action=="verify":
             data=verify(args.bundle,args.key_file)
-        else:
+        elif args.action=="drill":
             data=drill(args.bundle,args.key_file)
+        elif args.action=="compare":
+            result=compare(args.previous,args.current,
+                           args.previous_key_file,args.current_key_file)
+            print(json.dumps(result,sort_keys=True))
+            return 3 if result["status"]=="NEEDS_REVIEW" else 0
+        else:
+            raise ArchiveError("Unsupported operator command.")
     except (ArchiveError, OSError, ValueError) as exc:
         print("FAILED: "+str(exc),file=sys.stderr)
         return 2

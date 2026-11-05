@@ -10,6 +10,25 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Encrypted backup continuity comparison (November 5, 2026)
+
+- `tools/encrypted_snapshot.py compare` decrypts each archive into a
+  separate private temporary directory, authenticates both archives and
+  applies the offline read-only ledger-integrity audit before comparison.
+- Stored provider order and capture identifiers are compared **only in
+  process memory**, never logged, returned, published or sent over the
+  network. The output reports aggregate missing/changed counts and
+  database epoch prefixes only. Local payment IDs are never matched
+  across storage resets.
+- A changed incarnation, missing prior known order or capture, amount
+  drift, capture conflict, regressed completion, decreased aggregate
+  counts or nonchronological archive produces review-required status.
+  Historical unknown-order attempts remain fundamentally ambiguous.
+- A green comparison is **not** proof of payment settlement or
+  successful external backups. Missing records never authorize a new
+  PayPal charge; external reconciliation is still mandatory before
+  financial recovery. No API route or live payment mutation is added.
+
 ## Optional operator-only encrypted backup (November 5, 2026)
 
 - `tools/encrypted_snapshot.py` is **not** imported by the hosted web app.
