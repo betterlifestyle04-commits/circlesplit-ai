@@ -10,6 +10,34 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Optional operator-only encrypted backup (November 5, 2026)
+
+- `tools/encrypted_snapshot.py` is **not** imported by the hosted web app.
+  Only `requirements-ops.txt` installs the additional audited cryptography
+  library. No new web routes or third-party calls are introduced.
+- The `seal` command performs a consistent SQLite online backup in a
+  private staging directory and encrypts the SQLite file and matching
+  manifest together with streaming AES-256-GCM. Header, ciphertext lengths,
+  and content are authenticated. Fresh random salt/nonce are required for
+  every archive; scrypt derives the encryption key from a private secret.
+- `keygen` creates a high-entropy secret file without printing it.
+  The secret must be kept physically and logically **separate** from the
+  offsite `.csb` archive. File-based secrets are never supplied in
+  command arguments, environment variables, JSON reports or Git history.
+- Encryption output and secrets are written with no-overwrite semantics.
+  On POSIX, private destination directory mode 0700 and secret file
+  permissions 0600 are checked. Wrong key, tampering, malformed headers,
+  public destination directories and symlink attacks fail closed.
+- `verify` and `drill` decrypt only in isolated temporary directories
+  and remove plaintext afterwards. The drill checks local ledger semantics;
+  it does not move money or restore payment records. Raw SQLite staging
+  bytes do transiently exist on disk during encryption/decryption; a
+  compromised machine, swap, live process or key loss is not protected.
+- This is **not automated offsite backup** and cannot preserve the active
+  Render Free database by itself. AES-GCM authentication is not a PayPal
+  receipt, individual identity proof, remote storage guarantee or recovery
+  sign-off.
+
 ## Offline SQLite snapshot controls (November 5, 2026)
 
 - `tools/sqlite_snapshot.py` is **offline operator code only**. It adds no
