@@ -39,6 +39,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] Optional Gemini expense and task proposals with human review before any changes
 - [x] Hosted cross-origin mutation protections and no-store/private browser security headers (November 4, 2026)
 - [x] Hosted 60-second per-role request budgets for Gemini calls, PayPal order creation and PayPal reconciliation (per process; not production quotas)
+- [x] Explicit hosted owner/judge permissions: judge-only credentials retain fictional planning and read-only Sandbox diagnostics but cannot create, capture, reconcile provider orders or export private payment manifests (November 5, 2026)
 - [x] Public no-cache deployment health endpoint with verified Render Git SHA (source revision only)
 - [x] Protected database incarnation ID, verified-mount diagnostic, ephemeral storage warning, and opt-in fail-closed new-checkout guard
 - [x] MIT license, setup instructions, offline automated tests and CI
