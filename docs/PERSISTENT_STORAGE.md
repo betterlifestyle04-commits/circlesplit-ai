@@ -17,6 +17,29 @@ Free database instances expire after 30 days and do not have managed backups.
 For a real service, prefer a managed durable database with a proper migration,
 identity model and disaster recovery design.
 
+## Browser-local dataset-change warning
+
+The protected workspace now checks the database incarnation prefix and
+two aggregate evidence counts on startup. It stores a checkpoint **only
+in the currently used browser**, not on Render or an offsite server.
+When a later visit sees a different database incarnation or fewer
+locally recorded verified Sandbox captures or webhook events, it displays
+a warning across the workspace. The older checkpoint is preserved until
+an organizer acknowledges external investigation.
+
+Open **Activity → Dataset continuity monitor** to check again, see
+aggregate comparisons, and acknowledge a new browser baseline after
+inspecting prior private manifest files and PayPal Sandbox records.
+Acknowledgement does not import, restore, delete, reconcile or refund
+anything. It cannot detect an earlier reset on a browser that never
+stored a checkpoint; private browsing, disabled localStorage and other
+devices have independent or missing history.
+
+This small addition is **not** a persistent disk, automatic backup, remote
+audit, or tested disaster recovery procedure. It does not change the
+requirements for a durable database and externally verified payment
+reconciliation.
+
 ## Changes implemented now
 
 - During SQLite initialization, `storage_identity` records a randomly
