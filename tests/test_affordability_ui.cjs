@@ -71,7 +71,7 @@ test("Scenario Lab includes an accessible self-contained affordability form",()=
  assert.match(html,/id="affordability-results"[^>]*role="status"/);
  assert.match(html,/el\("affordability-form"\).addEventListener\("submit",previewAffordability\)/);
  assert.match(html,/resetAffordability\(\);render\(\)/);
- assert.match(html,/maximum extra/i);
+ assert.match(html,/Maximum additional attendees/i);
 });
 
 test("affordable scenario only posts to read-only planning API",async()=>{
