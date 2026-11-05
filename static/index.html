@@ -897,19 +897,31 @@ async function previewAffordability(evt){
  const chosenEvent=event();
  if(!chosenEvent){notice("Create or select an event before checking affordability.",true);return;}
  const eid=chosenEvent.id,button=el("affordability-run");
+ const assumptions={
+  max_share:el("affordability-cap").value.trim(),
+  maximum_extra_people:Number(el("affordability-extra").value),
+  strategy:el("affordability-strategy").value
+ };
+ const assumptionsKey=JSON.stringify(assumptions);
  button.disabled=true;button.textContent="Calculating…";
  try{
-  const d=await post("/api/events/"+eid+"/affordability",{
-   max_share:el("affordability-cap").value.trim(),
-   maximum_extra_people:Number(el("affordability-extra").value),
-   strategy:el("affordability-strategy").value
-  });
-  if(event()?.id!==eid){resetAffordability();throw Error("Selected event changed. Recalculate the affordability plan.");}
+  const d=await post("/api/events/"+eid+"/affordability",assumptions);
+  if(event()?.id!==eid||JSON.stringify({
+      max_share:el("affordability-cap").value.trim(),
+      maximum_extra_people:Number(el("affordability-extra").value),
+      strategy:el("affordability-strategy").value
+     })!==assumptionsKey){
+    resetAffordability();return;
+  }
   const rec=d?.recommendation;
   if(!d||d.mode!=="SANDBOX_PLANNING_ONLY"||d.read_only!==true||
      typeof d.feasible!=="boolean"||!rec||
-     ![d.cap_cents,d.budget_cents,d.current_people,d.remaining_largest_share_gap_cents,
-       rec.additional_people,rec.total_people,rec.largest_share_cents,rec.smallest_share_cents].every(Number.isSafeInteger)||
+     d.event_id!==eid||typeof d.has_existing_sandbox_orders!=="boolean"||
+     ![d.cap_cents,d.budget_cents,d.current_people,d.approved_people,d.tested_maximum_extra_people,
+       d.remaining_largest_share_gap_cents,rec.additional_people,rec.total_people,
+       rec.largest_share_cents,rec.smallest_share_cents].every(Number.isSafeInteger)||
+     (d.feasible&&!Number.isSafeInteger(d.minimum_additional_people))||
+     (!d.feasible&&d.minimum_additional_people!==null)||
      (d.current_largest_share_cents!==null&&!Number.isSafeInteger(d.current_largest_share_cents)))
     throw Error("Invalid affordability preview response.");
   const root=el("affordability-results");
