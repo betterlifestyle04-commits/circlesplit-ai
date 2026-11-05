@@ -70,7 +70,7 @@ test("Scenario Lab includes an accessible self-contained affordability form",()=
  }
  assert.match(html,/id="affordability-results"[^>]*role="status"/);
  assert.match(html,/el\("affordability-form"\).addEventListener\("submit",previewAffordability\)/);
- assert.match(html,/resetAffordability\(\);render\(\)/);
+ assert.match(html,/resetAffordability\(\);resetAttendanceRisk\(\);render\(\)/);
  assert.match(html,/Maximum additional attendees/i);
 });
 
