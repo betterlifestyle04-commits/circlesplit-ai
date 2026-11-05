@@ -1516,7 +1516,7 @@ class AffordabilityInput(BaseModel):
     """Strict advisory cap; no intent to change a funded event."""
     model_config = ConfigDict(extra="forbid", strict=True)
     max_share: str = Field(min_length=1, max_length=12,
-        pattern=r"^\\d+(?:\\.\\d{1,2})?$")
+        pattern=r"^\d+(?:\.\d{1,2})?$")
     maximum_extra_people: int = Field(ge=0, le=50)
     strategy: Literal["equal", "weighted"] | None = None
 
