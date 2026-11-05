@@ -123,17 +123,22 @@ test("already-over-target warning and checkout lock are explicit",async()=>{
 
 test("unreachable target shows honest bounded failure instead of implying a charge",async()=>{
  const d=response();
- d.projections[2].replacements_feasible=false;
- d.projections[2].minimum_replacements_needed=null;
- d.projections[2].best_replacement_count=50;
- d.projections[2].best_replacement_largest_share_cents=1101;
- d.projections[2].replacement_gap_cents=101;
- d.projections[2].replacement_candidates_tested=51;
+ d.cap_cents=1;
+ d.first_target_breach_at_absences=0;
+ d.projections.forEach((r,i)=>{
+  r.over_target=true;
+  r.replacements_feasible=false;
+  r.minimum_replacements_needed=null;
+  r.best_replacement_count=50;
+  r.best_replacement_largest_share_cents=[315,319,324][i];
+  r.replacement_gap_cents=r.best_replacement_largest_share_cents-1;
+  r.replacement_candidates_tested=51;
+ });
  const h=harness({result:d});
  await h.run(evt());
  const rendered=h.el("attendance-risk-results").innerHTML;
  assert.match(rendered,/cannot be restored within 50 hypothetical extra attendee/);
- assert.match(rendered,/\$1\.01 above the cap/);
+ assert.match(rendered,/\$3\.14 above the cap/);
  assert.match(rendered,/Not achievable within \+50/);
  assert.equal(h.calls.length,1);
 });
