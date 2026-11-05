@@ -434,6 +434,26 @@ HTTP 413 rather than silently truncating a financial snapshot.
 
 See [security boundaries](docs/SECURITY.md) and [storage recovery guidance](docs/PERSISTENT_STORAGE.md).
 
+## Local PayPal Sandbox recovery-risk overview
+
+**Activity → Sandbox recovery risk overview** now summarizes **all current
+local payment rows**, not merely the visible recovery page. It classifies
+local rows into: unknown order creation, uncertain capture attempt, awaiting
+provider confirmation, inconsistent local record, and locally completed
+with a recorded capture ID. The summary reports counts across all records,
+unresolved records older than 60 minutes, unparseable local creation dates,
+and the aggregate face value of unverified local requests.
+
+The face value is **not received funds, a loss estimate, an amount owed,
+or a certified maximum exposure**. Recorded rows may disappear when the
+Render Free database resets, so locally clean counters do not prove no
+historical Sandbox activity. The 60-minute threshold is a human review
+prompt, **not PayPal order expiry**. The calculation is read-only, uses
+the same local SQLite snapshot as the recovery page, and never calls
+PayPal, resends a request, changes a payment, or reveals provider IDs in
+the aggregate summary. For any uncertain request, inspect the original
+provider transaction manually rather than creating/capturing another order.
+
 ## Safe payment recovery across large demo ledgers
 
 The protected **Activity → Safe payment recovery** view prioritizes unresolved

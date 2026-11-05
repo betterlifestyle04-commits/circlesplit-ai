@@ -29,6 +29,7 @@ from security import cross_origin_mutation, protect_response
 from provider_limits import ProviderLimiter, provider_group
 from storage_readiness import storage_readiness
 from ledger_audit import local_ledger_audit
+from recovery_triage import recovery_risk_summary
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv("CIRCLESPLIT_DB") or str(ROOT / "circlesplit.sqlite3"))
@@ -2806,6 +2807,7 @@ def payment_recovery(
     """
     current = datetime.now(timezone.utc)
     with db() as c:
+        triage = recovery_risk_summary(c, current)
         grouped = c.execute(
             "SELECT status, COUNT(*) AS amount FROM payments GROUP BY status"
         ).fetchall()
@@ -2882,7 +2884,7 @@ def payment_recovery(
         "returned": returned, "limit": limit, "offset": offset,
         "next_offset": next_offset,
         "is_truncated": next_offset is not None,
-        "summary": counters, "items": items,
+        "summary": counters, "risk": triage, "items": items,
         "notice": ("Read-only local recovery queue, unresolved first. "
                    "Summary covers all local payment rows; no PayPal request is made. "
                    "Stalled creation and uncertain captures must never be "

@@ -507,6 +507,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
    <div id="ledger-audit-findings" style="margin-top:12px"></div>
   </div>
   <div class="space"></div>
+  <div class="card">
+   <div class="section-heading"><h2>Sandbox recovery risk overview</h2><span class="pill neutral">All local records · Read only</span></div>
+   <p class="small muted">Before inspecting individual orders, review this complete local-ledger triage. It separates unknown order creation, uncertain capture attempts, pending confirmations, and inconsistent records. These categories are <b>not</b> proof of loss or settlement.</p>
+   <p id="recovery-risk-status" role="status" aria-live="polite" class="small muted">Open Activity to assess the current local ledger.</p>
+   <div id="recovery-risk-metrics" style="margin-top:12px"></div>
+   <p id="recovery-risk-disclosure" class="notice" style="margin-top:12px">This cannot detect Sandbox orders that disappeared with an ephemeral database. Provider checks remain necessary.</p>
+  </div>
+  <div class="space"></div>
   <div class="card"><div class="section-heading"><h2>Safe payment recovery</h2>
    <div class="row wrap">
     <button class="btn small secondary" onclick="loadRecovery()">↻ Refresh recovery view</button>
@@ -560,6 +568,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 <script src="/static/schedule.js"></script>
 <script src="/static/reconciliation_compare.js"></script>
 <script src="/static/storage_continuity.js"></script>
+<script src="/static/recovery_triage.js"></script>
 <script>
 "use strict";
 let state = {events:[],paypal_configured:false,ai_configured:false};
@@ -1364,6 +1373,25 @@ async function runLedgerAudit(){
  finally{button.disabled=false;}
 }
 let recoveryOffset=0,recoveryLimit=50;
+function renderRecoveryRisk(data){
+ const status=el("recovery-risk-status"),metrics=el("recovery-risk-metrics");
+ const disclosure=el("recovery-risk-disclosure");
+ try{
+  const view=window.CircleSplitRecoveryTriage.presentation(data);
+  status.textContent=view.heading;
+  metrics.innerHTML='<div class="metrics">'+view.facts.map(function(item){
+   return '<div class="card"><div class="metric-label">'+safe(item[0])+'</div>'+
+    '<div class="metric-value">'+item[1]+'</div></div>';
+  }).join("")+'</div>'+
+   '<p style="margin-top:13px"><b>Unverified request face value: '+
+    safe(view.faceValue)+'</b> · Unparseable local timestamps: '+view.unknownAge+'</p>';
+  disclosure.textContent=view.disclosure;
+ }catch(_){
+  status.textContent="Local risk overview unavailable. Inspect the recovery queue and PayPal Sandbox manually.";
+  metrics.textContent="";
+  disclosure.textContent="No new payment, capture or provider call was made by this view.";
+ }
+}
 async function loadRecovery(offset=0){
  const summary=el("recovery-summary"),rows=el("recovery-rows");
  const previous=el("recovery-prev"),next=el("recovery-next"),page=el("recovery-page");
@@ -1373,6 +1401,7 @@ async function loadRecovery(offset=0){
  try{
   const d=await request("/api/paypal/recovery?limit="+recoveryLimit+"&offset="+offset);
   if(d.mode!=="PAYPAL_SANDBOX")throw Error("Unexpected payment mode");
+  renderRecoveryRisk(d.risk);
   recoveryOffset=Number(d.offset)||0;
   recoveryLimit=Number(d.limit)||50;
   const start=d.returned?recoveryOffset+1:0;
@@ -1403,6 +1432,7 @@ async function loadRecovery(offset=0){
    '<div class="empty">No records on this page. Try Previous, or refresh to start at the beginning.</div>';
  }catch(err){
   previous.disabled=true;next.disabled=true;page.textContent="Recovery page unavailable";
+  renderRecoveryRisk(null);
   summary.innerHTML='<span class="pill orange">Recovery view unavailable</span>';
   rows.innerHTML='<div class="empty">Could not load the recovery queue. Use manual sandbox inspection if a payment result is uncertain.</div>';
   notice("Payment recovery status could not be loaded: "+err.message,true);
