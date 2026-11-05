@@ -6,9 +6,37 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 
 - Local development defaults to a single trusted organizer with no accounts.
 - CIRCLESPLIT_HOSTED=1 makes the app require a shared judge password (HTTP Basic auth). Without a 12+ character DEMO_PASSWORD, the hosted app responds with HTTP 503 (fail-closed).
-- Shared judge credentials are **not** secure individual participant identities. Any authenticated judge can operate the organizer demo.
+- Shared judge credentials are **not** secure individual participant identities. A separately configured expiring **judge** role can explore the shared fictional organizer workspace but cannot initiate or reconcile PayPal Sandbox payments; the **owner** credential retains those operations.
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
+
+## Hosted judge credentials cannot operate PayPal Sandbox (November 5, 2026)
+
+On `CIRCLESPLIT_HOSTED=1`, Basic authentication marks successful
+owner credentials as `owner` and optional time-limited judge
+credentials as `judge`. Only the owner can invoke non-webhook
+`POST /api/paypal/*` actions. That includes initial order creation,
+existing-order reconciliation (which may settle a completed capture),
+and direct capture. New POST provider actions are denied by default
+without enumerating every individual endpoint. The webhook exception
+is narrow and remains protected by independent provider signature
+verification. Unauthorized attempts return HTTP 403 before a rate-budget
+charge, PayPal request, payment-row mutation or settlement.
+
+`GET /api/state` advertises the display-only role and boolean payment
+permission to the authenticated browser. `GET /api/paypal/checkout-readiness`
+reports an organizer-credential blocker when viewed by the judge.
+The judge-facing UI disables/hides provider action controls and private
+reconciliation export, but the **middleware is the permission authority**.
+Judge sessions can still inspect read-only local payment recovery and
+audit summaries, and operate fictional planning/simulation actions.
+
+The private reconciliation manifest retains its existing owner-only
+download guard. An expired or disabled judge credential cannot access
+the hosted workspace. This is limited role separation for a shared
+hackathon database: judges can still mutate fictional event planning,
+not true read-only tenancy; there are no real identity-bound users,
+individual payment authorization, or production payment capabilities.
 
 ## Read-only affordability scenario safety (November 5, 2026)
 
