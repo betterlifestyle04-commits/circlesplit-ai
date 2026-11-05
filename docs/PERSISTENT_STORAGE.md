@@ -103,13 +103,13 @@ endpoint rejects the request; use an operator-led encrypted DB backup.
 Before using any archived ledger as recovery evidence, compare an older
 and a newer encrypted backup **offline**:
 
-\`\`\`bash
+```bash
 python tools/encrypted_snapshot.py compare \
   --previous /private/backups/older.csb \
   --current /private/backups/newer.csb \
   --previous-key-file /private/keys/older.passphrase \
   --current-key-file /private/keys/newer.passphrase
-\`\`\`
+```
 
 This operation independently authenticates both encrypted files, checks
 each SQLite backup's SHA-256, schema, incarnation and payment-ledger
@@ -122,7 +122,7 @@ comparisons also check whether earlier local request keys vanished.
 Any changed incarnation, older known provider order or capture missing,
 decline in ledger/webhook counts, altered previously known amount or
 capture, reverted completion, local audit inconsistency, or backwards
-manifest creation time returns \`NEEDS_REVIEW\` (exit 3). A clean local
+manifest creation time returns `NEEDS_REVIEW` (exit 3). A clean local
 comparison returns 0; invalid key, corrupted archive or incompatible
 ledger returns 2. Unknown order-creation attempts are counted but
 cannot be safely matched across a different database incarnation.
