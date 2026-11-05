@@ -25,8 +25,10 @@ def ledger(tmp_path):
     conn.executescript("""
         CREATE TABLE events(id INTEGER PRIMARY KEY,name TEXT);
         CREATE TABLE expenses(id INTEGER PRIMARY KEY,title TEXT);
-        CREATE TABLE people(id INTEGER PRIMARY KEY,name TEXT);
-        CREATE TABLE payments(id INTEGER PRIMARY KEY,status TEXT,
+        CREATE TABLE people(id INTEGER PRIMARY KEY,event_id INTEGER,
+            name TEXT,share_cents INTEGER,status TEXT);
+        CREATE TABLE payments(id INTEGER PRIMARY KEY,event_id INTEGER,
+            person_id INTEGER,status TEXT,amount_cents INTEGER,
             capture_id TEXT,order_id TEXT,request_id TEXT);
         CREATE TABLE webhook_events(id TEXT PRIMARY KEY);
         CREATE TABLE storage_identity(id INTEGER PRIMARY KEY,incarnation_id TEXT);
@@ -35,12 +37,14 @@ def ledger(tmp_path):
     conn.execute("INSERT INTO storage_identity VALUES(1,?)",(epoch,))
     conn.execute("INSERT INTO events VALUES(1,'Secret Event')")
     conn.execute("INSERT INTO expenses VALUES(1,'Private expense')")
-    conn.execute("INSERT INTO people VALUES(1,'PRIVATE PERSON NAME')")
+    conn.execute("INSERT INTO people VALUES(1,1,'PRIVATE PERSON NAME',1234,'sandbox_paid')")
+    conn.execute("INSERT INTO people VALUES(2,1,'SECOND PRIVATE PERSON',999,'unpaid')")
     conn.execute(
-        "INSERT INTO payments VALUES(1,'completed','PRIVATE-CAPTURE-123',"
+        "INSERT INTO payments VALUES(1,1,1,'completed',1234,'PRIVATE-CAPTURE-123',"
         "'PRIVATE-ORDER-123','PRIVATE-IDEMPOTENCY-KEY')"
     )
-    conn.execute("INSERT INTO payments VALUES(2,'capturing',NULL,NULL,'UNRESOLVED-SECRET')")
+    conn.execute("INSERT INTO payments VALUES(2,1,2,'capturing',999,NULL,"
+                 "'PRIVATE-PENDING-ORDER','UNRESOLVED-SECRET')")
     conn.execute("INSERT INTO webhook_events VALUES('PRIVATE-WEBHOOK')")
     conn.commit()
     output = directory / "offline-20261105.sqlite3"
@@ -56,7 +60,7 @@ def test_create_captures_committed_wal_and_protects_personal_contents(ledger):
     result=snapshot.create(source,output)
     assert result["database_epoch"]==epoch
     assert result["counts"]=={
-        "events":1,"expenses":1,"people":1,"payments":2,
+        "events":1,"expenses":1,"people":2,"payments":2,
         "webhook_events":1,"storage_identity":1,
         "verified_captures":1,"unresolved_payments":1,
     }
@@ -84,6 +88,13 @@ def test_isolated_drill_does_not_modify_existing_source_or_output(ledger):
     before=set(output.parent.iterdir())
     report=snapshot.drill(output)
     assert report["counts"]["verified_captures"]==1
+    assert report["ledger_review"] == {
+        "status":"locally_consistent",
+        "payment_records_checked":2,
+        "unresolved_orders":1,
+        "issue_count":0,
+        "issue_counts":{},
+    }
     assert snapshot._hash(source)==source_digest
     assert snapshot._hash(output)==output_digest
     assert set(output.parent.iterdir())==before
@@ -206,6 +217,11 @@ def test_cli_create_verify_drill_and_no_unsafe_restore_command(ledger,capsys):
     assert "PRIVATE-" not in json.dumps(printed)
     assert snapshot.main(["verify","--snapshot",str(output)])==0
     assert snapshot.main(["drill","--snapshot",str(output)])==0
+    drill_output=json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert drill_output["status"]=="PASS"
+    assert drill_output["local_ledger_review"]["unresolved_orders"]==1
+    assert drill_output["local_ledger_review"]["issue_count"]==0
+    assert "PRIVATE-" not in json.dumps(drill_output)
     assert not hasattr(snapshot,"restore")
     with pytest.raises(SystemExit) as exc:
         snapshot.main(["restore","--snapshot",str(output)])
@@ -230,3 +246,77 @@ def test_verified_copy_cannot_silently_change_underlying_manifest(ledger):
     path.write_text(json.dumps(obj))
     with pytest.raises(snapshot.SnapshotError,match="inventory differs"):
         snapshot.verify(output)
+
+
+@pytest.mark.parametrize("sql,issue_code",[
+    ("UPDATE payments SET amount_cents=999 WHERE id=1", "payment_amount_mismatch"),
+    ("UPDATE people SET status='unpaid' WHERE id=1", "completed_person_not_paid"),
+    ("UPDATE payments SET order_id=NULL WHERE id=1", "missing_paypal_order_id"),
+    ("UPDATE payments SET capture_id=NULL WHERE id=1", "completed_without_capture"),
+    ("UPDATE payments SET event_id=1000 WHERE id=1", "missing_event"),
+    ("UPDATE payments SET person_id=1000 WHERE id=1", "missing_participant"),
+    ("UPDATE payments SET capture_id='PRIVATE-CAPTURE-123' WHERE id=2",
+     "capture_on_incomplete_payment"),
+    ("UPDATE payments SET status='COMPLETED' WHERE id=1", "invalid_payment_status"),
+])
+def test_semantic_ledger_errors_are_detected_even_when_snapshot_hash_is_valid(
+    ledger,capsys,sql,issue_code
+):
+    source,output,connection,_=ledger
+    connection.execute(sql)
+    connection.commit()
+    snapshot.create(source,output)
+    assert snapshot.verify(output)["counts"]["payments"]==2
+    report=snapshot.drill(output)
+    audit=report["ledger_review"]
+    assert audit["status"]=="needs_review"
+    assert audit["issue_counts"][issue_code] >= 1
+    assert audit["issue_count"]>=1
+    assert "findings" not in audit
+    assert snapshot.main(["drill","--snapshot",str(output)])==3
+    printed=json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert printed["status"]=="NEEDS_REVIEW"
+    assert printed["local_ledger_review"]["issue_counts"][issue_code]>=1
+    for private in ("PRIVATE PERSON NAME","SECOND PRIVATE PERSON",
+                    "PRIVATE-CAPTURE-123","PRIVATE-ORDER-123","PRIVATE-IDEMPOTENCY-KEY"):
+        assert private not in json.dumps(printed)
+
+
+def test_duplicate_capture_or_multiple_orders_detected_with_numeric_only_issues(
+    ledger
+):
+    source,output,connection,_=ledger
+    connection.execute(
+        "UPDATE payments SET person_id=1,status='completed',amount_cents=1234,"
+        "capture_id='PRIVATE-CAPTURE-123' WHERE id=2"
+    )
+    connection.commit()
+    snapshot.create(source,output)
+    issues=snapshot.drill(output)["ledger_review"]["issue_counts"]
+    assert issues["duplicate_capture_id"]>=1
+    assert issues["multiple_paypal_orders_for_person"]>=1
+
+
+def test_semantic_drill_refuses_incompatible_schema_without_touching_backup(
+    ledger
+):
+    source,output,connection,_=ledger
+    connection.execute("ALTER TABLE people RENAME COLUMN share_cents TO lost_share_cents")
+    connection.commit()
+    snapshot.create(source,output)
+    hash_before=snapshot._hash(output)
+    assert snapshot.verify(output)["counts"]["payments"]==2
+    with pytest.raises(snapshot.SnapshotError,match="compatible payment schema"):
+        snapshot.drill(output)
+    assert snapshot._hash(output)==hash_before
+
+
+def test_semantic_audit_limit_fails_closed_before_reading_unbounded_financial_rows(
+    ledger,monkeypatch
+):
+    source,output,connection,_=ledger
+    snapshot.create(source,output)
+    monkeypatch.setattr(snapshot,"MAX_LEDGER_AUDIT_ROWS",1)
+    with pytest.raises(snapshot.SnapshotError,match="too large"):
+        snapshot.drill(output)
+    assert snapshot.verify(output)["counts"]["payments"]==2
