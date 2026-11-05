@@ -47,7 +47,7 @@ jobs:
           from pathlib import Path
           import re
           source=Path("static/public.html").read_text()
-          scripts=re.findall(r"<script>([\\s\\S]*?)</script>",source)
+          scripts=re.findall(r"<script>([\s\S]*?)</script>",source)
           assert len(scripts)==1
           Path("/tmp/circlesplit-public-inline.js").write_text(scripts[0])
           PY
