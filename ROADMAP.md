@@ -24,6 +24,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] Global unique sandbox capture IDs, shared transactional settlement guard and ambiguous-capture rejection
 - [x] Read-only PayPal recovery queue and checks of existing orders; no blind capture retry
 - [x] Full-ledger recovery totals, attention-first paginated queue and missing-record investigation safeguards
+- [x] Protected, read-only recovery risk overview with all-ledger triage, 60-minute age review and unverified request face value distinct from completed Sandbox captures (November 5, 2026)
 - [x] Manual private Sandbox reconciliation JSON export with complete current local ledger, reset epoch, digest and no payment import (November 4, 2026)
 - [x] Browser-local, digest-checked comparison of private Sandbox manifests, with reset-aware PayPal order matching and no network upload (November 4, 2026)
 
