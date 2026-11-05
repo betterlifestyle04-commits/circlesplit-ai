@@ -350,6 +350,8 @@ def compare(previous_bundle: str | Path, current_bundle: str | Path,
         amount_drift=0
         capture_drift=0
         completion_regression=0
+        status_regression=0
+        phases={"creating":0,"created":1,"capturing":2,"completed":3}
         for oid in known_shared:
             prior=older_rows["orders"][oid]
             after=newer_rows["orders"][oid]
@@ -359,6 +361,9 @@ def compare(previous_bundle: str | Path, current_bundle: str | Path,
                 capture_drift+=1
             if prior[0]=="completed" and after[0]!="completed":
                 completion_regression+=1
+            if (prior[0] in phases and after[0] in phases and
+                    phases[after[0]]<phases[prior[0]]):
+                status_regression+=1
 
         # Request keys are local workflow evidence. Only compare them when
         # we know both snapshots came from the SAME physical DB identity.
@@ -366,6 +371,11 @@ def compare(previous_bundle: str | Path, current_bundle: str | Path,
         later_requests=set(newer_rows["attempts"])
         missing_same_epoch_requests=(
             len(prior_requests-later_requests) if not replaced else None
+        )
+        same_epoch_request_amount_changes=(
+            sum(older_rows["attempts"][key][1]!=newer_rows["attempts"][key][1]
+                for key in prior_requests & later_requests)
+            if not replaced else None
         )
         count_drops={
             key:older["counts"][key]-newer["counts"][key]
@@ -375,8 +385,9 @@ def compare(previous_bundle: str | Path, current_bundle: str | Path,
         issues=(replaced or reversed_time or bool(missing_orders)
                 or bool(captures_missing) or bool(amount_drift)
                 or bool(capture_drift) or bool(completion_regression)
-                or bool(count_drops)
+                or bool(status_regression) or bool(count_drops)
                 or bool(missing_same_epoch_requests)
+                or bool(same_epoch_request_amount_changes)
                 or older_audit["status"]=="needs_review"
                 or newer_audit["status"]=="needs_review")
         return {
@@ -407,7 +418,9 @@ def compare(previous_bundle: str | Path, current_bundle: str | Path,
             "shared_order_amount_changes":amount_drift,
             "shared_order_capture_conflicts":capture_drift,
             "shared_order_completion_regressions":completion_regression,
+            "shared_order_status_regressions":status_regression,
             "prior_local_attempts_missing_same_epoch":missing_same_epoch_requests,
+            "same_epoch_request_amount_changes":same_epoch_request_amount_changes,
             "aggregate_count_decreases":count_drops,
             "previous_unknown_provider_order_attempts":older_rows["without_order"],
             "current_unknown_provider_order_attempts":newer_rows["without_order"],
