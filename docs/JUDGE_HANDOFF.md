@@ -49,6 +49,14 @@ and creates a new sandbox-only order if locally eligible. It cannot confirm
 provider availability or settlement. Never retry an uncertain creation
 response; inspect Activity and PayPal Sandbox instead.
 
+When PayPal Sandbox returns to the workspace, CircleSplit checks the
+**existing** order. A return does not automatically capture funds. If
+PayPal reports `APPROVED`, the organizer may explicitly confirm the
+test capture; the server independently rechecks the provider order and
+exact amount before attempting it. If the result is ambiguous, use
+Activity → Check PayPal and investigate the original order. Never try a
+second capture merely because an earlier screen timed out.
+
 PayPal: Make a fresh fictional event costing $11.00 USD with one participant. Approve the share; select PayPal test. Use a *PayPal SANDBOX personal buyer account* obtained from PayPal Developer Dashboard (never a live PayPal account or real card). Complete checkout; on return, CircleSplit should show VERIFIED CAPTURE under Activity. If the flow is interrupted, use Activity → Check PayPal to resume or reconcile the *existing order*, not create duplicates.
 
 The test environment is sandbox only. The protected integration workspace uses shared fictional data and temporary SQLite storage; it may reset after deployment. If judges prefer not to use a sandbox buyer account, the under-3-minute YouTube video documents our confirmed capture and the repository contains the integration and tests.
