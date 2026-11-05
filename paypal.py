@@ -1,5 +1,6 @@
 """PayPal REST API adapter: strictly sandbox, server-side credentials only."""
 import os
+import re
 import uuid
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlparse
@@ -7,6 +8,27 @@ import httpx
 from fastapi import HTTPException
 
 BASE = "https://api-m.sandbox.paypal.com"
+_ORDER_ID = re.compile(r"[A-Za-z0-9-]{5,50}\Z")
+
+
+def valid_sandbox_order_id(value):
+    """Allow only safe ASCII identifiers for both storage and provider GETs."""
+    return isinstance(value, str) and bool(_ORDER_ID.fullmatch(value))
+
+
+def trusted_sandbox_checkout_url(url):
+    """Only HTTPS links to PayPal Sandbox, with no credentials or alternate port."""
+    if not isinstance(url, str):
+        return False
+    try:
+        parsed = urlparse(url)
+        return (parsed.scheme == "https"
+                and parsed.hostname in ("www.sandbox.paypal.com", "sandbox.paypal.com")
+                and parsed.username is None and parsed.password is None
+                and parsed.port in (None, 443))
+    except ValueError:
+        return False
+
 
 def configured():
     return bool(os.getenv("PAYPAL_CLIENT_ID") and os.getenv("PAYPAL_CLIENT_SECRET"))
@@ -65,8 +87,8 @@ async def order(amount, event_id, person_id, return_url, request_id):
     # Never redirect the organizer to an arbitrary URL supplied by a provider
     # payload or a compromised/misconfigured intermediary.
     url = approval_link(response)
-    if not response.get("id") or not url:
-        raise HTTPException(502, "PayPal did not return a trusted sandbox approval link")
+    if not valid_sandbox_order_id(response.get("id")) or not url:
+        raise HTTPException(502, "PayPal did not return a valid order ID and trusted sandbox approval link")
     return {"id": response["id"], "approval_url": url}
 
 async def capture(order_id, idempotency_key):
@@ -85,9 +107,7 @@ def approval_link(details):
         if not isinstance(url, str):
             continue
         parsed = urlparse(url)
-        if parsed.scheme == "https" and parsed.hostname in (
-            "www.sandbox.paypal.com", "sandbox.paypal.com"
-        ):
+        if trusted_sandbox_checkout_url(url):
             return url
     return None
 

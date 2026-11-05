@@ -593,6 +593,29 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - **API:** authenticated `GET /api/planning-backup` (download) and `POST /api/planning-backup/restore` (validated import), both inaccessible to public visitors and participant-link holders.
 - **Important:** This mitigates *planning data loss only if the owner regularly downloads and securely retains the file*. It does not provide continuous backups, preserve payment history, restore approvals or guarantee recovery of PayPal activity. Durable database storage and individual authentication are still required before production use.
 
+## Database-incarnation guard for in-flight Sandbox order creation
+
+PayPal Sandbox order creation is a two-step local/remote operation: first
+CircleSplit saves a unique idempotency key and an immutable `creating` row,
+then it calls PayPal. Previously, on receiving the remote response it updated
+by **numeric payment ID alone**. An ephemeral SQLite reset while PayPal was
+responding could reuse that row number in a new database. The current
+implementation now captures the *database incarnation ID* before sending the
+request, and applies the returned order ID only when the incarnation,
+original request key, capture key, event ID, participant ID, amount, row status
+and empty provider-ID fields still match under a SQLite write transaction.
+It also rejects malformed or non-ASCII provider order IDs, unexpected
+checkout-host redirects, and duplicate local order identifiers.
+
+If the check fails, the backend returns an explicit investigation-required
+error and **does not** associate the remote order with an unrelated local
+payment. The original PayPal Sandbox request **may still have succeeded**,
+so a failure is *not permission to retry*. A lost ephemeral ledger cannot be
+reconstructed by this guard, nor does the guard prevent a separate new
+request after data loss; durable storage and external reconciliation remain
+necessary. All tests mock the provider; they do not prove current PayPal
+availability.
+
 ## Payment recovery and capture retry safety
 
 - The protected **Activity → Safe payment recovery** panel now shows current local PayPal sandbox order states: **creating** (order creation response missing), **created** (existing order can be checked), **capturing** (one capture attempt already made), and **completed** (capture identifier recorded).

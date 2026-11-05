@@ -2604,6 +2604,12 @@ async def create_order(eid: int, pid: int, request: Request):
         if blockers:
             raise HTTPException(409, blockers[0]["explanation"])
         amount = p["share_cents"]
+        identity = c.execute(
+            "SELECT incarnation_id FROM storage_identity WHERE id=1"
+        ).fetchone()
+        if not identity or not identity["incarnation_id"]:
+            raise HTTPException(503, "Local Sandbox ledger identity unavailable; do not start checkout")
+        epoch = identity["incarnation_id"]
         create_key, capture_key = str(uuid.uuid4()), str(uuid.uuid4())
         record = c.execute(
             "INSERT INTO payments(event_id,person_id,amount_cents,request_id,capture_key,status,created) VALUES(?,?,?,?,?,?,?)",
@@ -2614,9 +2620,42 @@ async def create_order(eid: int, pid: int, request: Request):
     # Network calls occur outside transaction lock. 'creating' remains locked if
     # PayPal times out: reconcile manually rather than risking duplicate checkout.
     response = await paypal.order(amount,eid,pid,base+"/workspace?payment=return",create_key)
+    # Never trust a malformed response, even if a provider stub or intermediary
+    # bypassed the sandbox adapter's own ID and approval-link validation.
+    if (not isinstance(response,dict)
+            or not paypal.valid_sandbox_order_id(response.get("id"))
+            or not paypal.trusted_sandbox_checkout_url(response.get("approval_url"))):
+        raise HTTPException(502,
+            "PayPal Sandbox order response was invalid. The request may have reached "
+            "PayPal; inspect the original attempt and do not create another order.")
     with db() as c:
-        c.execute("UPDATE payments SET order_id=?,status='created' WHERE id=?",
-                  (response["id"],record))
+        current_epoch = c.execute(
+            "SELECT incarnation_id FROM storage_identity WHERE id=1"
+        ).fetchone()
+        if not current_epoch or current_epoch["incarnation_id"] != epoch:
+            # Render Free can replace its SQLite DB during an in-flight network
+            # request. A newly seeded DB can REUSE integer payment IDs. Never
+            # attach an old remote order to an unrelated new payment row.
+            raise HTTPException(409,
+                "Local Sandbox database changed during order creation. The remote "
+                "order may exist: inspect PayPal Sandbox manually; do not retry.")
+        try:
+            updated = c.execute(
+                """UPDATE payments SET order_id=?,status='created'
+                   WHERE id=? AND event_id=? AND person_id=?
+                     AND amount_cents=? AND request_id=? AND capture_key=?
+                     AND status='creating' AND order_id IS NULL
+                     AND capture_id IS NULL""",
+                (response["id"],record,eid,pid,amount,create_key,capture_key)
+            )
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409,
+                "Sandbox order ID conflicts with an existing record. Inspect "
+                "the original request; do not create another order.") from exc
+        if updated.rowcount != 1:
+            raise HTTPException(409,
+                "Local Sandbox payment changed during order creation. The remote "
+                "order may exist: inspect PayPal Sandbox manually; do not retry.")
         record_history(c,eid,"sandbox_order_created",actor="paypal_sandbox",
                        details={"participant_id":pid,"amount_cents":amount})
     return {"order_id":response["id"],"approval_url":response["approval_url"],
@@ -2625,7 +2664,7 @@ async def create_order(eid: int, pid: int, request: Request):
 @app.post("/api/paypal/order-status/{order_id}")
 async def check_existing_order(order_id: str):
     """Owner-initiated reconciliation. Never creates a second payment order."""
-    if len(order_id) < 5 or len(order_id) > 50 or not order_id.replace("-", "").isalnum():
+    if not paypal.valid_sandbox_order_id(order_id):
         raise HTTPException(422, "Invalid order ID")
     with db() as c:
         row = c.execute("SELECT * FROM payments WHERE order_id=?", (order_id,)).fetchone()

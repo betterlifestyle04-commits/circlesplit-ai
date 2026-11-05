@@ -126,6 +126,27 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
   secret, third-party request or identity credential. The existing
   Sandbox-only, no-automatic-retry rules still apply.
 
+## In-flight Sandbox order binding and stale SQLite resets (November 5, 2026)
+
+`POST /api/paypal/orders/{event_id}/{person_id}` now snapshots the local
+SQLite incarnation and inserts the `creating` record, idempotency key,
+capture key and exact amount before the network request. After the response,
+the server refuses to change any payment row unless the original incarnation,
+request keys, event and participant identifiers, amount, prior status and
+empty remote ID still match atomically. This prevents a recently reset
+ephemeral SQLite database from misassigning a late PayPal Sandbox order to
+a different payment with the same reused integer ID. The PayPal adapter and
+response handler enforce strict ASCII order IDs and trusted HTTPS Sandbox
+checkout URLs without credentials or non-default ports.
+
+A rejected late response does **not** erase the original remote transaction.
+The local creating lock remains where its database still exists. If the
+database disappeared, manual provider-ledger reconciliation is required;
+the system must **never** automatically send a second create/capture
+request. This is a narrowly scoped mitigation, **not durable storage**,
+identity verification, or guaranteed detection of historical requests lost
+after a later restart.
+
 ## Provider-verified Sandbox capture authorization (November 5, 2026)
 
 - Direct `POST /api/paypal/capture` no longer marks a record `capturing`
