@@ -25,6 +25,22 @@ def client(monkeypatch, tmp_path):
         yield instance
 
 
+
+async def approved_sandbox_details_from_local_payment(order_id):
+    """Offline PayPal GET stub for an authorized Sandbox buyer approval."""
+    import app
+    with app.db() as c:
+        p=c.execute("SELECT * FROM payments WHERE order_id=?",(order_id,)).fetchone()
+        assert p is not None
+        return {
+            "id":order_id,"intent":"CAPTURE","status":"APPROVED",
+            "purchase_units":[{
+                "custom_id":f'{p["event_id"]}:{p["person_id"]}',
+                "reference_id":f'{p["event_id"]}-{p["person_id"]}',
+                "amount":{"currency_code":"USD","value":f'{p["amount_cents"]/100:.2f}'}
+            }]
+        }
+
 def test_ephemeral_render_status_never_exposes_real_db_path(tmp_path):
     location = tmp_path / "private" / "actual.sqlite3"
     data = guard.storage_readiness(location,{
@@ -195,6 +211,7 @@ def test_existing_checkout_recovery_stays_available_when_gate_turns_on(client,mo
             "amount":{"currency_code":"USD","value":f"{amount/100:.2f}"},
         }]}}]}
     monkeypatch.setattr(paypal,"capture",existing_capture)
+    monkeypatch.setattr(paypal,"details",approved_sandbox_details_from_local_payment)
     settled=client.post("/api/paypal/capture",json={"order_id":"TEST-DURABLE-GATE-ORDER"})
     assert settled.status_code==200,settled.text
     assert client.get("/api/state").json()["events"][0]["sandbox_cents"]==amount
