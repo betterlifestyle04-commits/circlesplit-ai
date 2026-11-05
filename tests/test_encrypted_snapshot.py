@@ -205,7 +205,11 @@ def test_failed_creation_never_publishes_archive_or_leaves_raw_plaintext(sandbox
     source,archive,key,conn,epoch=sandbox
     real_link=encrypted.os.link
     def fail_link(src,dst):
-        raise PermissionError("pretend filesystem denied encrypted publication")
+        # The snapshot tool must still be able to publish its *staged*
+        # SQLite file and manifest. Inject only at final .csb publication.
+        if str(dst).endswith(".csb"):
+            raise PermissionError("pretend filesystem denied encrypted publication")
+        return real_link(src,dst)
     monkeypatch.setattr(encrypted.os,"link",fail_link)
     with pytest.raises(encrypted.ArchiveError,match="publish"):
         encrypted.seal(source,archive,key)
