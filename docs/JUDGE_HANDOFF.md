@@ -8,6 +8,17 @@
 
 The public homepage is a browser-local simulation. Only the protected workspace connects to the actual Gemini model and PayPal SANDBOX.
 
+## Optional protected affordability demonstration
+
+After signing into the organizer workspace, select the seeded fictional
+event and open **Scenario Lab → Affordability target**. Set the per-person
+limit to **$10.00**, allow up to **5 additional fictional attendees** and
+choose **equal split**. The server should recommend **2 additional
+participants**, giving a hypothetical 22-person group with each person's
+share no more than $10.00 for the $220 event. Try weighted split or a very
+low cap to see an explicit no-solution result. Results are read-only and
+do **not** change current approvals, participation, or any PayPal order.
+
 ## Guided browser walkthrough (no credentials)
 
 Open the public [judge guide](https://circlesplit-ai-demo.onrender.com/judge)
