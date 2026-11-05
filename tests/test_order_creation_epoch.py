@@ -109,13 +109,17 @@ def test_reset_while_paypal_request_in_flight_never_misattributed_to_reused_row(
         # was initiated and while PayPal returned a valid response.
         app.DB.unlink()
         app.initialize()
-        new=client.get("/api/state").json()["events"][0]
         with app.db() as c:
+            new_event=c.execute("SELECT id FROM events ORDER BY id LIMIT 1").fetchone()
+            new_person=c.execute(
+                "SELECT id FROM people WHERE event_id=? ORDER BY id LIMIT 1",
+                (new_event["id"],)
+            ).fetchone()
             c.execute(
                 """INSERT INTO payments(event_id,person_id,amount_cents,
                    request_id,capture_key,status,created)
                    VALUES(?,?,?,?,?,?,?)""",
-                (new["id"],new["people"][0]["id"],1100,
+                (new_event["id"],new_person["id"],1100,
                  "new-epoch-not-the-original-request","new-epoch-capture-key",
                  "creating",app.now())
             )
