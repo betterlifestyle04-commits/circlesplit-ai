@@ -49,7 +49,7 @@ test("cancelled buyer return strips URL token and never calls provider",async()=
 test("missing or malicious provider order references cannot trigger check/capture",async()=>{
  for(const url of [
   "?payment=return",
-  "?payment=return&token=short",
+  "?payment=return&token=tiny",
   "?payment=return&token=%3Cscript%3Ealert(1)%3C/script%3E",
   "?payment=return&token=ORDER_123",
   "?payment=return&token=EXCESSIVELY-LONG-"+("X".repeat(100)),
