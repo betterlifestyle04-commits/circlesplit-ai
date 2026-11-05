@@ -27,6 +27,43 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Operator-only SQLite snapshot verification and offline restore rehearsal
+
+The repository includes `tools/sqlite_snapshot.py`, a **local operator command**
+that uses Python's SQLite online backup API (including committed WAL changes).
+It produces a single standalone SQLite database plus a small SHA-256 JSON
+manifest containing **only** database incarnation, timestamp and aggregate
+counts. The tool refuses to overwrite existing files, requires a private
+destination directory, verifies integrity and checksum, and can rehearse
+opening a copy in an isolated temporary directory.
+
+```bash
+# Run only where the actual source SQLite file is accessible.
+mkdir -m 700 -p ./private-sandbox-backups
+python tools/sqlite_snapshot.py create \
+  --source /absolute/path/to/circlesplit.sqlite3 \
+  --output ./private-sandbox-backups/demo-20261105.sqlite3
+python tools/sqlite_snapshot.py verify \
+  --snapshot ./private-sandbox-backups/demo-20261105.sqlite3
+python tools/sqlite_snapshot.py drill \
+  --snapshot ./private-sandbox-backups/demo-20261105.sqlite3
+```
+
+On Windows, use a private NTFS directory with restricted access permissions
+instead of the POSIX `mkdir -m 700` command. **Never commit, email in clear
+text or serve the raw SQLite file**: it contains fictional participant details,
+bearer-invitation hashes and Sandbox payment/idempotency identifiers. Copy
+the snapshot and matching manifest to a secure encrypted offsite location
+with a controlled backup policy. A SHA-256 digest is not a digital signature.
+
+There is deliberately **no REST endpoint, automated upload or command that
+imports/overwrites a live financial ledger**. The `drill` command only copies
+the verified snapshot into a temporary isolated directory, checks that it can
+be read consistently, then deletes that rehearsal copy. Operator access is
+not available to guarantee backups on the active Free Render deployment.
+External PayPal Sandbox reconciliation remains mandatory after any reset;
+never replay an old payment or create an order merely because a row is missing.
+
 ## Browser-local database continuity warnings
 
 The protected organizer workspace now remembers a **privacy-minimal
