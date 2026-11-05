@@ -1,0 +1,3 @@
+# Offline operator backup tooling and CI tests. Not installed in Render runtime.
+-r requirements.txt
+cryptography>=44,<48

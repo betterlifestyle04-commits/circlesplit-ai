@@ -10,3 +10,7 @@ __pycache__/
 
 # Private operator database snapshot inventory; never commit alongside snapshots.
 *.sqlite3.manifest.json
+
+# Offline encrypted Sandbox database archives and private encryption keys.
+*.csb
+*.passphrase
