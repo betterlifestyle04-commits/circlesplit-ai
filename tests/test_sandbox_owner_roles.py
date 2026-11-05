@@ -54,7 +54,7 @@ def test_helper_covers_future_post_routes_without_blocking_signed_webhooks():
     assert not owner_only_sandbox_action("POST","/api/paypal/webhook")
     assert not owner_only_sandbox_action("GET","/api/paypal/recovery")
     assert not owner_only_sandbox_action("POST","/api/participant/approve")
-    assert not owner_only_sandbox_action("POST","/api/paypal/webhook/extra")
+    assert owner_only_sandbox_action("POST","/api/paypal/webhook/extra")
 
 
 def test_judge_can_inspect_and_simulate_but_cannot_start_sandbox_order(
