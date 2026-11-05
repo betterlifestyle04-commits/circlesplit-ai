@@ -98,6 +98,52 @@ only the records still present at export time can be saved. Check any
 uncertain order at PayPal itself. For more than 10,000 payment attempts the
 endpoint rejects the request; use an operator-led encrypted DB backup.
 
+## Operator-only SQLite snapshot and isolated restore drill
+
+For a **local SQLite development copy** or a future operator-accessible
+single-instance service, the repository now provides
+`tools/sqlite_snapshot.py`, supporting only `create`, `verify` and
+`drill`. It is **not** connected to the API or public browser.
+
+```bash
+# Execute on the machine where the real SQLite DB exists.
+mkdir -m 700 -p ./private-sandbox-backups
+python tools/sqlite_snapshot.py create --source /absolute/path/circlesplit.sqlite3 \
+  --output ./private-sandbox-backups/snapshot-20261105.sqlite3
+python tools/sqlite_snapshot.py verify \
+  --snapshot ./private-sandbox-backups/snapshot-20261105.sqlite3
+python tools/sqlite_snapshot.py drill \
+  --snapshot ./private-sandbox-backups/snapshot-20261105.sqlite3
+```
+
+The creator refuses to overwrite an existing snapshot or its matching
+`.manifest.json`. It uses SQLite's online `backup()` API rather than
+copying a live DB file directly; committed WAL transactions are included.
+The staged copy is converted to a standalone, checkpointed database and
+checked with `PRAGMA integrity_check`. Its manifest records a SHA-256
+checksum, exact byte size, database incarnation UUID, timestamp and aggregate
+event/expense/participant/payment/webhook counts, **not** individuals or
+provider identifiers. Both output files are private and must be saved
+together. On POSIX, the output directory must be user-owned and mode 0700;
+Windows operators must restrict NTFS ACLs manually.
+
+The `verify` command compares size, SHA-256, schema and database identity
+and re-counts records without writing data. The `drill` command verifies
+the copy, reads a temporary *isolated* rehearsal copy, and discards it.
+Neither operation restores data into the running service. For actual disaster
+recovery, stop the service, compare private manifests and the Sandbox provider
+ledger externally, and design an operator-reviewed migration plan. **Never
+overwrite a live ledger or automatically replay financial transactions.**
+
+**Confidentiality:** a raw snapshot includes private invitation hashes,
+fictional names, Sandbox order IDs, idempotency keys and other private app
+data. Store it offline/encrypted, control access, and never upload it to
+Devpost, public GitHub, logs, or public storage. Digest verification detects
+accidental modification but is not authentication, encryption or proof of
+payment settlement. The tool does not automate scheduled copies or make
+Render Free storage durable; the current Free service has no guaranteed
+operator-readable persistent DB and no offsite backups.
+
 ## Preparing a paid persistent disk (opt-in only)
 
 A separate, **inactive** example is provided:

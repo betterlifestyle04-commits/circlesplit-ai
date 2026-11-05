@@ -24,6 +24,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 - [x] Browser-local, digest-checked comparison of private Sandbox manifests, with reset-aware PayPal order matching and no network upload (November 4, 2026)
 
 - [x] Global read-only ledger consistency audit, bounded numeric findings and distinct unresolved-order counts (November 4, 2026)
+- [x] Offline operator SQLite snapshot, SHA-256 and schema verification, standalone WAL handling and isolated no-import recovery rehearsal (November 5, 2026)
 - [x] Browser-local dataset incarnation and capture/webhook count regression warnings, preserving the prior checkpoint until explicit investigation acknowledgement (November 5, 2026)
 - [x] Optional Gemini expense and task proposals with human review before any changes
 - [x] Hosted cross-origin mutation protections and no-store/private browser security headers (November 4, 2026)

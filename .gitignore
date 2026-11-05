@@ -7,3 +7,6 @@ __pycache__/
 .pytest_cache/
 .coverage
 .DS_Store
+
+# Private operator database snapshot inventory; never commit alongside snapshots.
+*.sqlite3.manifest.json
