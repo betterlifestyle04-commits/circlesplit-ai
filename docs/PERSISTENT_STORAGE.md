@@ -83,6 +83,19 @@ that the PayPal order ceased to exist. Always inspect PayPal Sandbox directly.
 The exported manifest can contain names and payment identifiers, so keep the
 source files private and never commit them. A digest is not a signature.
 
+## Existing-order checks and captures during SQLite resets
+
+The same database-incarnation and immutable payment-identity safeguards
+now cover delayed PayPal Sandbox **order status** checks, the required
+pre-capture upstream verification, and late capture responses. These
+checks prevent accidentally marking an unrelated newly seeded payment
+as completed when SQLite numeric IDs are reused. If a capture has
+reached PayPal but the original SQLite database vanished, the system
+rejects local settlement and requires **external provider-ledger review**
+before any retry or manual migration. Neither this guard nor a clean
+read-only local audit can restore past transactions lost from Render
+Free ephemeral storage.
+
 ## In-flight Sandbox order creation during ephemeral database loss
 
 New order creation checks the original database incarnation and original

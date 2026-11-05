@@ -263,6 +263,32 @@ Never create a new payment merely because a local record disappeared.
 For private manual investigation, use the existing read-only
 reconciliation export and browser-only snapshot comparison.
 
+## Late PayPal status/capture reconciliation bound to the original database
+
+The protected **Check PayPal** flow and **capture** flow now protect both
+the first provider GET and the final capture-response handling from a
+stale SQLite transaction. Before contacting PayPal Sandbox they snapshot
+the original database incarnation and the immutable payment identity
+(request and capture keys, order ID, amount, event/participant IDs, and
+creation timestamp). After every awaited provider response, CircleSplit
+reopens a local write transaction and confirms those fields still match.
+A Render Free reset that recreates payment row #1 cannot accidentally
+mark a new row as captured, even if an old response arrives late.
+
+The existing-order check also rechecks whether a webhook or concurrent
+capture updated the order while PayPal was responding. If a capture was
+already attempted, it shows *pending*, not an actionable retry; if a
+locally verified capture appeared, it reports completion without sending
+a new capture. A mismatched upstream purchase-unit reference or malformed
+amount no longer passes the status check.
+
+After a successful first provider capture but a lost local database, the
+server rejects local settlement and requires **manual PayPal Sandbox
+reconciliation**. The payment may have occurred at PayPal despite the
+local error. This does **not** restore deleted records, guarantee current
+provider availability, or permit a second payment attempt. Live-money
+payments remain disabled.
+
 ## Verified Sandbox buyer approval before capture
 
 Starting a capture now performs a fresh **PayPal Sandbox GET of the existing

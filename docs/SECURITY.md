@@ -126,6 +126,29 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
   secret, third-party request or identity credential. The existing
   Sandbox-only, no-automatic-retry rules still apply.
 
+## Existing Sandbox order reconciliation after delayed provider responses (November 5, 2026)
+
+`POST /api/paypal/order-status/{order_id}` and `POST /api/paypal/capture`
+now snapshot the original physical SQLite incarnation and immutable payment
+identity before their provider network calls. After each awaited provider
+GET or capture, the server rechecks the incarnation, local payment ID,
+event ID, person ID, exact cents, original request/capture keys, provider
+order ID and creation timestamp **inside its new local transaction**.
+Any difference or missing row is a fail-closed HTTP 409 requiring manual
+review: the external Sandbox order might have completed already.
+
+This prevents stale PayPal status and capture data from changing a
+re-created SQLite row with a reused integer ID (even when a test fixture
+reuses the same provider order ID). The status endpoint also rechecks
+concurrent local transitions so it never suggests a second capture when
+the existing order is already `capturing`. The provider status check
+requires an appropriately shaped single purchase unit and validates
+optional custom/reference IDs against the saved event/participant.
+
+Provider responses, SQLite snapshots and local capture IDs are not
+substitutes for PayPal's external ledger. No automatic capture retries,
+forced account reconciliation, or production payments were introduced.
+
 ## In-flight Sandbox order binding and stale SQLite resets (November 5, 2026)
 
 `POST /api/paypal/orders/{event_id}/{person_id}` now snapshots the local
