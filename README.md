@@ -27,6 +27,53 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Encrypted offline Sandbox backups (operator-only)
+
+For a development machine or a future operator-accessible durable volume,
+`tools/encrypted_snapshot.py` creates **one authenticated encrypted archive**
+that includes both a consistent SQLite snapshot and its validation manifest.
+It uses streaming AES-256-GCM, a fresh random 16-byte salt and 12-byte nonce
+per archive, and a scrypt-derived key from a private high-entropy key file.
+**No plaintext backup is published**: source copying, encryption, decryption
+and isolated recovery drills use private temporary folders. The original
+database is read-only during snapshotting; existing files are never overwritten.
+
+```bash
+# Optional operator tools only: hosted Render installs requirements.txt instead.
+pip install -r requirements-ops.txt
+
+# Use TWO different private locations. POSIX examples; restrict Windows NTFS ACLs.
+mkdir -m 700 -p /private/circlesplit-backups /private/circlesplit-keys
+python tools/encrypted_snapshot.py keygen \
+  --output /private/circlesplit-keys/circlesplit.passphrase
+python tools/encrypted_snapshot.py seal \
+  --source /absolute/path/to/circlesplit.sqlite3 \
+  --output /private/circlesplit-backups/demo-20261105.csb \
+  --key-file /private/circlesplit-keys/circlesplit.passphrase
+python tools/encrypted_snapshot.py verify \
+  --bundle /private/circlesplit-backups/demo-20261105.csb \
+  --key-file /private/circlesplit-keys/circlesplit.passphrase
+python tools/encrypted_snapshot.py drill \
+  --bundle /private/circlesplit-backups/demo-20261105.csb \
+  --key-file /private/circlesplit-keys/circlesplit.passphrase
+```
+
+`keygen` creates the private key file without printing its contents.
+`verify` authenticates the encrypted archive and checks SQLite checksum,
+schema and record counts. `drill` also runs the **read-only** local payment
+audit on an isolated copy. Exit codes: `0` for pass, `2` for a failed
+archive/validation, and `3` for structurally valid evidence requiring
+manual ledger review. There is deliberately **no live restore, network
+upload, real-money payment or retry action**.
+
+Copy only the `.csb` bundle to a separately controlled, encrypted offsite
+repository; safeguard the `.passphrase` key file **separately**. Losing the
+key makes the archive unrecoverable. Keeping archive and key together
+defeats much of the confidentiality benefit. This does **not** schedule
+backups or gain access to the ephemeral Render Free database. Cryptographic
+authenticity confirms only possession of the secret key, **not** PayPal
+settlement, verified identity or the accuracy of source records.
+
 ## Operator-only SQLite snapshot verification and offline restore rehearsal
 
 The repository includes `tools/sqlite_snapshot.py`, a **local operator command**
