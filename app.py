@@ -2493,6 +2493,40 @@ async def check_existing_order(order_id: str):
 class CaptureInput(BaseModel):
     order_id: str = Field(min_length=5,max_length=50)
 
+def verify_sandbox_order_before_capture(details, payment):
+    """Validate the upstream order against the exact local payment snapshot.
+
+    This intentionally does NOT authorize any new request based on local
+    status alone. It is called only after an explicit PayPal Sandbox GET.
+    """
+    if not isinstance(details, dict) or details.get("id") != payment["order_id"] \
+            or details.get("intent") != "CAPTURE":
+        raise HTTPException(409, "PayPal Sandbox order identity or intent mismatch")
+    units=details.get("purchase_units")
+    if not isinstance(units,list) or len(units)!=1 or not isinstance(units[0],dict):
+        raise HTTPException(409,"PayPal Sandbox order must contain exactly one purchase unit")
+    unit=units[0]
+    amount=unit.get("amount")
+    if not isinstance(amount,dict) or amount.get("currency_code")!="USD" \
+            or not paypal.same_amount(amount.get("value"),payment["amount_cents"]):
+        raise HTTPException(409,"PayPal Sandbox amount or currency does not match the stored order")
+    if unit.get("custom_id") not in (None, f'{payment["event_id"]}:{payment["person_id"]}'):
+        raise HTTPException(409,"PayPal Sandbox order participant reference mismatch")
+    if unit.get("reference_id") not in (None, f'{payment["event_id"]}-{payment["person_id"]}'):
+        raise HTTPException(409,"PayPal Sandbox order event reference mismatch")
+    status=details.get("status")
+    if status=="COMPLETED":
+        capture=paypal.completed_capture(details,payment["amount_cents"])
+        if not capture:
+            raise HTTPException(409,
+                "PayPal reports completion without one verified matching capture; investigate the existing order")
+        return status,capture["id"]
+    if status!="APPROVED":
+        raise HTTPException(409,
+            "PayPal Sandbox has not confirmed buyer approval; check the existing order before capture")
+    return status,None
+
+
 @app.post("/api/paypal/capture")
 async def capture_order(data: CaptureInput):
     with db() as c:
@@ -2504,14 +2538,40 @@ async def capture_order(data: CaptureInput):
             return {"ok":True,"already_recorded":True,"status":"completed"}
         if p["status"] != "created":
             raise HTTPException(409,"Capture already attempted or order not ready; use Check PayPal to reconcile")
+        record = dict(p)
+    # A mistaken/early capture must NOT mark the local order 'capturing':
+    # first verify the existing upstream order is approved and that its
+    # participant reference, exact cents, currency and intent still agree.
+    # The GET is outside any write transaction and never captures an order.
+    details=await paypal.details(record["order_id"])
+    provider_status,previous_capture=verify_sandbox_order_before_capture(details,record)
+    if provider_status=="COMPLETED":
+        # An earlier webhook/remote capture could have already completed.
+        # Reconcile this exact provider capture, NEVER capture again.
+        with db() as c:
+            latest=c.execute("SELECT * FROM payments WHERE id=?",(record["id"],)).fetchone()
+            if latest is None or latest["order_id"]!=record["order_id"]:
+                raise HTTPException(409,"Local payment changed during provider reconciliation")
+            settled=settle_verified_sandbox_capture(c,latest,previous_capture)
+        return {"ok":True,"status":"completed","mode":"PAYPAL_SANDBOX",
+                "already_recorded":not settled,"reconciled_only":True}
+    # Protect against a webhook or parallel capture changing the local row
+    # while the PayPal GET was in flight. Only one request can acquire lock.
+    with db() as c:
+        latest=c.execute("SELECT * FROM payments WHERE id=?",(record["id"],)).fetchone()
+        if latest is None or latest["order_id"]!=record["order_id"]:
+            raise HTTPException(409,"Local payment changed while checking PayPal")
+        if latest["status"]=="completed" and latest["capture_id"]:
+            return {"ok":True,"already_recorded":True,"status":"completed"}
+        if latest["status"]!="created":
+            raise HTTPException(409,"Capture already attempted; reconcile existing PayPal order")
         changed = c.execute(
-            "UPDATE payments SET status='capturing' WHERE id=? AND status='created'",(p["id"],)
+            "UPDATE payments SET status='capturing' WHERE id=? AND status='created'",(record["id"],)
         )
         if changed.rowcount != 1:
             raise HTTPException(409,"Capture already initiated; check the existing order")
-        record = dict(p)
-    # The state remains 'capturing' if the network call fails or times out.
-    # We cannot safely issue a new capture request without reconciliation.
+    # Once a capture request is sent, timeout/unknown response leaves the
+    # 'capturing' lock in place. Never automatically retry a capture.
     result = await paypal.capture(record["order_id"],record["capture_key"])
     verified = paypal.completed_capture(result,record["amount_cents"])
     if not verified:
