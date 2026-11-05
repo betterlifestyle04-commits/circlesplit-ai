@@ -10,6 +10,25 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Read-only affordability scenario safety (November 5, 2026)
+
+- The organizer-only `POST /api/events/{eid}/affordability` validates a
+  strict positive USD cap (up to $100,000.00), 0–50 additional people and
+  an equal/weighted strategy. It enumerates bounded hypothetical attendance
+  counts with the real integer-cent allocator. No AI or PayPal calls.
+- The endpoint reads only the selected event, its expenses, weights and
+  the existence of approvals/previous orders. No attendance, payment
+  approval, invoice, order, ledger entry, webhook, or invite is written.
+  The pre-existing authenticated hosting boundary and private cache
+  policy remain in place.
+- The response distinguishes a feasible cap from an impossible result
+  within the requested attendee range and explains that additional people
+  and payments are fictional assumptions. If checkout was already
+  started, it warns that actual budget mutation can be locked.
+- The UI validates the expected response, escapes server text, clears
+  stale results after an event or assumption change, and never presents
+  the hypothetical quote as consent or payment authorization.
+
 ## Encrypted backup continuity comparison (November 5, 2026)
 
 - `tools/encrypted_snapshot.py compare` decrypts each archive into a
