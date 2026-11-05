@@ -38,13 +38,13 @@ provider order, and missing request-key attempts **within the same
 database incarnation**. Local payment auto-increment IDs are never used
 to match records across different database incarnations.
 
-\`\`\`bash
+```bash
 python tools/encrypted_snapshot.py compare \
   --previous /private/backups/older.csb \
   --current /private/backups/newer.csb \
   --previous-key-file /private/keys/older.passphrase \
   --current-key-file /private/keys/newer.passphrase
-\`\`\`
+```
 
 The old and new archives can use different passphrase files. Each is
 independently decrypted, authenticated and checked in an isolated
@@ -419,11 +419,11 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 ## Download the event agenda as a calendar (.ics)
 
 - The protected **Events → Event run of show** section now has **Download calendar (.ics)** when the current event has at least one agenda item. Participants with an active invitation link see their own **Download calendar (.ics)** button in the private portal. Empty agendas return HTTP 409 instead of generating an empty or misleading calendar.
-- Two routes are available: organizer-authenticated \`GET /api/events/{eid}/calendar.ics\` and private bearer-invitation \`GET /api/participant/calendar.ics\`. The participant route requires the existing valid, unrevoked and unexpired capability link; it never uses invitation tokens in download URLs, redirects, or the file itself.
+- Two routes are available: organizer-authenticated `GET /api/events/{eid}/calendar.ics` and private bearer-invitation `GET /api/participant/calendar.ics`. The participant route requires the existing valid, unrevoked and unexpired capability link; it never uses invitation tokens in download URLs, redirects, or the file itself.
 - Downloads contain only event name, agenda titles, participant-visible agenda notes, event date and activity times. There are **no participants, addresses, budget amounts, approvals, PayPal identifiers, invitation URLs or private bearer tokens** embedded in the file. The output is a local calendar file, not an outgoing email or calendar invitation.
-- All events have **floating local wall-clock times**, because CircleSplit currently stores no verified location/timezone. The \`.ics\` entries omit both TZID and UTC suffixes; the organizer and attendees must confirm the event timezone before importing. Apps may interpret floating times using the importing user's timezone; this is unsuitable for cross-timezone travel without manual checking.
-- Each activity has a deterministic, opaque UID derived from event and slot identifiers, a \`SEQUENCE\` matching the agenda revision, a UTC DTSTAMP tied to the persisted agenda revision timestamp (stable across repeat downloads), and RFC 5545-compatible text escaping, UTF-8 octet-aware line folding and CRLF termination. This helps calendar clients recognize updates when a new version is **manually downloaded and reimported**, though client behavior varies.
-- The server sets \`Cache-Control: private, no-store\`, attachment disposition and no-sniff headers, and validates actual calendar dates and same-day non-overlapping slots. Export is read-only; no RSVP, schedule acknowledgement, payment, or approval is changed.
+- All events have **floating local wall-clock times**, because CircleSplit currently stores no verified location/timezone. The `.ics` entries omit both TZID and UTC suffixes; the organizer and attendees must confirm the event timezone before importing. Apps may interpret floating times using the importing user's timezone; this is unsuitable for cross-timezone travel without manual checking.
+- Each activity has a deterministic, opaque UID derived from event and slot identifiers, a `SEQUENCE` matching the agenda revision, a UTC DTSTAMP tied to the persisted agenda revision timestamp (stable across repeat downloads), and RFC 5545-compatible text escaping, UTF-8 octet-aware line folding and CRLF termination. This helps calendar clients recognize updates when a new version is **manually downloaded and reimported**, though client behavior varies.
+- The server sets `Cache-Control: private, no-store`, attachment disposition and no-sniff headers, and validates actual calendar dates and same-day non-overlapping slots. Export is read-only; no RSVP, schedule acknowledgement, payment, or approval is changed.
 - The calendar is marked **tentative** and clearly states that it is not an actual reservation, charge, invoice or confirmed booking. It does not automatically sync, send calendar updates, book venues or create real payments.
 - Backend and serialization tests cover owner-vs-bearer separation, revoked links, event isolation, exact event times, escaping of malicious calendar-property content, multibyte Unicode line folding, stable UIDs after edits, sequence increments and complete financial state isolation.
 
@@ -433,7 +433,7 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - **Organizer Events page**: the Run of Show section displays the current agenda version, how many participants have acknowledged it, how many are pending, and an expandable per-person review status list. This uses the same fictional participant records as the rest of the protected workspace and does not constitute real-world identity proof.
 - Creating, changing or deleting an agenda slot **increments the agenda revision**. A no-op edit does not. An acknowledgement is valid **only for that exact current revision**; a stale browser returns HTTP 409 and must refresh/review before retrying. Duplicate acknowledgements are idempotent and create no duplicate history entries.
 - A meaningful change to event name/date/description also advances the agenda revision if a schedule has been published, preventing a newly issued invitation from treating the old schedule as acknowledged.
-- A new **POST /api/participant/agenda/ack** endpoint accepts \`{"expected_revision":1}\` and requires the existing bearer invitation. It is scoped to that invitation's participant and event; it cannot change RSVPs, consent, simulated contributions, PayPal sandbox records, or any other participant's acknowledgement. It does not automatically notify people about edits.
+- A new **POST /api/participant/agenda/ack** endpoint accepts `{"expected_revision":1}` and requires the existing bearer invitation. It is scoped to that invitation's participant and event; it cannot change RSVPs, consent, simulated contributions, PayPal sandbox records, or any other participant's acknowledgement. It does not automatically notify people about edits.
 - **Database migration** adds an agenda revision/timestamp to events and acknowledged revision/timestamp to participants. Pre-existing events with an agenda start at revision 1, not already acknowledged. Cloning and planning-only restoring a schedule starts at revision 1 with zero acknowledgements; no old acknowledgements or private invitation tokens are copied.
 - This is a private-link **self-reported review**, not proof that an identified person read the details. Timezone handling remains event-local and unspecified, so the organizer should communicate the location and timezone clearly. All new data remains on Render Free's temporary SQLite until durable hosting is implemented.
 
@@ -445,7 +445,7 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - Agenda details are intended to be shared with all invitees. Organizers must not enter secrets or sensitive participant information. The participant page uses safe text rendering for all organizer-entered content.
 - **Financial separation:** changing an agenda item never recalculates a budget, alters a payment or clears approval/RSVP responses. Logistics can change after sandbox checkout starts, but **the organizer must manually inform participants**. The system does not send emails, SMS, push alerts or amended calendar invitations.
 - Agenda entries are recorded in privacy-limited event history without storing their free-text contents. Event duplication copies the agenda to the new unpaid plan.
-- Planning backup v1 remains backwards compatible: old JSON files without an \`agenda\` field still restore; new exported backups include validated agenda items and restore them to fresh events. Agenda items contain no invitation or payment history.
+- Planning backup v1 remains backwards compatible: old JSON files without an `agenda` field still restore; new exported backups include validated agenda items and restore them to fresh events. Agenda items contain no invitation or payment history.
 - Python and Node tests cover validation, strict access separation, same-event scoping, overlap handling, exact-cent/payment invariants, invitation-only visibility, backup compatibility and cloning.
 - As elsewhere, the database is temporary on Render Free. The new feature is a sandbox prototype, not a production calendar or messaging service.
 
@@ -498,13 +498,13 @@ Use sandbox buyer/business accounts from https://developer.paypal.com/dashboard/
 - A failed/timed-out capture remains locked. The organizer can use **Check existing PayPal order**, which queries PayPal's existing order details and validates intent, event/participant reference, currency, amount and captured transaction before updating local records. If PayPal reports **APPROVED** after capture was already attempted, CircleSplit intentionally **does not offer a second capture**.
 - An ambiguous **creating** state with no returned order ID requires *manual PayPal sandbox account review*; CircleSplit does not automatically retry order creation because doing so could create a duplicate order.
 - Completed local payment records with **no capture ID** now fail closed instead of reporting a verified capture. Successful capture history remains idempotent if a webhook or reconciliation completes while a previous capture request is returning.
-- **Provider URL validation:** the PayPal API adapter now accepts checkout redirects only to the explicitly trusted \`www.sandbox.paypal.com\` or \`sandbox.paypal.com\` hosts over HTTPS; other URLs are rejected without sending the browser to the untrusted domain.
+- **Provider URL validation:** the PayPal API adapter now accepts checkout redirects only to the explicitly trusted `www.sandbox.paypal.com` or `sandbox.paypal.com` hosts over HTTPS; other URLs are rejected without sending the browser to the untrusted domain.
 - The manual participant form now preserves user input when the server rejects a save, matching existing expense-form behavior.
 - Tests cover ambiguous order creation, capture timeout, no duplicate capture requests, safe reconciliation of an already attempted capture, malformed local completion, authorization, and forged PayPal redirects. This feature remains sandbox-only, with temporary SQLite; it is *not* an assurance of durable recovery after a Render restart.
 
 ## Protected closeout preview (read-only and sandbox-only)
 
-- New **Closeout preview** workspace tab shows an organizer's **read-only** event closing summary. It uses a protected backend \`GET /api/events/{eid}/closeout\` endpoint and does not mutate the database, create transactions, close an event, create invoices, contact PayPal or send messages.
+- New **Closeout preview** workspace tab shows an organizer's **read-only** event closing summary. It uses a protected backend `GET /api/events/{eid}/closeout` endpoint and does not mutate the database, create transactions, close an event, create invoices, contact PayPal or send messages.
 - Report totals distinguish **verified PayPal sandbox capture records** from **simulated contributions** and **amounts unverified against the PayPal sandbox**. Unverified amounts are never described as money owed or debts. Payment orders that have not been captured are listed separately.
 - Per-person reconciliation displays assigned share, approval source, RSVP response, local status, verified sandbox amount, simulation amount, unverified amount and number of pending orders. This protected view is not accessible through participant invitation tokens.
 - Stages include **needs setup**, **needs review**, **pending sandbox orders**, **simulation activity**, **unverified sandbox funding**, and **sandbox captures cover planned budget**. Even the last stage is specifically limited to local PayPal sandbox ledger evidence and is **not real-world settlement**.
