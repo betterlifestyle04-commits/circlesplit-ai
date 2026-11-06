@@ -10,6 +10,38 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Automated anonymous release boundary audit (November 6, 2026)
+
+After Python and Node unit tests pass on a push to GitHub `main`,
+the `live_smoke` CI job runs a standalone Python script over HTTPS
+against the deployed Render demo. The script never supplies Basic
+credentials, session cookies, bearer tokens or PayPal identifiers.
+It follows no redirects, reads bounded responses and issues **GET
+requests only**. The API paths it inspects for isolation are
+read-only payment recovery views, not payment creation or capture.
+
+It requires `/health` to report the exact 40-hex deployed Git
+revision, sandbox-only mode and an uncached response. It verifies
+that `/`, `/judge`, `/participant` and all four exact public
+JavaScript files are anonymously available with expected page/code
+markers. Private `/workspace`, `/api/state`, read-only
+`/api/paypal/recovery`, `/api/paypal/webhook-audit`,
+`/api/paypal/reconciliation-export` and private static assets
+must respond **401** with a Basic challenge, `no-store` and
+`nosniff`. A leaked private page or missing public script
+fails the gate rather than being retried.
+
+The only retryable states are transient gateway/service errors
+(502/503/504) or an old Git commit while Render rolls out the
+new version. The job requires no external automation wallet or
+secrets and is separately runnable via `workflow_dispatch`.
+A GitHub check **does not prevent Render from automatically
+deploying** a broken commit, nor provide a credentialed or
+real-browser end-to-end test. There is no guarantee of durable
+storage, provider availability, real-money safety or complete
+tenant isolation. Actual Sandbox payment tests remain manual
+and must not be inferred from a passing release gate.
+
 ## Read-only public scenario comparison (November 6, 2026)
 
 The browser-local Event planner can compare any two different,
