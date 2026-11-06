@@ -27,6 +27,33 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Compare two fictional plans side by side
+
+The public Event planner includes a **Compare two fictional plans** card.
+Select a baseline event and an alternative (such as an editable what-if
+draft). The browser calculates the signed, exact-cent difference in
+total budget, participant count, expense count, highest/lowest individual
+share, and **simulated-only** approval/contribution counts. Original and
+alternative allocation methods are shown so the difference is not
+mistaken for a guaranteed benefit.
+
+The selector automatically compares an original and its newly duplicated
+what-if draft, and updates while the alternative is edited. All event
+names are HTML-escaped inside selector options and displayed as plain
+text in status messages. No real participant identity matching occurs;
+the same display name in two different events does **not** prove it is
+the same person. A plan without any participants has **not applicable**
+share metrics rather than an invented $0 share. Different attendee
+counts make per-person comparisons contextual, not causal evidence.
+
+The implementation revalidates both events through the strict public
+planning schema, returns only derived aggregate numbers, and never
+modifies browser state, the organizer database, consent, or payments.
+Tests cover weighted exact-cent deltas, no-attendee cases, stale or
+same-event selections, and a browser-inline UI simulation with **zero
+network requests**. This is a fictional planning comparison—not AI
+analysis, payment settlement, or a live-browser device certification.
+
 ## Duplicate an event as a fictional what-if draft
 
 In the public **Event planner**, **Duplicate as what-if draft** creates a

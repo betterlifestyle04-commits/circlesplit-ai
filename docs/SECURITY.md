@@ -10,6 +10,32 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Read-only public scenario comparison (November 6, 2026)
+
+The browser-local Event planner can compare any two different,
+schema-valid fictional events. Results are derived only from validated
+integer-cent budgets, fictional participant share allocations and
+strictly enumerated simulation flags; no user-level account matching
+occurs. The comparison does not read secrets, provider order/capture
+identifiers or any hosted organizer data. It does not persist a
+comparison result, overwrite an event, contact Gemini/PayPal, or
+create/approve a transaction.
+
+Event names are escaped in generated dropdown options and written with
+`textContent` in comparison status messages. Fixed metric rows are
+updated through `textContent`, never untrusted HTML interpolation.
+If a comparison references the same event, invalid data, or a plan
+without participants, it fails safely or returns non-applicable share
+metrics. Status messaging explicitly marks amounts as fictional USD
+and approvals/payment-like statuses as **simulations only**.
+Per-person differences across different attendee groups are not
+identity-matched financial outcomes.
+
+Tests verify source immutability, exact signed cents under weighted
+splits, absent-participant handling, malicious event names, and
+simulated DOM interactions without provider requests. Browser-level
+device testing remains separate.
+
 ## Public what-if drafts preserve fictional payment isolation (November 6, 2026)
 
 The public Event planner can duplicate the selected fictional group

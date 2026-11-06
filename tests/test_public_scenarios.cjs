@@ -267,3 +267,70 @@ test("public resilience lab calculates an exact-cent absence scenario without re
  assert.equal(ui.el("kPaid").textContent,"$0.00");
  assert.equal(ui.network.length,0);
 });
+
+
+test("real browser-local event planner shows scenario comparison only with two events",()=>{
+ const ui=launchPublic();
+ assert.match(ui.el("compare-status").textContent,/Duplicate an event/);
+ assert.equal(ui.el("cmp-budget-before").textContent,"—");
+ assert.equal(ui.el("cmp-highest-delta").textContent,"—");
+ ui.trigger("duplicate-event","click");
+ const draft=ui.getModel().events[0],baseline=ui.getModel().events[1];
+ assert.equal(ui.el("compare-baseline").value,String(baseline.id));
+ assert.equal(ui.el("compare-alternative").value,String(draft.id));
+ assert.match(ui.el("compare-status").textContent,/Comparing Friday Community Volleyball/);
+ assert.match(ui.el("compare-status").textContent,/All amounts are fictional USD/);
+ assert.equal(ui.el("cmp-budget-before").textContent,"$220.00");
+ assert.equal(ui.el("cmp-budget-after").textContent,"$220.00");
+ assert.equal(ui.el("cmp-budget-delta").textContent,"$0.00");
+ assert.equal(ui.el("cmp-people-before").textContent,"20");
+ assert.equal(ui.el("cmp-people-after").textContent,"20");
+ assert.equal(ui.el("cmp-highest-delta").textContent,"$0.00");
+ assert.equal(ui.el("cmp-simulated-delta").textContent,"0");
+ assert.equal(ui.network.length,0);
+});
+
+test("what-if comparison updates after weighted draft change without modifying original",()=>{
+ const ui=launchPublic();
+ ui.trigger("duplicate-event","click");
+ const original=ui.getModel().events[1],originalBudget=JSON.stringify(original);
+ ui.trigger("weighted","click");
+ assert.equal(ui.el("cmp-budget-delta").textContent,"$0.00");
+ assert.equal(ui.el("cmp-highest-before").textContent,"$11.00");
+ assert.equal(ui.el("cmp-highest-after").textContent,"$18.33");
+ assert.equal(ui.el("cmp-highest-delta").textContent,"+$7.33");
+ assert.equal(ui.el("cmp-lowest-after").textContent,"$9.16");
+ assert.equal(ui.el("cmp-lowest-delta").textContent,"−$1.84");
+ assert.equal(JSON.stringify(ui.getModel().events[1]),originalBudget);
+ assert.equal(ui.network.length,0);
+});
+
+test("comparison dropdown changes never trigger payments or mutate simulated states",()=>{
+ const ui=launchPublic();
+ ui.trigger("duplicate-event","click");
+ const draftId=ui.getModel().events[0].id;
+ const sourceId=ui.getModel().events[1].id;
+ const before=JSON.stringify(ui.getModel());
+ ui.trigger("compare-baseline","change",{target:{value:String(draftId)}});
+ assert.match(ui.el("compare-status").textContent,/Choose two different/);
+ assert.equal(ui.el("cmp-budget-before").textContent,"—");
+ ui.trigger("compare-baseline","change",{target:{value:String(sourceId)}});
+ assert.match(ui.el("compare-status").textContent,/Comparing/);
+ ui.trigger("compare-alternative","change",{target:{value:String(sourceId)}});
+ assert.match(ui.el("compare-status").textContent,/Choose two different/);
+ ui.trigger("compare-alternative","change",{target:{value:String(draftId)}});
+ assert.equal(ui.el("cmp-budget-before").textContent,"$220.00");
+ assert.equal(JSON.stringify(ui.getModel()),before);
+ assert.equal(ui.network.length,0);
+});
+
+test("untrusted fictional event names are escaped in dropdowns and rendered as text only",()=>{
+ const ui=launchPublic();
+ ui.trigger("duplicate-event","click");
+ ui.getModel().events[1].name="<img src=x onerror=alert(1)>";
+ vm.runInContext("render()",ui.context,{timeout:2000});
+ assert.match(ui.el("compare-baseline").innerHTML,/&lt;img/);
+ assert.match(ui.el("compare-status").textContent,/<img src=x/);
+ assert(!ui.el("compare-baseline").innerHTML.includes("<img src"));
+ assert.equal(ui.network.length,0);
+});
