@@ -4,6 +4,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 
 ## Implemented and covered by automated tests
 - [x] Responsive public browser-local guest demo and Basic-auth protected organizer workspace
+- [x] Read-only public comparison of two fictional events or what-if drafts: aggregate USD-cent and headcount changes, min/max share, simulated-only flags, dynamic selectors and escaped names; no external API or payment requests (November 6, 2026)
 - [x] Duplicate selected fictional event as independent, unpaid what-if draft using fresh IDs and recalculated exact-cent shares, preserving locked original simulated contributions; browser inline-script smoke coverage for seeded budget, simulation and resilience (November 6, 2026)
 - [x] Correct hosted GET/HEAD access to exactly four public browser scripts (resilience, demo portability and judge guide), while keeping organizer JavaScript and API routes Basic-auth protected (November 6, 2026)
 - [x] Public demo local JSON export and explicit-confirmation restore with versioned schema, strict exact-cent and ID validation, file limits, malformed-storage quarantine and atomic mutation rollback; no server or provider calls (November 6, 2026)
