@@ -124,20 +124,17 @@ test("copied drafts respect total participant and expense limits",()=>{
   next:20000,events:Array.from({length:6},(_,i)=>({
    id:100+i,name:"Fictional group "+i,date:"2026-11-06",
    strategy:"equal",
-   expenses:Array.from({length:90},(_,j)=>({
+   expenses:Array.from({length:80},(_,j)=>({
     id:1000+i*100+j,title:"Budget item "+j,cents:100
    })),
    people:Array.from({length:165},(_,j)=>({
     id:3000+i*200+j,name:"Member "+j,weight:1,
-    share_cents:j<165?55:0,approved:false,status:"unpaid"
+    share_cents:j<80?49:48,approved:false,status:"unpaid"
    }))
   }))
  };
- // Shape its shares to exact 9000 / 165 = 55 (90 times 100 = 9000).
- // The first 90 participants get 55, the remainder get 54.
- data.events.forEach(e=>{
-  e.people.forEach((p,i)=>{p.share_cents=i<90?55:54;});
- });
+ // 80 expenses × 100 cents = 8000; 165 participants get 49 × 80,
+ // and 48 × 85, for exact cents across a fully valid 990-person fixture.
  assert.deepEqual(portable.validateModel(data),data);
  assert.throws(()=>drafts.duplicateAsDraft(data,100,portable),/1,000-person/);
  const expenseData={next:20000,events:Array.from({length:5},(_,i)=>({
@@ -210,7 +207,9 @@ function launchPublic(){
   assert.equal(typeof fn,"function",id+":"+kind);
   return fn(evt);
  }
- return {context,el,trigger,stored,network,handlers};
+ return {context,el,trigger,stored,network,handlers,
+  getModel:()=>vm.runInContext("model",context),
+  getChosen:()=>vm.runInContext("chosen",context)};
 }
 
 test("real public inline JS initializes sample events and remains browser-only",()=>{
@@ -226,21 +225,21 @@ test("real public inline JS initializes sample events and remains browser-only",
 
 test("browser simulation locks ORIGINAL event; what-if button creates separate editable plan",()=>{
  const ui=launchPublic();
- const original=ui.context.model.events[0];
+ const original=ui.getModel().events[0];
  const originalId=original.people[0].id;
  const click=(dataset)=>{
   const fn=ui.handlers.get("document:click");
   fn({target:{closest:()=>({dataset})}});
  };
  click({approve:String(originalId)});
- assert.equal(ui.context.model.events[0].people[0].approved,true);
+ assert.equal(ui.getModel().events[0].people[0].approved,true);
  click({simulate:String(originalId)});
- assert.equal(ui.context.model.events[0].people[0].status,"demo_paid");
+ assert.equal(ui.getModel().events[0].people[0].status,"demo_paid");
  assert.equal(ui.el("equal").disabled,true);
  assert.equal(ui.el("kPaid").textContent,"$11.00");
  ui.trigger("duplicate-event","click");
- const copied=ui.context.model.events[0],old=ui.context.model.events[1];
- assert.equal(ui.context.chosen,copied.id);
+ const copied=ui.getModel().events[0],old=ui.getModel().events[1];
+ assert.equal(ui.getChosen(),copied.id);
  assert.notEqual(copied.id,old.id);
  assert.equal(ui.el("kEvents").textContent,2);
  assert.equal(ui.el("kBudget").textContent,"$440.00");
@@ -249,11 +248,11 @@ test("browser simulation locks ORIGINAL event; what-if button creates separate e
  assert(copied.people.every(p=>p.approved===false&&p.status==="unpaid"));
  assert.equal(old.people[0].status,"demo_paid");
  assert.match(ui.el("message").textContent,/No PayPal request was made/);
- assert.deepEqual(portable.validateModel(ui.context.model),ui.context.model);
+ assert.deepEqual(portable.validateModel(ui.getModel()),ui.getModel());
  ui.trigger("weighted","click");
- assert.equal(ui.context.model.events[0].strategy,"weighted");
- assert.equal(ui.context.model.events[1].strategy,"equal");
- assert.equal(ui.context.model.events[0].people.reduce((s,p)=>s+p.share_cents,0),22000);
+ assert.equal(ui.getModel().events[0].strategy,"weighted");
+ assert.equal(ui.getModel().events[1].strategy,"equal");
+ assert.equal(ui.getModel().events[0].people.reduce((s,p)=>s+p.share_cents,0),22000);
  assert.equal(ui.network.length,0);
 });
 
