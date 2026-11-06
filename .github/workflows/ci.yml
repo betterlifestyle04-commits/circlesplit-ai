@@ -15,9 +15,10 @@ jobs:
       - run: node --check static/insights.js
       - run: node --check static/public_recovery.js
       - run: node --check static/public_portability.js
+      - run: node --check static/public_scenarios.js
       - run: node --check static/recovery_triage.js
       - run: node --check static/webhook_audit.js
-      - run: node --test tests/test_insights.cjs tests/test_operations.cjs tests/test_pulse.cjs tests/test_communications.cjs tests/test_directory.cjs tests/test_categories.cjs tests/test_planning.cjs tests/test_closeout.cjs tests/test_backup.cjs tests/test_templates.cjs tests/test_editing.cjs tests/test_event_details.cjs tests/test_schedule.cjs tests/test_participant_session.cjs tests/test_recovery_ui.cjs tests/test_reconciliation_ui.cjs tests/test_global_ledger_audit_ui.cjs tests/test_reconciliation_compare.cjs tests/test_reconciliation_compare_ui.cjs tests/test_judge_walkthrough.cjs tests/test_checkout_preflight_ui.cjs tests/test_payment_return_ui.cjs tests/test_storage_continuity.cjs tests/test_affordability_ui.cjs tests/test_attendance_risk_ui.cjs tests/test_public_recovery.cjs tests/test_recovery_triage_ui.cjs tests/test_sandbox_role_ui.cjs tests/test_webhook_audit_ui.cjs tests/test_public_portability.cjs
+      - run: node --test tests/test_insights.cjs tests/test_operations.cjs tests/test_pulse.cjs tests/test_communications.cjs tests/test_directory.cjs tests/test_categories.cjs tests/test_planning.cjs tests/test_closeout.cjs tests/test_backup.cjs tests/test_templates.cjs tests/test_editing.cjs tests/test_event_details.cjs tests/test_schedule.cjs tests/test_participant_session.cjs tests/test_recovery_ui.cjs tests/test_reconciliation_ui.cjs tests/test_global_ledger_audit_ui.cjs tests/test_reconciliation_compare.cjs tests/test_reconciliation_compare_ui.cjs tests/test_judge_walkthrough.cjs tests/test_checkout_preflight_ui.cjs tests/test_payment_return_ui.cjs tests/test_storage_continuity.cjs tests/test_affordability_ui.cjs tests/test_attendance_risk_ui.cjs tests/test_public_recovery.cjs tests/test_recovery_triage_ui.cjs tests/test_sandbox_role_ui.cjs tests/test_webhook_audit_ui.cjs tests/test_public_portability.cjs tests/test_public_scenarios.cjs
       - run: node --check static/reconciliation_compare.js
       - run: node --check static/storage_continuity.js
       - run: node --check static/judge_walkthrough.js
