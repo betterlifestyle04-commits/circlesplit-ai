@@ -85,6 +85,42 @@ weighted shares and browser-only no-show calculations. This is a
 developer-side browser-behavior harness, not a substitute for testing
 on a real mobile/browser device.
 
+## Automated live release safety check
+
+Every successful GitHub Actions `main` push now follows the regular
+Python/JavaScript test suite with a **read-only live deployment gate**.
+It polls `GET /health` until Render reports the **exact full commit
+SHA** of that push (rather than relying on an old healthy deployment),
+then anonymously verifies the public homepage, judge walkthrough,
+participant page and their four public JavaScript modules. It also
+requires HTTP 401 Basic authentication on the protected organizer
+workspace, private JavaScript, and read-only payment recovery APIs.
+Unexpected HTTP 200 on a private route **fails the release check**.
+
+The script is `tools/verify_live.py`, uses only the Python standard
+library, follows **no redirects**, sends **GET only**, supplies no judge
+or organizer credentials, and performs **zero provider requests or
+payment mutations**. It retries only transient 502/503/504 responses
+and temporary commit mismatches during deployment. It does **not**
+retry misconfigured authentication, missing public JavaScript or other
+security failures. The GitHub Actions job publishes a concise result
+in its run summary. A GitHub CI failure **cannot roll back or stop**
+Render's already-triggered automatic deployment: investigate and
+remediate the released version before distributing it to judges.
+
+To verify manually without installing dependencies:
+
+```bash
+python tools/verify_live.py --expected-sha "$(git rev-parse origin/main)"
+```
+
+This confirms exposed public functionality and anonymous access
+boundaries, **not** actual browser interaction, payment/AI provider
+availability, external webhook delivery, login UX with real
+credentials, or a durable SQLite database. Read
+[deployment verification](docs/DEPLOYMENT_VERIFICATION.md) for
+investigation steps and remaining release checks.
+
 ## Public guest/judge JavaScript access on hosted Render
 
 The public root `/` and `/judge` pages depend on four browser-only
