@@ -220,6 +220,9 @@ async def verify_webhook(headers, event):
     response = await api("POST", "/v1/notifications/verify-webhook-signature",
                          {"webhook_id": webhook_id, "webhook_event": event, **fields},
                          str(uuid.uuid4()))
-    if response.get("verification_status") != "SUCCESS":
+    if not isinstance(response, dict) or response.get("verification_status") != "SUCCESS":
+        # A malformed/unknown provider verification result is not approval.
+        # Never settle or acknowledge a capture unless the provider explicitly
+        # confirmed a valid signature.
         raise HTTPException(401, "Invalid webhook signature")
     return True
