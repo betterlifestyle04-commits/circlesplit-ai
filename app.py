@@ -25,7 +25,7 @@ from domain import allocate, cents
 from attendance_risk import attendance_stress_curve
 from calendar_export import build_ics
 import paypal
-from security import cross_origin_mutation, protect_response, owner_only_sandbox_action
+from security import cross_origin_mutation, protect_response, owner_only_sandbox_action, public_demo_script
 from provider_limits import ProviderLimiter, provider_group
 from storage_readiness import storage_readiness
 from ledger_audit import local_ledger_audit
@@ -47,8 +47,13 @@ async def demo_access_control(request: Request, call_next):
         # cryptographic signature before any payment state change.
         # The public demo is a standalone, browser-local experience. All
         # organizer data and mutation/payment/AI routes still require Basic auth.
-        public_page = request.url.path in ("/", "/judge", "/participant", "/favicon.ico") and request.method in ("GET", "HEAD")
-        # Only two bearer-token endpoints are public. Other API paths stay protected.
+        public_page = (request.url.path in ("/", "/judge", "/participant", "/favicon.ico")
+                       and request.method in ("GET", "HEAD"))
+        # These three audited scripts are required by public pages. Never
+        # exempt the /static prefix: organizer scripts remain protected.
+        public_script = public_demo_script(request.method, request.url.path)
+        # Only explicit bearer-capability routes are public; the rest of
+        # the organizer API still requires Basic credentials.
         participant_api = (
             (request.url.path == "/api/participant/overview" and request.method == "GET")
             or (request.url.path == "/api/participant/approve" and request.method == "POST")
@@ -57,7 +62,8 @@ async def demo_access_control(request: Request, call_next):
             or (request.url.path == "/api/participant/agenda/ack" and request.method == "POST")
             or (request.url.path == "/api/participant/calendar.ics" and request.method == "GET")
         )
-        if not public_page and not participant_api and request.url.path not in ("/health", "/api/paypal/webhook"):
+        if (not public_page and not public_script and not participant_api
+                and request.url.path not in ("/health", "/api/paypal/webhook")):
             user = os.getenv("DEMO_USERNAME", "judge")
             password = os.getenv("DEMO_PASSWORD", "")
             if len(password) < 12:
@@ -132,6 +138,9 @@ async def demo_access_control(request: Request, call_next):
     response = await call_next(request)
     if quota_headers:
         response.headers.update(quota_headers)
+    if public_demo_script(request.method, request.url.path):
+        # Avoid stale cross-revision script caching during Render Free deploys.
+        response.headers["Cache-Control"] = "public, no-store, max-age=0"
     if request.url.path in ("/participant", "/api/participant/overview", "/api/participant/approve", "/api/participant/withdraw", "/api/participant/rsvp") or "/invite" in request.url.path:
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"

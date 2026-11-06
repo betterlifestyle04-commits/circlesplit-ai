@@ -4,6 +4,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 
 ## Implemented and covered by automated tests
 - [x] Responsive public browser-local guest demo and Basic-auth protected organizer workspace
+- [x] Correct hosted GET/HEAD access to exactly three public browser scripts (resilience, demo portability and judge guide), while keeping organizer JavaScript and API routes Basic-auth protected (November 6, 2026)
 - [x] Public demo local JSON export and explicit-confirmation restore with versioned schema, strict exact-cent and ID validation, file limits, malformed-storage quarantine and atomic mutation rollback; no server or provider calls (November 6, 2026)
 - [x] Public browser-local Resilience Lab with exact-cent no-show and replacement preview, accessible demo tab and judge instructions, no provider network access (November 5, 2026)
 - [x] Public guided judge navigation, local-only progress, copyable fictional prompt and source-only health checks (November 5, 2026)

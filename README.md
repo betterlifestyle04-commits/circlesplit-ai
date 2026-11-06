@@ -27,6 +27,30 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Public guest/judge JavaScript access on hosted Render
+
+The public root `/` and `/judge` pages depend on three browser-only
+JavaScript assets. Hosted Basic auth now explicitly permits anonymous
+**GET/HEAD only** for exactly:
+`/static/public_recovery.js`,
+`/static/public_portability.js`, and
+`/static/judge_walkthrough.js`.
+They contain only static client code: no organizer tokens, provider
+credentials, private event data, or payment API methods.
+
+The rest of `/static/*` remains protected (including
+`/static/index.html` and organizer modules); the authorization boundary
+for `/api/*` stays unchanged. This fixes public pages that could load
+their HTML while their client modules were blocked with HTTP 401.
+The allowlist uses literal paths rather than a permissive prefix or
+entire-directory exemption. Failed static authorization and the
+public module responses include no-store caching protection.
+
+Offline hosted-mode tests fetch all three scripts without credentials
+and verify the restricted scripts, organizer API, and mutations still
+reject anonymous requests. This is not a simulated PayPal transaction
+or a live credential test.
+
 ## Portable public fictional-demo plans (no account, network or payment import)
 
 The public `/` demo now offers **Download backup** and **Restore backup**

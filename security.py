@@ -8,6 +8,20 @@ from urllib.parse import urlsplit
 
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+# Browser-local public pages need these exact, audited executable assets.
+# Everything else under /static/ (especially the organizer workspace)
+# keeps the hosted Basic-auth boundary. No prefix matching or wildcards.
+PUBLIC_DEMO_SCRIPT_PATHS = frozenset({
+    "/static/public_recovery.js",
+    "/static/public_portability.js",
+    "/static/judge_walkthrough.js",
+})
+
+
+def public_demo_script(method, path):
+    return method in ("GET", "HEAD") and path in PUBLIC_DEMO_SCRIPT_PATHS
+
+
 
 def owner_only_sandbox_action(method, path):
     """Judge credentials may inspect, but must NEVER initiate provider actions.
@@ -66,7 +80,12 @@ def protect_response(response, path):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
-    if (path.startswith("/api/") or path in ("/workspace", "/participant", "/health")) and (
+    # Public approved JavaScript may be cached only according to the
+    # explicit application policy. Failed auth for OTHER static resources
+    # must not be cached (even by intermediary browsers/proxies).
+    private_asset_denied = path.startswith("/static/") and response.status_code >= 400
+    if (path.startswith("/api/") or private_asset_denied
+            or path in ("/workspace", "/participant", "/health")) and (
         "cache-control" not in response.headers
     ):
         response.headers["Cache-Control"] = "private, no-store, max-age=0"
