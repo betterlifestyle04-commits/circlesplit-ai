@@ -2,6 +2,7 @@ name: Test CircleSplit AI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -67,4 +68,36 @@ jobs:
           Path("/tmp/circlesplit-participant-inline.js").write_text(scripts[0])
           PY
           node --check /tmp/circlesplit-participant-inline.js
-      - run: python -m compileall -q app.py domain.py paypal.py calendar_export.py security.py provider_limits.py storage_readiness.py ledger_audit.py recovery_triage.py webhook_audit.py attendance_risk.py tools/sqlite_snapshot.py tools/encrypted_snapshot.py
+      - run: python -m compileall -q app.py domain.py paypal.py calendar_export.py security.py provider_limits.py storage_readiness.py ledger_audit.py recovery_triage.py webhook_audit.py attendance_risk.py tools/sqlite_snapshot.py tools/encrypted_snapshot.py tools/verify_live.py
+
+  # Main-branch releases are checked *after* unit tests, with no secrets.
+  # The smoke checker polls only while Render is deploying/waking.
+  # Wrong auth boundaries, malformed data and missing public scripts fail fast.
+  live_smoke:
+    name: Live public release and authentication gate
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: backend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check hosted source revision, public scripts and Basic-auth boundaries
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          python tools/verify_live.py --expected-sha "$EXPECTED_COMMIT" --attempts 30 --delay 8 --timeout 10
+          {
+            echo "### CircleSplit public release gate: PASS"
+            echo ""
+            echo "- Exact revision: \`$EXPECTED_COMMIT\`"
+            echo "- Public guest, judge and participant pages: HTTP 200"
+            echo "- Four public JavaScript modules: HTTP 200 with no-store"
+            echo "- Private workspace, static files and payment diagnostics: HTTP 401"
+            echo "- Anonymous GET only; zero PayPal operations and no credentials"
+            echo "- **Not verified:** durable database, Gemini, Sandbox checkout, or real-user authentication"
+          } >> "$GITHUB_STEP_SUMMARY"

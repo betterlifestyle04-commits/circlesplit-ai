@@ -9,6 +9,37 @@ Sample response (illustrative, not a live result):
 {"status":"ok","mode":"sandbox-only","version":"0.2.0","git_commit":"0123456789abcdef0123456789abcdef01234567"}
 ```
 
+## Automatic checks on main
+
+A GitHub Actions job named **Live public release and authentication
+gate** runs after the full Python/JavaScript test suite on a
+`main` push. It verifies the exact deployed commit (with bounded
+retry while Render rolls out), three public pages, four public
+JavaScript assets, and unauthorized access behavior on private
+organizer/static/payment-diagnostic routes. It sends no credentials
+and **only anonymous GET** requests, following no redirects.
+
+You can rerun it on `main` from the workflow's **Run workflow**
+control, or run it locally:
+
+```bash
+python tools/verify_live.py --expected-sha "$(git rev-parse origin/main)" --attempts 30 --delay 8
+```
+
+Pass means the selected revision is live and these public/static
+authorization conditions hold. Failure is actionable: a stale SHA
+or temporary 503 can reflect a rollout; HTTP 200 on a protected
+route is a security problem requiring investigation. The script
+does not perform actual PayPal orders/captures or verify AI Gemini,
+signed webhooks, browser session behavior, login with credentials,
+or persistent storage.
+
+**Operational limitation:** Render deploys directly from GitHub
+before the live-gate job can finish; a failed GitHub check does not
+automatically prevent or roll back the Render release. Do not give
+judges a green-light until both unit tests **and** this live gate
+pass, and complete credentialed/real-browser review separately.
+
 ## How to verify
 
 1. Find the latest commit SHA on [the repository's main branch](https://github.com/betterlifestyle04-commits/circlesplit-ai/commits/main), or run `git rev-parse origin/main`.
