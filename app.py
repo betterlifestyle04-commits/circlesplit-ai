@@ -2737,6 +2737,11 @@ async def create_order(eid: int, pid: int, request: Request):
     # PayPal times out: reconcile manually rather than risking duplicate checkout.
     # Callback was validated *before* the local attempt was created in hosted mode.
     return_url = sandbox_checkout_return_url(request)
+    if return_url is None and os.getenv("CIRCLESPLIT_HOSTED") != "1":
+        # Local TestClient uses http://testserver (not a real browser callback).
+        # Preserve the historical local mock-provider behavior; the PayPal
+        # adapter independently rejects unsafe callbacks before any network.
+        return_url = str(request.base_url).rstrip("/") + "/workspace?payment=return"
     if return_url is None:
         raise HTTPException(503, "PayPal Sandbox return URL unavailable; review prior payment attempt")
     response = await paypal.order(amount,eid,pid,return_url,create_key)
