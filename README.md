@@ -27,6 +27,35 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Fail-closed Sandbox provider data and callback validation
+
+The server-side PayPal Sandbox adapter now rejects invalid OAuth token
+shapes (including control characters and malformed JSON), non-object
+upstream JSON, malformed/overlong approval-link collections, and
+unsafe order identifiers **before** new remote capture/status requests.
+Redirects remain limited to trusted, exact PayPal Sandbox HTTPS hosts;
+embedded credentials, alternate ports, whitespace/controls and
+URL fragments are not accepted.
+
+New Sandbox orders on the **hosted** demo require a trusted return
+callback `/workspace?payment=return`, constructed from an explicit
+HTTPS `PUBLIC_BASE_URL` or Render's platform-provided
+`RENDER_EXTERNAL_URL`. A missing/unsafe callback appears as a
+`sandbox_return_url_unconfigured` blocker in the read-only checkout
+preflight and is rejected **before** a local payment attempt or remote
+PayPal call is initiated. The incoming request's `Host` header cannot
+silently set the hosted callback. Local development still supports
+HTTP on `localhost` and `127.0.0.1`; other insecure return URLs
+fail closed at the provider adapter boundary.
+
+If a provider request *has already been sent* but the response is
+malformed, the existing pending/creating payment row remains locked
+for manual Sandbox reconciliation—**do not automatically retry**.
+All new tests mock upstream HTTP and confirm no real payments, repeated
+orders, provider calls on invalid IDs or silent capture settlement.
+This improves failure handling, **not** the durability of the Render
+Free SQLite ledger or the guarantee of an external provider receipt.
+
 ## Compare two fictional plans side by side
 
 The public Event planner includes a **Compare two fictional plans** card.

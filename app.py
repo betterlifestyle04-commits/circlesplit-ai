@@ -2636,6 +2636,28 @@ def checkout_readiness_report(c, eid: int, pid: int):
     return person, problems
 
 
+def sandbox_checkout_return_url(request: Request):
+    """Build a safe return URL without ever trusting a hosted Host header.
+
+    Hosted deployments require an explicit PUBLIC_BASE_URL, or the
+    platform-supplied RENDER_EXTERNAL_URL. The result is checked before
+    an order row is created, avoiding irrevocable 'creating' attempts
+    caused only by invalid callback configuration.
+    """
+    hosted = os.getenv("CIRCLESPLIT_HOSTED") == "1"
+    base = os.getenv("PUBLIC_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL")
+    if not base:
+        if hosted:
+            return None
+        base = str(request.base_url).rstrip("/")
+    if not isinstance(base, str) or base != base.strip():
+        return None
+    candidate = base.rstrip("/") + "/workspace?payment=return"
+    if not paypal.trusted_checkout_return_url(candidate):
+        return None
+    return candidate
+
+
 @app.get("/api/paypal/checkout-readiness/{eid}/{pid}")
 def paypal_checkout_readiness(eid: int, pid: int, request: Request):
     """Protected read-only preflight; POST performs identical local checks."""
@@ -2664,6 +2686,12 @@ def paypal_checkout_readiness(eid: int, pid: int, request: Request):
             "code": "sandbox_not_configured",
             "explanation": "PayPal Sandbox credentials are not configured for this demo."
         })
+    if os.getenv("CIRCLESPLIT_HOSTED") == "1" and not sandbox_checkout_return_url(request):
+        blockers.insert(0, {
+            "code": "sandbox_return_url_unconfigured",
+            "explanation": "The hosted PayPal Sandbox return URL is missing or unsafe. "
+                           "Configure a trusted HTTPS PUBLIC_BASE_URL before starting checkout."
+        })
     return {
         "mode": "PAYPAL_SANDBOX",
         "can_create_order": len(blockers) == 0,
@@ -2685,6 +2713,9 @@ async def create_order(eid: int, pid: int, request: Request):
             "New PayPal Sandbox checkout is disabled: persistent SQLite mount not verified. "
             "Existing orders may still be checked and reconciled.")
     if not paypal.configured(): raise HTTPException(503, "PayPal sandbox unconfigured")
+    if os.getenv("CIRCLESPLIT_HOSTED") == "1" and not sandbox_checkout_return_url(request):
+        raise HTTPException(503,
+            "Hosted PayPal Sandbox return URL missing or unsafe. No payment attempt created.")
     with db() as c:
         p, blockers = checkout_local_readiness(c, eid, pid)
         if blockers:
@@ -2702,10 +2733,18 @@ async def create_order(eid: int, pid: int, request: Request):
             (eid,pid,amount,create_key,capture_key,"creating",now())).lastrowid
         record_history(c,eid,"sandbox_order_started",actor="paypal_sandbox",
                        details={"participant_id":pid,"amount_cents":amount})
-    base = os.getenv("PUBLIC_BASE_URL") or str(request.base_url).rstrip("/")
     # Network calls occur outside transaction lock. 'creating' remains locked if
     # PayPal times out: reconcile manually rather than risking duplicate checkout.
-    response = await paypal.order(amount,eid,pid,base+"/workspace?payment=return",create_key)
+    # Callback was validated *before* the local attempt was created in hosted mode.
+    return_url = sandbox_checkout_return_url(request)
+    if return_url is None and os.getenv("CIRCLESPLIT_HOSTED") != "1":
+        # Local TestClient uses http://testserver (not a real browser callback).
+        # Preserve the historical local mock-provider behavior; the PayPal
+        # adapter independently rejects unsafe callbacks before any network.
+        return_url = str(request.base_url).rstrip("/") + "/workspace?payment=return"
+    if return_url is None:
+        raise HTTPException(503, "PayPal Sandbox return URL unavailable; review prior payment attempt")
+    response = await paypal.order(amount,eid,pid,return_url,create_key)
     # Never trust a malformed response, even if a provider stub or intermediary
     # bypassed the sandbox adapter's own ID and approval-link validation.
     if (not isinstance(response,dict)

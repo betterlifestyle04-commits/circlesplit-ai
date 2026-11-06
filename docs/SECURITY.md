@@ -10,6 +10,40 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## PayPal Sandbox upstream and callback input validation (November 6, 2026)
+
+All PayPal requests continue using a hard-coded Sandbox API origin.
+Upstream OAuth and REST JSON must be objects before access to fields;
+OAuth bearer values reject whitespace, controls, non-ASCII and
+unbounded length. Malformed responses return controlled HTTP 502
+without printing provider contents, API credentials or access tokens.
+The adapter also validates order IDs before status/capture GET/POST
+requests and rejects malformed approval links, control-character
+URLs, unsafe hosts/ports, credential-bearing URLs and fragments.
+Webhook verification cannot return successful validation unless
+PayPal explicitly supplies a dictionary with
+`verification_status=SUCCESS`.
+
+Hosted order creation additionally requires a trusted workspace
+return callback built from explicitly configured
+`PUBLIC_BASE_URL` or platform-supplied `RENDER_EXTERNAL_URL`.
+The app rejects absent/invalid hosted callback configuration
+**before inserting the irreversible local `creating` payment row**.
+Read-only checkout preflight reports this as a blocker; the backend
+rechecks it for actual POST. In hosted mode, incoming untrusted
+HTTP Host headers never select the callback URL. Local development
+still supports loopback HTTP; other insecure schemes are rejected
+by the adapter prior to any network call.
+
+These checks do **not** add real-money support or turn an ambiguous
+provider timeout into confirmed failure. A previously initiated
+Sandbox order/capture can exist remotely even when its response
+is invalid; local rows stay locked for manual reconciliation, never
+automatic replay. Offline unit tests simulate corrupt/malformed
+provider responses and verify zero provider traffic when validation
+fails before a request. On Render Free, ephemeral SQLite loss
+remains a separate urgent risk.
+
 ## Automated anonymous release boundary audit (November 6, 2026)
 
 After Python and Node unit tests pass on a push to GitHub `main`,
