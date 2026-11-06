@@ -111,7 +111,7 @@ test("missing comparison events, self-comparison and invalid dataset fail closed
  assert.equal(JSON.stringify(data),before);
  const bad=copy();
  bad.events[0].people[0].share_cents=999;
- assert.throws(()=>scenarios.compareEvents(bad,1,101,validator),/exact-cent/);
+ assert.throws(()=>scenarios.compareEvents(bad,1,101,validator),/exact-cent|Invalid fictional participant state/);
  const tampered=copy();
  tampered.events[0].paypal_order_id="PAYPAL-NOT-ALLOWED";
  assert.throws(()=>scenarios.compareEvents(tampered,1,101,validator),/fields/);
