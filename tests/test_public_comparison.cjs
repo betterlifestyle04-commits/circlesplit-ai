@@ -122,7 +122,7 @@ test("swapping baseline and alternative reverses every comparable delta",()=>{
  const a=scenarios.compareEvents(data,1,101,validator);
  const b=scenarios.compareEvents(data,101,1,validator);
  for(const key of Object.keys(a.delta))
-  assert.equal(a.delta[key],-b.delta[key]);
+  assert.equal(a.delta[key]+b.delta[key],0);
  assert.equal(a.before.id,b.after.id);
  assert.equal(a.after.id,b.before.id);
 });
