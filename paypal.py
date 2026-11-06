@@ -3,7 +3,7 @@ import os
 import re
 import uuid
 from decimal import Decimal, InvalidOperation
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 import httpx
 from fastapi import HTTPException
 
@@ -16,16 +16,53 @@ def valid_sandbox_order_id(value):
     return isinstance(value, str) and bool(_ORDER_ID.fullmatch(value))
 
 
+def _clean_https_url(url):
+    """Reject control, whitespace and overlong URLs before urllib normalization."""
+    return (isinstance(url, str) and 1 <= len(url) <= 2048
+            and url.isascii() and not any(char.isspace() or ord(char) < 32
+                                           or ord(char) == 127 for char in url))
+
+
 def trusted_sandbox_checkout_url(url):
-    """Only HTTPS links to PayPal Sandbox, with no credentials or alternate port."""
-    if not isinstance(url, str):
+    """Only clean HTTPS URLs on an exact PayPal Sandbox host and safe port."""
+    if not _clean_https_url(url):
         return False
     try:
         parsed = urlparse(url)
         return (parsed.scheme == "https"
                 and parsed.hostname in ("www.sandbox.paypal.com", "sandbox.paypal.com")
                 and parsed.username is None and parsed.password is None
-                and parsed.port in (None, 443))
+                and parsed.port in (None, 443)
+                and not parsed.fragment
+                and parsed.path.startswith("/"))
+    except ValueError:
+        return False
+
+
+def trusted_checkout_return_url(url):
+    """Only the protected workspace return target, never an arbitrary URI.
+
+    Local HTTP is intentionally allowed *only* on loopback and when not
+    running in hosted mode. Any HTTPS origin can host a self-deployed
+    instance; the app builds this URL from its configured public base.
+    """
+    if not _clean_https_url(url):
+        return False
+    try:
+        parsed = urlsplit(url)
+        return (
+            parsed.username is None and parsed.password is None
+            and parsed.hostname is not None
+            and parsed.port not in (0,)
+            and not parsed.fragment
+            and parsed.path == "/workspace"
+            and parsed.query == "payment=return"
+            and (parsed.scheme == "https" or (
+                parsed.scheme == "http"
+                and os.getenv("CIRCLESPLIT_HOSTED") != "1"
+                and parsed.hostname in ("localhost", "127.0.0.1")
+            ))
+        )
     except ValueError:
         return False
 
@@ -49,8 +86,18 @@ async def token():
                 auth=(os.environ["PAYPAL_CLIENT_ID"], os.environ["PAYPAL_CLIENT_SECRET"]),
                 data={"grant_type": "client_credentials"})
             response.raise_for_status()
-            return response.json()["access_token"]
-    except (httpx.HTTPError, KeyError, ValueError):
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("Invalid provider OAuth response shape")
+            access_token = payload.get("access_token")
+            if (not isinstance(access_token, str)
+                    or not 1 <= len(access_token) <= 4096
+                    or not access_token.isascii()
+                    or any(char.isspace() or ord(char) < 33 or ord(char) == 127
+                           for char in access_token)):
+                raise ValueError("Invalid provider OAuth token")
+            return access_token
+    except (httpx.HTTPError, KeyError, ValueError, TypeError, AttributeError):
         raise HTTPException(502, "PayPal sandbox authentication failed")
 
 async def api(method, path, data=None, request_id=None):
@@ -62,16 +109,20 @@ async def api(method, path, data=None, request_id=None):
         async with httpx.AsyncClient(timeout=25) as client:
             response = await client.request(method, BASE + path, headers=headers, json=data)
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            if not isinstance(result, dict):
+                raise ValueError("Invalid provider JSON envelope")
+            return result
     except httpx.HTTPStatusError as error:
         raise HTTPException(502, "PayPal sandbox HTTP " + str(error.response.status_code))
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+        # Upstream POST requests are potentially ambiguous; callers keep
+        # the original local payment attempt locked pending manual review.
         raise HTTPException(502, "PayPal sandbox request failed")
 
 async def order(amount, event_id, person_id, return_url, request_id):
-    parsed = urlparse(return_url)
-    if parsed.scheme != "https" and parsed.hostname not in ("localhost", "127.0.0.1"):
-        raise HTTPException(400, "HTTPS public return URL required")
+    if not trusted_checkout_return_url(return_url):
+        raise HTTPException(400, "A trusted HTTPS workspace return URL is required")
     body = {
         "intent": "CAPTURE",
         "purchase_units": [{"reference_id": str(event_id) + "-" + str(person_id),
@@ -87,26 +138,34 @@ async def order(amount, event_id, person_id, return_url, request_id):
     # Never redirect the organizer to an arbitrary URL supplied by a provider
     # payload or a compromised/misconfigured intermediary.
     url = approval_link(response)
-    if not valid_sandbox_order_id(response.get("id")) or not url:
+    if not isinstance(response, dict) or not valid_sandbox_order_id(response.get("id")) or not url:
         raise HTTPException(502, "PayPal did not return a valid order ID and trusted sandbox approval link")
     return {"id": response["id"], "approval_url": url}
 
 async def capture(order_id, idempotency_key):
+    if not valid_sandbox_order_id(order_id):
+        raise HTTPException(400, "Invalid sandbox order ID")
     return await api("POST", "/v2/checkout/orders/" + order_id + "/capture", {}, idempotency_key)
 
 async def details(order_id):
     # Order IDs are looked up in our database before calling this function.
+    # Revalidate at the network adapter boundary to reject future unsafe callers.
+    if not valid_sandbox_order_id(order_id):
+        raise HTTPException(400, "Invalid sandbox order ID")
     return await api("GET", "/v2/checkout/orders/" + order_id)
 
 def approval_link(details):
-    # Never redirect to an arbitrary URL taken from remote JSON.
-    for entry in details.get("links", []):
-        if entry.get("rel") not in ("payer-action", "approve"):
+    # A malformed signed-looking provider payload must never produce a 500
+    # or redirect to arbitrary host, scheme, script, or credentials.
+    if not isinstance(details, dict):
+        return None
+    links = details.get("links")
+    if not isinstance(links, list) or len(links) > 50:
+        return None
+    for entry in links:
+        if not isinstance(entry, dict) or entry.get("rel") not in ("payer-action", "approve"):
             continue
         url = entry.get("href")
-        if not isinstance(url, str):
-            continue
-        parsed = urlparse(url)
         if trusted_sandbox_checkout_url(url):
             return url
     return None
