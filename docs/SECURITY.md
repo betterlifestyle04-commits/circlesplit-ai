@@ -10,6 +10,31 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Public script allowlist and strict static isolation (November 6, 2026)
+
+The public homepage and judge walkthrough import three static
+browser-local scripts. Previously, hosted Basic authentication protected
+the entire `/static/` mount, so pages could render HTML but JavaScript
+assets returned unauthorized responses to anonymous visitors.
+
+The security boundary now uses an **exact-path, GET/HEAD-only** allowlist
+for `/static/public_recovery.js`,
+`/static/public_portability.js` and
+`/static/judge_walkthrough.js`. It does not allow wildcards,
+alternate static paths, POST requests, organizer modules or direct
+`/static/index.html` access without Basic authentication. Public
+JavaScript is data-free and does not expose private organizer data,
+payment credentials or capabilities. Authenticated and anonymous
+visitors receive identical public script bytes.
+
+Approved public scripts return no-store to prevent stale client-code
+versions across deployments. Non-public static 401/403/503 responses
+are likewise uncacheable. The existing organizer API authorization,
+judge/owner payment role separation, signed webhook verification and
+cross-origin mutation guard remain intact. Hosted-mode regression tests
+validate public script access and private route denial without
+requesting external providers.
+
 ## Local public-demo JSON portability (November 6, 2026)
 
 The public, browser-local demo can export and import **only fictional
