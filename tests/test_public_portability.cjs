@@ -225,3 +225,94 @@ test("public mutation helper reverts invalid edits rather than retaining partial
  assert.equal(context.chosen,1);
  assert.match(notices[0],/Invalid USD amount/);
 });
+
+
+function restoreHarness({backup,confirmed=true,writeError=null}={}){
+ const beginning=html.indexOf('$("demo-backup-file").addEventListener("change",async function(){');
+ const end=html.indexOf('$("addEvent").addEventListener',beginning);
+ assert(beginning>0&&end>beginning);
+ const code=html.slice(beginning,end);
+ const calls=[],handlers={};
+ const input={value:"initial-file-selection",addEventListener:(name,fn)=>{handlers[name]=fn}};
+ const status={textContent:""};
+ const strategy={value:"equal"};
+ const selected={id:4};
+ const initial=seed();
+ const ctx=vm.createContext({
+  window:{
+   CircleSplitPublicPortability:api,
+   confirm:(question)=>{calls.push(["confirm",question]);return confirmed;}
+  },
+  $:id=>({
+   "demo-backup-file":input,
+   "demo-backup-status":status,
+   "recoveryStrategy":strategy
+  })[id],
+  localStorage:{
+   setItem:(...values)=>{
+    calls.push(["storage",...values]);
+    if(writeError)throw Error(writeError);
+   }
+  },
+  model:initial,chosen:1,storageNeedsRecovery:false,
+  resetRecovery:()=>calls.push(["reset-scenario"]),
+  event:()=>selected,render:()=>calls.push(["render"]),
+  Error,JSON
+ });
+ vm.runInContext(code,ctx,{timeout:2000});
+ assert.equal(typeof handlers.change,"function");
+ return {run:()=>handlers.change.call({
+   files:backup===null?[]:[{
+    size:backup?.size??new TextEncoder().encode(
+     backup?.content??JSON.stringify(envelope())).length,
+    text:async()=>backup?.content??JSON.stringify(envelope())
+   }],
+   value:"selected"
+  }),ctx,status,calls,input,initial};
+}
+
+test("restore cancellation does not replace browser data or write storage",async()=>{
+ const h=restoreHarness({backup:{content:JSON.stringify(envelope())},confirmed:false});
+ await h.run();
+ assert.equal(h.calls.filter(x=>x[0]==="storage").length,0);
+ assert.deepEqual(h.ctx.model,h.initial);
+ assert.equal(h.ctx.chosen,1);
+ assert.match(h.status.textContent,/Restore cancelled/);
+});
+
+test("invalid restore is rejected before showing an overwrite confirmation",async()=>{
+ const bad=envelope();
+ bad.data.events[0].people[0].share_cents=999;
+ const h=restoreHarness({backup:{content:JSON.stringify(bad)}});
+ await h.run();
+ assert.equal(h.calls.filter(x=>x[0]==="confirm").length,0);
+ assert.equal(h.calls.filter(x=>x[0]==="storage").length,0);
+ assert.deepEqual(h.ctx.model,h.initial);
+ assert.match(h.status.textContent,/Restore rejected/);
+});
+
+test("successful restore persists a validated data-only plan before changing memory",async()=>{
+ const altered=seed();
+ altered.events[0].name="Saved planning copy";
+ const h=restoreHarness({backup:{
+  content:JSON.stringify(api.exportSnapshot(altered,DATE))
+ }});
+ await h.run();
+ assert.equal(h.calls.filter(x=>x[0]==="storage").length,1);
+ assert.equal(h.calls.filter(x=>x[0]==="confirm").length,1);
+ assert.deepEqual(h.ctx.model,altered);
+ assert.deepEqual(JSON.parse(h.calls.find(x=>x[0]==="storage")[2]),altered);
+ assert.equal(h.ctx.storageNeedsRecovery,false);
+ assert.match(h.status.textContent,/No server, PayPal, Gemini or organizer/);
+});
+
+test("storage write failure never overwrites in-memory demo",async()=>{
+ const altered=seed();altered.events[0].name="Another plan";
+ const h=restoreHarness({backup:{
+  content:JSON.stringify(api.exportSnapshot(altered,DATE))
+ },writeError:"Storage disabled"});
+ await h.run();
+ assert.equal(h.calls.filter(x=>x[0]==="storage").length,1);
+ assert.deepEqual(h.ctx.model,h.initial);
+ assert.match(h.status.textContent,/current demo unchanged/);
+});
