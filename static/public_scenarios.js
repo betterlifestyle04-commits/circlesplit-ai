@@ -69,7 +69,60 @@
    }
   };
  }
- const api={duplicateAsDraft};
+ // Read-only aggregate comparison: no participant identity matching,
+ // consent transfer, payment settlement, or provider lookups.
+ function compareEvents(data,baselineId,alternativeId,validator){
+  if(!validator||typeof validator.validateModel!=="function")
+   throw Error("Fictional planning validator unavailable");
+  const clean=validator.validateModel(data);
+  if(!Number.isSafeInteger(baselineId)||!Number.isSafeInteger(alternativeId)||
+     baselineId===alternativeId)
+   throw Error("Choose two different fictional events to compare");
+  const baseline=clean.events.find(e=>e.id===baselineId);
+  const alternative=clean.events.find(e=>e.id===alternativeId);
+  if(!baseline||!alternative)
+   throw Error("Choose two existing fictional events to compare");
+  function metrics(e){
+   const budget=e.expenses.reduce((sum,x)=>sum+x.cents,0);
+   const n=e.people.length;
+   const shares=e.people.map(p=>p.share_cents);
+   const highest=n?Math.max(...shares):null;
+   const lowest=n?Math.min(...shares):null;
+   return {
+    id:e.id,
+    name:e.name,
+    strategy:e.strategy,
+    budget_cents:budget,
+    participants:n,
+    expenses:e.expenses.length,
+    highest_share_cents:highest,
+    lowest_share_cents:lowest,
+    approved_count:e.people.filter(p=>p.approved).length,
+    simulated_count:e.people.filter(p=>p.status==="demo_paid").length
+   };
+  }
+  const before=metrics(baseline);
+  const after=metrics(alternative);
+  return {
+   mode:"BROWSER_LOCAL_FICTIONAL_COMPARISON",
+   read_only:true,
+   before,after,
+   delta:{
+    budget_cents:after.budget_cents-before.budget_cents,
+    participants:after.participants-before.participants,
+    expenses:after.expenses-before.expenses,
+    highest_share_cents:after.highest_share_cents===null||
+      before.highest_share_cents===null?null:
+      after.highest_share_cents-before.highest_share_cents,
+    lowest_share_cents:after.lowest_share_cents===null||
+      before.lowest_share_cents===null?null:
+      after.lowest_share_cents-before.lowest_share_cents,
+    approved_count:after.approved_count-before.approved_count,
+    simulated_count:after.simulated_count-before.simulated_count
+   }
+  };
+ }
+ const api={duplicateAsDraft,compareEvents};
  if(typeof module!=="undefined"&&module.exports)module.exports=api;
  else root.CircleSplitPublicScenarios=api;
 })(typeof window!=="undefined"?window:{});
