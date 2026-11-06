@@ -254,6 +254,7 @@ function restoreHarness({backup,confirmed=true,writeError=null}={}){
     if(writeError)throw Error(writeError);
    }
   },
+  STORAGE:"circlesplit-public-demo-v1",
   model:initial,chosen:1,storageNeedsRecovery:false,
   resetRecovery:()=>calls.push(["reset-scenario"]),
   event:()=>selected,render:()=>calls.push(["render"]),
