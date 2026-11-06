@@ -4,6 +4,7 @@ This document distinguishes implemented code, recorded one-off sandbox checks, a
 
 ## Implemented and covered by automated tests
 - [x] Responsive public browser-local guest demo and Basic-auth protected organizer workspace
+- [x] Public demo local JSON export and explicit-confirmation restore with versioned schema, strict exact-cent and ID validation, file limits, malformed-storage quarantine and atomic mutation rollback; no server or provider calls (November 6, 2026)
 - [x] Public browser-local Resilience Lab with exact-cent no-show and replacement preview, accessible demo tab and judge instructions, no provider network access (November 5, 2026)
 - [x] Public guided judge navigation, local-only progress, copyable fictional prompt and source-only health checks (November 5, 2026)
 - [x] Protected Scenario Lab affordability targets: minimum additional attendees to keep all exact-cent equal/weighted shares under a chosen cap, without modifying approvals or Sandbox records (November 5, 2026)
