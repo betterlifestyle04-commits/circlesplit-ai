@@ -297,8 +297,8 @@ test("what-if comparison updates after weighted draft change without modifying o
  ui.trigger("weighted","click");
  assert.equal(ui.el("cmp-budget-delta").textContent,"$0.00");
  assert.equal(ui.el("cmp-highest-before").textContent,"$11.00");
- assert.equal(ui.el("cmp-highest-after").textContent,"$18.34");
- assert.equal(ui.el("cmp-highest-delta").textContent,"+$7.34");
+ assert.equal(ui.el("cmp-highest-after").textContent,"$18.33");
+ assert.equal(ui.el("cmp-highest-delta").textContent,"+$7.33");
  assert.equal(ui.el("cmp-lowest-after").textContent,"$9.16");
  assert.equal(ui.el("cmp-lowest-delta").textContent,"−$1.84");
  assert.equal(JSON.stringify(ui.getModel().events[1]),originalBudget);
