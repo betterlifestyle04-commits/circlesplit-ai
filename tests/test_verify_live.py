@@ -170,7 +170,7 @@ def test_broken_java_script_content_type_fails_closed(hosted):
         replace(r, headers={**r.headers, "content-type": "text/html"})
         if p == "/static/public_portability.js" else r)
     failure(lambda: verify_once("https://demo.example", SHA, fetch=fetch),
-            "JavaScript Content-Type")
+            "unexpected Content-Type")
 
 
 def test_missing_release_marker_fails_even_if_server_says_200(hosted):
