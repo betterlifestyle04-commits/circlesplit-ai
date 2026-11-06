@@ -3,6 +3,7 @@
 This document distinguishes implemented code, recorded one-off sandbox checks, and work that remains. CircleSplit is a hackathon prototype, **not** a real-money product.
 
 ## Implemented and covered by automated tests
+- [x] Fail-closed PayPal Sandbox upstream parsing: reject non-object OAuth/API responses, unsafe bearer values, malformed approval links and order IDs; prevalidate trusted hosted return URLs before creating payment attempts, preserve manual reconciliation after ambiguity (November 6, 2026)
 - [x] Automatic post-test main-branch live smoke gate: verify full Render Git SHA, public demo/judge/participant pages, four anonymous script assets, Basic-auth denial on private workspace/payment routes, no provider calls; transient rollout polling and fail-closed regression tests (November 6, 2026)
 - [x] Responsive public browser-local guest demo and Basic-auth protected organizer workspace
 - [x] Read-only public comparison of two fictional events or what-if drafts: aggregate USD-cent and headcount changes, min/max share, simulated-only flags, dynamic selectors and escaped names; no external API or payment requests (November 6, 2026)
