@@ -10,16 +10,43 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Public what-if drafts preserve fictional payment isolation (November 6, 2026)
+
+The public Event planner can duplicate the selected fictional group
+event into a new, editable **what-if draft**, including an originally
+locked event with recorded simulated contributions. The draft
+implementation copies only public-demo planning fields, assigns
+fresh locally unique numeric IDs, and recalculates exact integer-cent
+allocations according to the selected equal/weighted method.
+Every copied participant is unapproved and `unpaid` regardless of
+source status; original consent and simulated payment flags remain
+unchanged. It does not send requests to any organizer/payment API.
+
+All limits and schema invariants are revalidated by the existing
+strict public portability validator before an atomic local change.
+Invalid or over-limit copies are rejected without mutating the original
+model. The feature does not move real provider data, authenticate
+participants, bypass protected Sandbox order routes, or create real
+payments. An additional exact-path GET/HEAD-only exception serves the
+public `/static/public_scenarios.js` asset to anonymous visitors;
+all private scripts remain behind hosted Basic authentication.
+
+CI includes real public inline-JavaScript execution in a mocked DOM
+for seeded totals, simulated consent/payment, locked original event,
+fresh unpaid drafts and read-only resilience calculations. This is
+not equivalent to a real-browser end-to-end check.
+
 ## Public script allowlist and strict static isolation (November 6, 2026)
 
-The public homepage and judge walkthrough import three static
+The public homepage and judge walkthrough import four static
 browser-local scripts. Previously, hosted Basic authentication protected
 the entire `/static/` mount, so pages could render HTML but JavaScript
 assets returned unauthorized responses to anonymous visitors.
 
 The security boundary now uses an **exact-path, GET/HEAD-only** allowlist
 for `/static/public_recovery.js`,
-`/static/public_portability.js` and
+`/static/public_portability.js`,
+`/static/public_scenarios.js` and
 `/static/judge_walkthrough.js`. It does not allow wildcards,
 alternate static paths, POST requests, organizer modules or direct
 `/static/index.html` access without Basic authentication. Public

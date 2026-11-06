@@ -12,6 +12,7 @@ from security import PUBLIC_DEMO_SCRIPT_PATHS, public_demo_script
 PUBLIC_ASSETS={
     "/static/public_recovery.js":"CircleSplitPublicRecovery",
     "/static/public_portability.js":"CircleSplitPublicPortability",
+    "/static/public_scenarios.js":"CircleSplitPublicScenarios",
     "/static/judge_walkthrough.js":None,
 }
 
@@ -76,6 +77,8 @@ def test_public_pages_reference_only_approved_public_scripts(client):
     assert root.status_code==guide.status_code==200
     assert '<script src="/static/public_recovery.js"></script>' in root.text
     assert '<script src="/static/public_portability.js"></script>' in root.text
+    assert '<script src="/static/public_scenarios.js"></script>' in root.text
+    assert "Duplicate as what-if draft" in root.text
     assert '<script src="/static/judge_walkthrough.js"></script>' in guide.text
     assert "Download backup" in root.text
     assert "Restore backup" in root.text

@@ -27,13 +27,45 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Duplicate an event as a fictional what-if draft
+
+In the public **Event planner**, **Duplicate as what-if draft** creates a
+new, editable browser-local copy of the selected event. This is useful
+after a **simulated contribution has locked the original plan**: visitors
+can experiment with different attendance weights, people and expenses
+without rewriting the original event's approvals or simulated history.
+
+Copies retain only the fictional name/date, expense descriptions and
+exact USD cents, participant display names/weights, and equal/weighted
+strategy. They allocate **fresh unique IDs** and recalculate shares
+with deterministic exact-cent rounding. Every copied participant
+starts **unapproved and unpaid**. A simulated payment in the original
+does not become a simulated payment in the draft. No provider IDs,
+tokens, approvals, capture records, or other payment history transfer.
+
+The button respects the public demo's limits of 25 events, 1,000 total
+participants, 500 total expenses and safe integer IDs. It validates
+the original data and proposed copy before committing. On failure it
+keeps the original browser plan unchanged. The data remains solely in
+`localStorage` or browser memory, and is compatible with the existing
+local JSON Download backup / Restore backup feature. There is no
+hosted server call, actual AI generation, PayPal operation or charge.
+
+The automated tests now execute the page's **actual inline JavaScript**
+in a controlled DOM to verify seeded totals, simulated approvals,
+locked-original behavior, independent draft copies, exact-cent
+weighted shares and browser-only no-show calculations. This is a
+developer-side browser-behavior harness, not a substitute for testing
+on a real mobile/browser device.
+
 ## Public guest/judge JavaScript access on hosted Render
 
-The public root `/` and `/judge` pages depend on three browser-only
+The public root `/` and `/judge` pages depend on four browser-only
 JavaScript assets. Hosted Basic auth now explicitly permits anonymous
 **GET/HEAD only** for exactly:
 `/static/public_recovery.js`,
-`/static/public_portability.js`, and
+`/static/public_portability.js`,
+`/static/public_scenarios.js`, and
 `/static/judge_walkthrough.js`.
 They contain only static client code: no organizer tokens, provider
 credentials, private event data, or payment API methods.
