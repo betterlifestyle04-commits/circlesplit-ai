@@ -14,6 +14,7 @@ _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 PUBLIC_DEMO_SCRIPT_PATHS = frozenset({
     "/static/public_recovery.js",
     "/static/public_portability.js",
+    "/static/public_scenarios.js",
     "/static/judge_walkthrough.js",
 })
 
