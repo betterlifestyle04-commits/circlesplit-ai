@@ -108,7 +108,12 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
   <p id="demo-backup-status" class="small muted" role="status" aria-live="polite" style="margin-top:12px">Backups are browser-only. Restoring requires confirmation and replaces the current fictional demo in this browser.</p>
  </div>
  <div class="grid">
- <div class="card"><div class="row"><h3>Selected event</h3><select aria-label="Select event" id="eventSelect" style="max-width:220px"></select></div><div id="eventDetails" style="margin-top:15px"></div>
+ <div class="card"><div class="row" style="flex-wrap:wrap"><h3>Selected event</h3><select aria-label="Select event" id="eventSelect" style="max-width:220px"></select></div>
+ <div id="eventDetails" style="margin-top:15px"></div>
+ <div class="buttons" style="margin-top:13px">
+  <button class="btn sm" type="button" id="duplicate-event" title="Make an editable fictional copy without copying any approvals or simulated payments">Duplicate as what-if draft</button>
+ </div>
+ <p class="small muted" style="margin-top:7px">Test a different group or budget without changing the original event. Every new share starts unapproved and unpaid, even if the original had simulated contributions.</p>
  <div class="row" style="margin-top:16px"><button class="btn sm" id="equal">Equal split</button><button class="btn sm" id="weighted">Weighted split</button></div>
  <div style="margin-top:22px"><h3>Budget items</h3><div id="expenses"></div>
  <form id="addExpense"><input aria-label="Expense title" id="expenseTitle" placeholder="Expense name" minlength="2" maxlength="120" required><input aria-label="Expense amount in USD" id="expenseAmount" placeholder="USD amount" inputmode="decimal" style="max-width:135px" required><button class="btn primary" type="submit">Add expense</button></form></div></div>
@@ -168,6 +173,7 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
 </main></div>
 <script src="/static/public_recovery.js"></script>
 <script src="/static/public_portability.js"></script>
+<script src="/static/public_scenarios.js"></script>
 <script>
 "use strict";
 const STORAGE="circlesplit-public-demo-v1";
@@ -238,6 +244,7 @@ function render(){
  $("kPaid").textContent=usd(all.reduce((s,x)=>s+paid(x),0));
  $("eventSummary").innerHTML=all.map(x=>'<div class="row item"><div><div class="strong">'+escapeHtml(x.name)+'</div><div class="muted small">'+escapeHtml(x.date)+' · '+x.people.length+' members</div></div><b>'+usd(total(x))+'</b></div>').join("")||'<div class="empty">No events yet</div>';
  $("eventSelect").innerHTML=all.map(x=>'<option value="'+x.id+'">'+escapeHtml(x.name)+'</option>').join("");
+ $("duplicate-event").disabled=!e||all.length>=25;
  if(!e){$("eventDetails").textContent="Create your first event";$("expenses").innerHTML="";$("people").innerHTML="";$("contribRows").innerHTML="";return}
  $("eventSelect").value=e.id;
  $("eventDetails").innerHTML='<div class="row"><div><div class="strong">'+escapeHtml(e.name)+'</div><div class="muted small">'+escapeHtml(e.date)+'</div></div><div class="kvalue">'+usd(total(e))+'</div></div><p class="small muted" style="margin-top:6px">Allocation: '+(e.strategy==="weighted"?"Attendance weighted":"Equal")+' · '+e.people.length+' participants</p>';
@@ -261,11 +268,13 @@ function change(fn){
   save();resetRecovery();
   const next=event();if(next)$("recoveryStrategy").value=next.strategy;
   render();
+  return true;
  }catch(err){
   model=JSON.parse(previous);
   chosen=previousChosen;
   render();
   message(err.message);
+  return false;
  }
 }
 function amount(str){if(!/^\d{1,7}(\.\d{1,2})?$/.test(str))throw Error("Use a positive USD amount with up to 2 decimals");const [a,b=""]=str.split(".");const n=Number(a)*100+Number(b.padEnd(2,"0"));if(n<=0||n>10000000)throw Error("Amount outside demo limits");return n}
@@ -277,6 +286,19 @@ document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.addEventListener
  window.scrollTo({top:0,behavior:"smooth"});render();
 }));
 $("eventSelect").addEventListener("change",e=>{chosen=Number(e.target.value);resetRecovery();const current=event();if(current)$("recoveryStrategy").value=current.strategy;render()});
+$("duplicate-event").addEventListener("click",()=>{
+ const original=event();
+ if(!original)return message("Create a fictional event first.");
+ if(change(()=>{
+  const duplicate=window.CircleSplitPublicScenarios.duplicateAsDraft(
+   model,original.id,window.CircleSplitPublicPortability
+  );
+  model=duplicate.model;
+  chosen=duplicate.newEventId;
+ })){
+  message("Editable what-if draft created. Original approvals and simulated contributions were not copied. No PayPal request was made.");
+ }
+});
 $("reset").addEventListener("click",()=>{if(confirm("Reset fictional public demo data in this browser?")){model=sample();chosen=1;storageNeedsRecovery=false;save();resetRecovery();$("recoveryStrategy").value="equal";render();message("Demo restored.")}});
 $("demo-backup-download").addEventListener("click",()=>{
  const status=$("demo-backup-status");
