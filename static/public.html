@@ -122,6 +122,36 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
  <form id="addPerson"><input id="personName" placeholder="Name" minlength="2" maxlength="60" required><input id="personWeight" type="number" min="1" max="10" value="1" aria-label="Attendance weight" style="max-width:85px"><button class="btn primary" type="submit">Add</button></form>
  <p class="small muted" style="margin-top:11px">Weight 2 means twice the allocation weight of 1 when using weighted splitting.</p></div>
  </div>
+ <div class="space" style="height:17px"></div>
+ <div class="card" id="plan-comparison" aria-label="Read-only fictional scenario comparison">
+  <div class="sectionhead" style="margin:0 0 12px">
+   <div><div class="eyebrow">Scenario analysis</div><h3>Compare two fictional plans</h3>
+    <p>Choose a baseline and an alternative to see exact-cent budget and share differences.</p></div>
+   <span class="pill gray">Read only · Browser only</span>
+  </div>
+  <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+   <div><label for="compare-baseline" class="small">Baseline event</label>
+    <select id="compare-baseline" aria-label="Baseline fictional event"></select></div>
+   <div><label for="compare-alternative" class="small">Alternative event</label>
+    <select id="compare-alternative" aria-label="Alternative fictional event"></select></div>
+  </div>
+  <p id="compare-status" class="small muted" role="status" aria-live="polite" style="margin-top:13px">Duplicate an event to compare its alternative plan.</p>
+  <div class="tablewrap" style="margin-top:10px">
+   <table class="mini" aria-label="Fictional budget comparison">
+    <thead><tr><th scope="col">Measure</th><th scope="col">Baseline</th><th scope="col">Alternative</th><th scope="col">Change</th></tr></thead>
+    <tbody>
+     <tr><th scope="row">Total budget</th><td id="cmp-budget-before">—</td><td id="cmp-budget-after">—</td><td id="cmp-budget-delta">—</td></tr>
+     <tr><th scope="row">Participants</th><td id="cmp-people-before">—</td><td id="cmp-people-after">—</td><td id="cmp-people-delta">—</td></tr>
+     <tr><th scope="row">Expense items</th><td id="cmp-expenses-before">—</td><td id="cmp-expenses-after">—</td><td id="cmp-expenses-delta">—</td></tr>
+     <tr><th scope="row">Highest individual share</th><td id="cmp-highest-before">—</td><td id="cmp-highest-after">—</td><td id="cmp-highest-delta">—</td></tr>
+     <tr><th scope="row">Lowest individual share</th><td id="cmp-lowest-before">—</td><td id="cmp-lowest-after">—</td><td id="cmp-lowest-delta">—</td></tr>
+     <tr><th scope="row">Approved in demo</th><td id="cmp-approvals-before">—</td><td id="cmp-approvals-after">—</td><td id="cmp-approvals-delta">—</td></tr>
+     <tr><th scope="row">Simulated contributions</th><td id="cmp-simulated-before">—</td><td id="cmp-simulated-after">—</td><td id="cmp-simulated-delta">—</td></tr>
+    </tbody>
+   </table>
+  </div>
+  <p class="notice" style="margin-top:12px">This compares aggregate fictional budgets, not matched individuals or real transactions. Groups can have different members and split rules, so lower individual shares do not prove a better outcome. Approvals and contributions are simulations only. No server or PayPal calls are made.</p>
+ </div>
  </section>
  <section id="contributions" class="panel">
   <div class="sectionhead"><div><div class="eyebrow">Transparent contributions</div><h2>Track every contribution.</h2><p>Each participant must approve their share before a simulated payment.</p></div></div>
@@ -180,6 +210,8 @@ const STORAGE="circlesplit-public-demo-v1";
 let storageNeedsRecovery=false;
 let model;
 let chosen=1;
+let comparisonBaselineId=null;
+let comparisonAlternativeId=null;
 const $=id=>document.getElementById(id);
 const usd=n=>"$"+(n/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const escapeHtml=s=>String(s??"").replace(/[&<>"']/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
@@ -233,8 +265,68 @@ function allocate(e){
  for(let i=0;i<remain;i++)shares[order[i].i]++;
  p.forEach((x,i)=>{x.share_cents=shares[i];x.approved=false});
 }
+function renderComparison(){
+ const all=model.events;
+ const baselineSelect=$("compare-baseline"),alternativeSelect=$("compare-alternative");
+ const status=$("compare-status");
+ const has=id=>all.some(x=>x.id===id);
+ if(!has(comparisonAlternativeId))
+  comparisonAlternativeId=has(chosen)?chosen:(all[0]?all[0].id:null);
+ if(!has(comparisonBaselineId))
+  comparisonBaselineId=(all.find(x=>x.id!==comparisonAlternativeId)||{}).id??null;
+ const options='<option value="">Select an event</option>'+
+  all.map(x=>'<option value="'+x.id+'">'+escapeHtml(x.name)+'</option>').join("");
+ baselineSelect.innerHTML=options;
+ alternativeSelect.innerHTML=options;
+ baselineSelect.value=comparisonBaselineId===null?"":String(comparisonBaselineId);
+ alternativeSelect.value=comparisonAlternativeId===null?"":String(comparisonAlternativeId);
+ const rows=[
+  ["budget","budget_cents",true],
+  ["people","participants",false],
+  ["expenses","expenses",false],
+  ["highest","highest_share_cents",true],
+  ["lowest","lowest_share_cents",true],
+  ["approvals","approved_count",false],
+  ["simulated","simulated_count",false]
+ ];
+ function clear(){
+  for(const [id] of rows)
+   for(const part of ["before","after","delta"])
+    $("cmp-"+id+"-"+part).textContent="—";
+ }
+ if(all.length<2){
+  clear();status.textContent="Duplicate an event or create a second fictional plan to compare.";
+  return;
+ }
+ if(comparisonBaselineId===comparisonAlternativeId){
+  clear();status.textContent="Choose two different fictional events to compare.";
+  return;
+ }
+ try{
+  const result=window.CircleSplitPublicScenarios.compareEvents(
+   model,comparisonBaselineId,comparisonAlternativeId,window.CircleSplitPublicPortability
+  );
+  if(result.mode!=="BROWSER_LOCAL_FICTIONAL_COMPARISON"||result.read_only!==true)
+   throw Error("Unexpected comparison result");
+  const value=(v,money)=>v===null?"Not applicable":money?usd(v):String(v);
+  const delta=(v,money)=>v===null?"Not comparable":
+   (v>0?"+":v<0?"−":"")+(money?usd(Math.abs(v)):String(Math.abs(v)));
+  for(const [id,key,money] of rows){
+   $("cmp-"+id+"-before").textContent=value(result.before[key],money);
+   $("cmp-"+id+"-after").textContent=value(result.after[key],money);
+   $("cmp-"+id+"-delta").textContent=delta(result.delta[key],money);
+  }
+  status.textContent="Comparing "+result.before.name+" ("+result.before.strategy+
+   ") with "+result.after.name+" ("+result.after.strategy+
+   "). All amounts are fictional USD. The alternative changes the total budget by "+
+   delta(result.delta.budget_cents,true)+".";
+ }catch(_err){
+  clear();status.textContent="Comparison unavailable. Check fictional event data.";
+ }
+}
 function render(){
  const e=event(),all=model.events;
+ renderComparison();
  $("recovery-event").textContent=e?
   "Selected: "+e.name+" · "+usd(total(e))+" · "+e.people.length+" participants":
   "Create an event and add participants to explore resilience.";
@@ -286,6 +378,14 @@ document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.addEventListener
  window.scrollTo({top:0,behavior:"smooth"});render();
 }));
 $("eventSelect").addEventListener("change",e=>{chosen=Number(e.target.value);resetRecovery();const current=event();if(current)$("recoveryStrategy").value=current.strategy;render()});
+$("compare-baseline").addEventListener("change",e=>{
+ comparisonBaselineId=e.target.value===""?null:Number(e.target.value);
+ renderComparison();
+});
+$("compare-alternative").addEventListener("change",e=>{
+ comparisonAlternativeId=e.target.value===""?null:Number(e.target.value);
+ renderComparison();
+});
 $("duplicate-event").addEventListener("click",()=>{
  const original=event();
  if(!original)return message("Create a fictional event first.");
@@ -296,10 +396,13 @@ $("duplicate-event").addEventListener("click",()=>{
   model=duplicate.model;
   chosen=duplicate.newEventId;
  })){
+  comparisonBaselineId=original.id;
+  comparisonAlternativeId=chosen;
+  renderComparison();
   message("Editable what-if draft created. Original approvals and simulated contributions were not copied. No PayPal request was made.");
  }
 });
-$("reset").addEventListener("click",()=>{if(confirm("Reset fictional public demo data in this browser?")){model=sample();chosen=1;storageNeedsRecovery=false;save();resetRecovery();$("recoveryStrategy").value="equal";render();message("Demo restored.")}});
+$("reset").addEventListener("click",()=>{if(confirm("Reset fictional public demo data in this browser?")){model=sample();chosen=1;comparisonBaselineId=null;comparisonAlternativeId=null;storageNeedsRecovery=false;save();resetRecovery();$("recoveryStrategy").value="equal";render();message("Demo restored.")}});
 $("demo-backup-download").addEventListener("click",()=>{
  const status=$("demo-backup-status");
  try{
@@ -342,6 +445,8 @@ $("demo-backup-file").addEventListener("change",async function(){
   storageNeedsRecovery=false;
   model=candidate.model;
   chosen=model.events.length?model.events[0].id:null;
+  comparisonBaselineId=null;
+  comparisonAlternativeId=null;
   resetRecovery();
   const selected=event();if(selected)$("recoveryStrategy").value=selected.strategy;
   render();
