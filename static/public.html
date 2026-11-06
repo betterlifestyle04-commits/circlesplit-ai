@@ -171,6 +171,7 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
 <script>
 "use strict";
 const STORAGE="circlesplit-public-demo-v1";
+let storageNeedsRecovery=false;
 let model;
 let chosen=1;
 const $=id=>document.getElementById(id);
@@ -181,18 +182,23 @@ function sample(){
  return {next:100,events:[{id:1,name:"Friday Community Volleyball",date:"2026-11-06",strategy:"equal",expenses:[{id:2,title:"Court rental",cents:16000},{id:3,title:"Equipment",cents:2500},{id:4,title:"Refreshments",cents:3500}],people:names.map((name,i)=>({id:10+i,name,weight:i<4?2:1,share_cents:1100,approved:false,status:"unpaid"}))}]};
 }
 function restore(){
- try{
-  const raw=localStorage.getItem(STORAGE);
-  if(raw){
+ let raw=null;
+ try{raw=localStorage.getItem(STORAGE);}
+ catch(_err){message("Browser storage is unavailable; fictional changes may only last until this tab closes. Use Download backup.");}
+ if(raw){
+  try{
    model=window.CircleSplitPublicPortability.validateModel(JSON.parse(raw));
    return;
+  }catch(_err){
+   storageNeedsRecovery=true;
+   message("Saved fictional demo failed validation. Its original browser data has NOT been overwritten. Restore a JSON backup or explicitly Reset demo before editing.");
   }
- }catch(_err){
-  message("Existing browser demo data is invalid or unavailable. A fresh fictional example is shown; the stored data has not been overwritten.");
  }
  model=sample();
 }
 function save(){
+ if(storageNeedsRecovery)
+  throw Error("Stored demo is invalid and protected from overwrite. Restore a backup or explicitly Reset demo before editing.");
  try{
   localStorage.setItem(STORAGE,JSON.stringify(model));
   return true;
@@ -271,15 +277,16 @@ document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.addEventListener
  window.scrollTo({top:0,behavior:"smooth"});render();
 }));
 $("eventSelect").addEventListener("change",e=>{chosen=Number(e.target.value);resetRecovery();const current=event();if(current)$("recoveryStrategy").value=current.strategy;render()});
-$("reset").addEventListener("click",()=>{if(confirm("Reset fictional public demo data in this browser?")){model=sample();chosen=1;save();resetRecovery();$("recoveryStrategy").value="equal";render();message("Demo restored.")}});
+$("reset").addEventListener("click",()=>{if(confirm("Reset fictional public demo data in this browser?")){model=sample();chosen=1;storageNeedsRecovery=false;save();resetRecovery();$("recoveryStrategy").value="equal";render();message("Demo restored.")}});
 $("demo-backup-download").addEventListener("click",()=>{
  const status=$("demo-backup-status");
  try{
   const snap=window.CircleSplitPublicPortability.exportSnapshot(model,new Date().toISOString());
   const json=JSON.stringify(snap,null,2);
-  if(json.length>window.CircleSplitPublicPortability.MAX_BYTES)
+  const blob=new Blob([json],{type:"application/json;charset=utf-8"});
+  if(blob.size>window.CircleSplitPublicPortability.MAX_BYTES)
    throw Error("This fictional demo is too large for a single portable backup.");
-  const uri=URL.createObjectURL(new Blob([json],{type:"application/json;charset=utf-8"}));
+  const uri=URL.createObjectURL(blob);
   const link=document.createElement("a");
   link.href=uri;
   link.download="circlesplit-fictional-plan-"+new Date().toISOString().slice(0,10)+".json";
@@ -310,6 +317,7 @@ $("demo-backup-file").addEventListener("change",async function(){
   // Commit to browser storage first. If storage is disabled or at quota,
   // reject import without losing the in-memory plan.
   localStorage.setItem(STORAGE,JSON.stringify(candidate.model));
+  storageNeedsRecovery=false;
   model=candidate.model;
   chosen=model.events.length?model.events[0].id:null;
   resetRecovery();
