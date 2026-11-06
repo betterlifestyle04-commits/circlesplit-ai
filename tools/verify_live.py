@@ -170,9 +170,8 @@ def verify_once(base, expected_sha, fetch=request_once, timeout=10.0):
         _read_text(get(path), path, "text/html", marker)
     for path, marker in PUBLIC_SCRIPTS.items():
         response = get(path)
-        _expect("javascript" in response.header("content-type").lower(),
-                f"{path}: expected JavaScript Content-Type",
-                retryable=response.status in (502, 503, 504))
+        # Check HTTP status before content-type; 503 is retryable during
+        # cold starts, but 404 or an HTML script response is a hard error.
         _read_text(response, path, "javascript", marker)
         _expect("no-store" in response.header("cache-control").lower(),
                 f"{path}: stale public JavaScript must not be cached")
