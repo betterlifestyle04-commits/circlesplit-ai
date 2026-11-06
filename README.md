@@ -27,6 +27,38 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Portable public fictional-demo plans (no account, network or payment import)
+
+The public `/` demo now offers **Download backup** and **Restore backup**
+in Event planner. This is a **browser-only** JSON format with an explicit
+schema version, local fictional-data markers, counts, and event/participant/
+expense data. It includes user-entered names and any `SIMULATED` contribution
+states, **not** genuine payments, PayPal orders, captures, invitations,
+webhook IDs, credentials, or organizer data.
+
+Restoring validates the complete file (256 KiB maximum, 25 events, 200
+participants per event, 1,000 across all events, and 500 total expenses).
+It rejects extra/unrecognized fields, duplicate record IDs, malformed
+dates or currency amounts, inconsistent event totals, and any share that
+does not match the deterministic exact-cent equal/weighted allocator.
+The browser previews the fictional contents and asks for explicit
+confirmation **before** replacing current data. Storage is written
+before switching the in-memory model so a storage failure leaves the
+current plan unchanged. Cancelled or invalid imports make no changes.
+
+Ordinary public demo edits now revalidate their resulting local model
+and roll back partially applied changes when a validation fails.
+Invalid pre-existing localStorage is shown as a fresh *in-memory*
+example but **preserved from overwrite** until the user explicitly
+resets or restores a backup. When browser storage is unavailable, the
+demo can still run in memory and warns that changes may not survive.
+
+This is not an encrypted backup, external archive, verified payment
+receipt, safe personal-information vault, or cross-device cloud sync.
+Downloading creates a local file the user must safeguard; importing
+never sends that file to the backend. Judge/organizer accounts and
+Sandbox payment records are completely independent.
+
 ## Exact-cent affordability targets (Scenario Lab)
 
 In the protected organizer workspace, **Scenario Lab → Affordability target**

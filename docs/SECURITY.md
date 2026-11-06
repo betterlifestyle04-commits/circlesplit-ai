@@ -10,6 +10,34 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Local public-demo JSON portability (November 6, 2026)
+
+The public, browser-local demo can export and import **only fictional
+planning state**: events, expenses, participant display names and
+simulated contribution flags. The versioned JSON envelope explicitly
+rejects any extra fields, including payment references, provider tokens,
+capture IDs, credential fields or unknown nested properties. The
+browser validates a 256 KiB maximum file, safe integer IDs and cents,
+uniqueness across all record types, real calendar dates, known status/
+strategy enums, exact integer-cent share allocations, and bounded
+collection sizes before showing a destructive-replace confirmation.
+Imports are never sent to a CircleSplit API.
+
+Successful restore writes validated data to localStorage before
+replacing the in-memory plan; a rejected, cancelled or failed import
+preserves the existing plan. Ordinary local edits roll back on
+validation errors. If previously saved localStorage data fails
+validation, the original storage is quarantined against implicit
+overwrites; an explicit Reset or Restore is required. The saved file
+is not encrypted, authenticated, digitally signed, or backed up
+offsite. Anyone with the file can read entered participant names,
+fictional event details and simulated statuses, so it must be kept
+private and should contain fictional test data only.
+
+No PayPal, Gemini, participant invitation, organizer database or
+external storage routes are called. This does not improve durability
+of hosted SQLite or prove any real payment settlement.
+
 ## Signed Sandbox webhook outcome audit (November 6, 2026)
 
 The existing public `POST /api/paypal/webhook` still requires valid

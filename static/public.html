@@ -96,6 +96,17 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
  </section>
  <section id="events" class="panel">
  <div class="sectionhead"><div><div class="eyebrow">Group planning</div><h2>Create, split, simplify.</h2><p>Amounts are allocated in integer cents with exact totals.</p></div><button class="btn sm" id="reset">Reset demo</button></div>
+ <div class="card" aria-label="Browser-only planning backup" style="margin-bottom:17px">
+  <div class="row" style="align-items:flex-start;flex-wrap:wrap">
+   <div><h3>Save your fictional demo plan</h3><p class="small muted" style="margin-top:5px;max-width:640px">Download a JSON backup of your events, expenses, participant names and simulated contributions, or restore one you saved earlier. This stays on your device—nothing is uploaded to CircleSplit. It contains no PayPal orders, captures, credentials or real payments.</p></div>
+   <div class="buttons" style="margin-top:0">
+    <button class="btn sm primary" type="button" id="demo-backup-download">Download backup</button>
+    <button class="btn sm" type="button" id="demo-backup-restore">Restore backup</button>
+   </div>
+  </div>
+  <input type="file" id="demo-backup-file" accept="application/json,.json" hidden aria-label="Choose a fictional demo JSON backup">
+  <p id="demo-backup-status" class="small muted" role="status" aria-live="polite" style="margin-top:12px">Backups are browser-only. Restoring requires confirmation and replaces the current fictional demo in this browser.</p>
+ </div>
  <div class="grid">
  <div class="card"><div class="row"><h3>Selected event</h3><select aria-label="Select event" id="eventSelect" style="max-width:220px"></select></div><div id="eventDetails" style="margin-top:15px"></div>
  <div class="row" style="margin-top:16px"><button class="btn sm" id="equal">Equal split</button><button class="btn sm" id="weighted">Weighted split</button></div>
@@ -156,9 +167,11 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
  </div>
 </main></div>
 <script src="/static/public_recovery.js"></script>
+<script src="/static/public_portability.js"></script>
 <script>
 "use strict";
 const STORAGE="circlesplit-public-demo-v1";
+let storageNeedsRecovery=false;
 let model;
 let chosen=1;
 const $=id=>document.getElementById(id);
@@ -168,8 +181,32 @@ function sample(){
  const names=["Alex","Taylor","Sam","Jordan","Morgan","Riley","Casey","Jamie","Avery","Robin","Quinn","Skyler","Cameron","Finley","Drew","Elliot","Parker","Harper","Rowan","Sage"];
  return {next:100,events:[{id:1,name:"Friday Community Volleyball",date:"2026-11-06",strategy:"equal",expenses:[{id:2,title:"Court rental",cents:16000},{id:3,title:"Equipment",cents:2500},{id:4,title:"Refreshments",cents:3500}],people:names.map((name,i)=>({id:10+i,name,weight:i<4?2:1,share_cents:1100,approved:false,status:"unpaid"}))}]};
 }
-function restore(){try{let m=JSON.parse(localStorage.getItem(STORAGE));if(m&&Array.isArray(m.events)&&Number.isSafeInteger(m.next)){model=m;return}}catch(e){}model=sample()}
-function save(){try{localStorage.setItem(STORAGE,JSON.stringify(model))}catch(e){}}
+function restore(){
+ let raw=null;
+ try{raw=localStorage.getItem(STORAGE);}
+ catch(_err){message("Browser storage is unavailable; fictional changes may only last until this tab closes. Use Download backup.");}
+ if(raw){
+  try{
+   model=window.CircleSplitPublicPortability.validateModel(JSON.parse(raw));
+   return;
+  }catch(_err){
+   storageNeedsRecovery=true;
+   message("Saved fictional demo failed validation. Its original browser data has NOT been overwritten. Restore a JSON backup or explicitly Reset demo before editing.");
+  }
+ }
+ model=sample();
+}
+function save(){
+ if(storageNeedsRecovery)
+  throw Error("Stored demo is invalid and protected from overwrite. Restore a backup or explicitly Reset demo before editing.");
+ try{
+  localStorage.setItem(STORAGE,JSON.stringify(model));
+  return true;
+ }catch(_err){
+  message("Browser storage is unavailable. Your demo is in memory only; download a JSON backup to preserve it.");
+  return false;
+ }
+}
 function message(s){$("message").textContent=s;$("message").classList.add("show")}
 function resetRecovery(){
  $("recovery-results").className="empty";
@@ -214,7 +251,23 @@ function render(){
  $("funding").innerHTML='<div class="row" style="margin-top:18px"><b>'+usd(paid(e))+' of '+usd(total(e))+'</b><span class="muted small">'+pct+'% simulated</span></div><div class="progress"><div style="width:'+pct+'%"></div></div>';
  $("contribRows").innerHTML=e.people.map(x=>'<tr class="mini"><td>'+escapeHtml(x.name)+'</td><td>'+usd(x.share_cents)+'</td><td>'+(x.approved?"Yes":"Pending")+'</td><td><span class="pill '+(x.status==="demo_paid"?"amber":"gray")+'">'+(x.status==="demo_paid"?"SIMULATED":"Unpaid")+'</span></td><td>'+(x.status!=="unpaid"?"—":x.approved?'<button class="btn sm" data-simulate="'+x.id+'">Simulate</button>':'<button class="btn sm" data-approve="'+x.id+'">Approve</button>')+'</td></tr>').join("")||'<tr><td colspan="5">Add participants first</td></tr>';
 }
-function change(fn){const e=event();try{fn(e);save();resetRecovery();const next=event();if(next)$("recoveryStrategy").value=next.strategy;render()}catch(err){message(err.message)}}
+function change(fn){
+ const previous=JSON.stringify(model),previousChosen=chosen;
+ try{
+  fn(event());
+  // Validate all mutations before retaining them. A thrown form/amount
+  // validation error must never leave a partially changed in-memory model.
+  model=window.CircleSplitPublicPortability.validateModel(model);
+  save();resetRecovery();
+  const next=event();if(next)$("recoveryStrategy").value=next.strategy;
+  render();
+ }catch(err){
+  model=JSON.parse(previous);
+  chosen=previousChosen;
+  render();
+  message(err.message);
+ }
+}
 function amount(str){if(!/^\d{1,7}(\.\d{1,2})?$/.test(str))throw Error("Use a positive USD amount with up to 2 decimals");const [a,b=""]=str.split(".");const n=Number(a)*100+Number(b.padEnd(2,"0"));if(n<=0||n>10000000)throw Error("Amount outside demo limits");return n}
 document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.addEventListener("click",()=>{
  const v=b.dataset.view||b.dataset.go;
@@ -224,10 +277,62 @@ document.querySelectorAll("[data-view],[data-go]").forEach(b=>b.addEventListener
  window.scrollTo({top:0,behavior:"smooth"});render();
 }));
 $("eventSelect").addEventListener("change",e=>{chosen=Number(e.target.value);resetRecovery();const current=event();if(current)$("recoveryStrategy").value=current.strategy;render()});
-$("reset").addEventListener("click",()=>{if(confirm("Reset fictional public demo data in this browser?")){model=sample();chosen=1;save();resetRecovery();$("recoveryStrategy").value="equal";render();message("Demo restored.")}});
-$("addEvent").addEventListener("submit",e=>{e.preventDefault();change(()=>{const name=$("eventName").value.trim();if(name.length<3)throw Error("Enter a longer event name");const id=++model.next;model.events.unshift({id,name,date:$("eventDate").value,strategy:"equal",expenses:[],people:[]});chosen=id;$("addEvent").reset();$("eventDate").value=new Date().toISOString().slice(0,10)})});
-$("addExpense").addEventListener("submit",e=>{e.preventDefault();change(x=>{if(locked(x))throw Error("Cannot edit after recording a contribution");const title=$("expenseTitle").value.trim();if(title.length<2)throw Error("Enter an expense title");x.expenses.push({id:++model.next,title,cents:amount($("expenseAmount").value.trim())});allocate(x);$("addExpense").reset()})});
-$("addPerson").addEventListener("submit",e=>{e.preventDefault();change(x=>{if(locked(x))throw Error("Cannot edit after recording a contribution");const name=$("personName").value.trim(),weight=Number($("personWeight").value);if(name.length<2||!Number.isInteger(weight)||weight<1||weight>10)throw Error("Invalid participant or weight");if(x.people.length>=200)throw Error("The public demo supports up to 200 participants");x.people.push({id:++model.next,name,weight,share_cents:0,approved:false,status:"unpaid"});allocate(x);$("addPerson").reset();$("personWeight").value="1"})});
+$("reset").addEventListener("click",()=>{if(confirm("Reset fictional public demo data in this browser?")){model=sample();chosen=1;storageNeedsRecovery=false;save();resetRecovery();$("recoveryStrategy").value="equal";render();message("Demo restored.")}});
+$("demo-backup-download").addEventListener("click",()=>{
+ const status=$("demo-backup-status");
+ try{
+  const snap=window.CircleSplitPublicPortability.exportSnapshot(model,new Date().toISOString());
+  const json=JSON.stringify(snap,null,2);
+  const blob=new Blob([json],{type:"application/json;charset=utf-8"});
+  if(blob.size>window.CircleSplitPublicPortability.MAX_BYTES)
+   throw Error("This fictional demo is too large for a single portable backup.");
+  const uri=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=uri;
+  link.download="circlesplit-fictional-plan-"+new Date().toISOString().slice(0,10)+".json";
+  document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(uri),1000);
+  status.textContent="Fictional planning backup downloaded. It includes entered names and simulated contribution states; keep it private.";
+ }catch(err){
+  status.textContent="Backup was not downloaded: "+err.message;
+ }
+});
+$("demo-backup-restore").addEventListener("click",()=>$("demo-backup-file").click());
+$("demo-backup-file").addEventListener("change",async function(){
+ const status=$("demo-backup-status"),file=this.files&&this.files[0];
+ if(!file)return;
+ try{
+  if(file.size>window.CircleSplitPublicPortability.MAX_BYTES)
+   throw Error("The selected JSON file exceeds the 256 KiB import limit.");
+  const candidate=window.CircleSplitPublicPortability.importSnapshot(await file.text());
+  const summary=candidate.summary;
+  status.textContent="Valid fictional backup: "+summary.events+" event(s), "+
+    summary.participants+" participant(s), "+summary.expenses+" expense(s), "+
+    summary.simulated+" simulated contribution(s). Nothing has been changed yet.";
+  if(!window.confirm("Replace this browser's current fictional demo with "+
+     summary.events+" saved event(s)? This cannot be undone unless you have downloaded a backup. No PayPal payment will be created.")){
+   status.textContent="Restore cancelled. Your current browser demo is unchanged.";
+   return;
+  }
+  // Commit to browser storage first. If storage is disabled or at quota,
+  // reject import without losing the in-memory plan.
+  localStorage.setItem(STORAGE,JSON.stringify(candidate.model));
+  storageNeedsRecovery=false;
+  model=candidate.model;
+  chosen=model.events.length?model.events[0].id:null;
+  resetRecovery();
+  const selected=event();if(selected)$("recoveryStrategy").value=selected.strategy;
+  render();
+  status.textContent="Fictional plan restored locally. No server, PayPal, Gemini or organizer records were contacted.";
+ }catch(err){
+  status.textContent="Restore rejected; current demo unchanged: "+err.message;
+ }finally{
+  this.value="";
+ }
+});
+$("addEvent").addEventListener("submit",e=>{e.preventDefault();change(()=>{if(model.events.length>=25)throw Error("Maximum 25 fictional events per browser demo");const name=$("eventName").value.trim();if(name.length<3)throw Error("Enter a longer event name");const id=++model.next;model.events.unshift({id,name,date:$("eventDate").value,strategy:"equal",expenses:[],people:[]});chosen=id;$("addEvent").reset();$("eventDate").value=new Date().toISOString().slice(0,10)})});
+$("addExpense").addEventListener("submit",e=>{e.preventDefault();change(x=>{if(locked(x))throw Error("Cannot edit after recording a contribution");if(x.expenses.length>=200||model.events.reduce((n,e)=>n+e.expenses.length,0)>=500)throw Error("Fictional demo expense limit reached");const title=$("expenseTitle").value.trim();if(title.length<2)throw Error("Enter an expense title");x.expenses.push({id:++model.next,title,cents:amount($("expenseAmount").value.trim())});allocate(x);$("addExpense").reset()})});
+$("addPerson").addEventListener("submit",e=>{e.preventDefault();change(x=>{if(locked(x))throw Error("Cannot edit after recording a contribution");const name=$("personName").value.trim(),weight=Number($("personWeight").value);if(name.length<2||!Number.isInteger(weight)||weight<1||weight>10)throw Error("Invalid participant or weight");if(x.people.length>=200||model.events.reduce((n,e)=>n+e.people.length,0)>=1000)throw Error("The public demo supports 200 people per event and 1,000 in total");x.people.push({id:++model.next,name,weight,share_cents:0,approved:false,status:"unpaid"});allocate(x);$("addPerson").reset();$("personWeight").value="1"})});
 $("equal").addEventListener("click",()=>change(x=>{if(locked(x))throw Error("Cannot edit after contribution");x.strategy="equal";allocate(x)}));
 $("weighted").addEventListener("click",()=>change(x=>{if(locked(x))throw Error("Cannot edit after contribution");x.strategy="weighted";allocate(x)}));
 document.addEventListener("click",e=>{const b=e.target.closest("[data-delete-expense],[data-delete-person],[data-approve],[data-simulate]");if(!b)return;
