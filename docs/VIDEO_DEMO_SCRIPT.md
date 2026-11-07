@@ -13,8 +13,14 @@ editing/filming plan, not evidence that the video has already been made.
 
 1. Open the public demo: https://circlesplit-ai-demo.onrender.com/
    and private judge guide: https://circlesplit-ai-demo.onrender.com/judge .
-2. Test the protected organizer workspace separately with authorized
+2. Test the protected organizer workspace separately with **owner**
    credentials (never show login typing or a password manager).
+   The separate judge credentials are intentionally prohibited from
+   creating, capturing, or reconciling PayPal Sandbox test orders.
+   Before submission use **Check judge login expiry** under the owner
+   login, confirm access covers the end of judging on
+   **15 December 2026, 16:00 UTC**, and separately test judge login
+   in incognito. Do not film either credential.
 3. Validate that Gemini is configured and successfully returns an
    editable proposal from the exact fictional example in the guide:
    **court $180, equipment $25, refreshments $30, total $235**.
