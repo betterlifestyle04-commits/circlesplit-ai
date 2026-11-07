@@ -5,6 +5,8 @@ is authorized by an exact SHA-256 of its *deployed* bytes. No wildcard,
 unsafe-inline script permission, third-party script, or dynamic user input.
 A static judge guide is intentionally allowed same-origin GET fetches for
 the health badge; the public planning demo is entirely browser-local.
+The private invitation page needs same-origin bearer-authenticated API calls
+and a client-side calendar download but not arbitrary inline JavaScript.
 
 Read source at process start so CSP cannot silently drift between
 deployment versions. The public files are repository-owned, immutable
@@ -61,5 +63,9 @@ PUBLIC_PAGE_CSP = {
     "/judge": page_csp(
         (ROOT / "static" / "judge.html").read_text(encoding="utf-8"),
         allow_health=True,
+    ),
+    "/participant": page_csp(
+        (ROOT / "static" / "participant.html").read_text(encoding="utf-8"),
+        allow_health=True,  # private, same-origin invitation APIs
     ),
 }
