@@ -8,6 +8,8 @@ Uses only Python standard library; redirect-following is disabled.
 """
 
 import argparse
+import base64
+import hashlib
 from dataclasses import dataclass
 import json
 import re
@@ -133,6 +135,49 @@ def _read_text(response, path, expected_type, marker):
     return text
 
 
+def _verify_public_csp(path, result, html):
+    """Independently compare deployed inline-script bytes with strict CSP."""
+    csp = result.header("content-security-policy")
+    required = (
+        "default-src 'none'",
+        "base-uri 'none'",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'none'",
+    )
+    for directive in required:
+        _expect(directive in csp.split("; ") or directive in
+                [part.strip() for part in csp.split(";")],
+                f"{path}: missing strict CSP {directive}")
+    directives = [p.strip() for p in csp.split(";")]
+    scripts = [p for p in directives if p.startswith("script-src ")]
+    _expect(len(scripts) == 1 and "'self'" in scripts[0].split(),
+            f"{path}: public scripts must use a single same-origin policy")
+    script = scripts[0]
+    for forbidden in ("'unsafe-inline'", "'unsafe-eval'", "data:", "blob:", "*"):
+        _expect(forbidden not in script.split(),
+                f"{path}: unsafe public script policy {forbidden}")
+    expected_connection = "connect-src 'none'" if path == "/" else "connect-src 'self'"
+    _expect(expected_connection in directives,
+            f"{path}: incorrect public network policy")
+    _expect("no-store" in result.header("cache-control").lower(),
+            f"{path}: public HTML must not be cached")
+    codes = re.findall(
+        r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script\s*>",
+        html, flags=re.IGNORECASE | re.DOTALL
+    )
+    # Enforce that the static public demo contains exactly its one known
+    # inline program. Judge guide must have none (only external JS).
+    _expect(len(codes) == (1 if path == "/" else 0),
+            f"{path}: unexpected number of public inline scripts")
+    for code in codes:
+        expected_hash = "'sha256-" + base64.b64encode(
+            hashlib.sha256(code.encode("utf-8")).digest()
+        ).decode("ascii") + "'"
+        _expect(expected_hash in script.split(),
+                f"{path}: deployed CSP hash does not match inline JavaScript")
+
+
 def verify_once(base, expected_sha, fetch=request_once, timeout=10.0):
     """One complete, side-effect-free release inspection; never accepts stale SHA."""
     _expect(valid_sha(expected_sha), "A full 40-character expected Git commit is required")
@@ -167,7 +212,14 @@ def verify_once(base, expected_sha, fetch=request_once, timeout=10.0):
             retryable=True)
 
     for path, marker in PUBLIC_PAGES.items():
-        _read_text(get(path), path, "text/html", marker)
+        response = get(path)
+        html = _read_text(response, path, "text/html", marker)
+        if path in ("/", "/judge"):
+            _verify_public_csp(path, response, html)
+        elif path == "/participant":
+            _expect("frame-ancestors 'none'" in
+                    response.header("content-security-policy"),
+                    "/participant: missing frame-ancestor protection")
     for path, marker in PUBLIC_SCRIPTS.items():
         response = get(path)
         # Check HTTP status before content-type; 503 is retryable during

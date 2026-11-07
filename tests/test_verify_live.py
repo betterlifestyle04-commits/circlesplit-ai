@@ -259,3 +259,55 @@ def test_wait_rejects_invalid_argument_before_any_http():
     with pytest.raises(ValueError):
         wait_for_release(DEFAULT_ORIGIN, SHA, attempts=0, fetch=fetch)
     assert calls == []
+
+
+@pytest.mark.parametrize("path",["/","/judge"])
+def test_missing_public_csp_must_fail_live_release_gate(hosted,path):
+    fetch,_=transport(hosted,rewrite=lambda p,r:
+        replace(r,headers={k:v for k,v in r.headers.items()
+                           if k!="content-security-policy"})
+        if p==path else r)
+    failure(lambda:verify_once("https://demo.example",SHA,fetch=fetch),
+            "missing strict CSP",retryable=False)
+
+
+@pytest.mark.parametrize("path",["/","/judge"])
+def test_reintroduced_inline_script_permission_fails_release_gate(hosted,path):
+    fetch,_=transport(hosted,rewrite=lambda p,r:
+        replace(r,headers={**r.headers,"content-security-policy":
+          r.headers["content-security-policy"].replace(
+            "script-src 'self'","script-src 'self' 'unsafe-inline'",1)})
+        if p==path else r)
+    failure(lambda:verify_once("https://demo.example",SHA,fetch=fetch),
+            "unsafe public script policy",retryable=False)
+
+
+def test_wrong_deployed_public_script_hash_fails_even_when_html_is_http_200(hosted):
+    fetch,_=transport(hosted,rewrite=lambda p,r:
+        replace(r,body=r.body.replace(b"<script>",b"<script>\nconsole.log('untrusted');",1))
+        if p=="/" else r)
+    failure(lambda:verify_once("https://demo.example",SHA,fetch=fetch),
+            "CSP hash does not match",retryable=False)
+
+
+@pytest.mark.parametrize("path,network_value",[
+    ("/","connect-src 'self'"),
+    ("/judge","connect-src *"),
+])
+def test_broadened_public_connect_src_fails_release_gate(hosted,path,network_value):
+    original="connect-src 'none'" if path=="/" else "connect-src 'self'"
+    fetch,_=transport(hosted,rewrite=lambda p,r:
+        replace(r,headers={**r.headers,"content-security-policy":
+          r.headers["content-security-policy"].replace(original,network_value,1)})
+        if p==path else r)
+    failure(lambda:verify_once("https://demo.example",SHA,fetch=fetch),
+            "incorrect public network policy",retryable=False)
+
+
+@pytest.mark.parametrize("path",["/","/judge"])
+def test_cached_public_html_is_not_release_ready(hosted,path):
+    fetch,_=transport(hosted,rewrite=lambda p,r:
+        replace(r,headers={**r.headers,"cache-control":"public, max-age=86400"})
+        if p==path else r)
+    failure(lambda:verify_once("https://demo.example",SHA,fetch=fetch),
+            "public HTML must not be cached",retryable=False)

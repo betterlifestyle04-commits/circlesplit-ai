@@ -27,6 +27,35 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Strict Content Security Policy for public pages
+
+The public `/` demo and `/judge` walkthrough now return an enforced
+`Content-Security-Policy`. Both block scripts from third-party
+origins, inline event handlers, JavaScript `eval`, external frames,
+objects and unexpected form submissions. The public planner additionally
+uses `connect-src 'none'`, so its browser-only features cannot
+silently make API or external network requests. The judge walkthrough
+permits same-origin connections only. Existing first-party public
+JavaScript modules continue to load normally.
+
+The homepage has one inline program; rather than granting
+`script-src 'unsafe-inline'`, the server authorizes its **exact**
+SHA-256 at application startup. If the deployed file's script bytes
+change without a matching CSP, the browser will block execution.
+The new main-branch GitHub Actions live-release gate independently
+recalculates the served HTML's inline-script hash and refuses releases
+whose CSP is missing, weakened or inconsistent with the deployed page.
+Public HTML is no-store across deployments.
+
+Compatibility boundary: existing embedded public CSS and style
+attributes still require `style-src 'unsafe-inline'`, which is less
+restrictive than a nonce- or hash-based stylesheet policy. The private
+organizer workspace uses historical inline event handlers and has
+**not** yet migrated to an equally strict script policy; the
+participant portal retains its existing narrower CSP. CSP is defense
+in depth, **not** user authentication, a substitute for validation or
+an assurance of durable payment storage.
+
 ## Fail-closed Sandbox provider data and callback validation
 
 The server-side PayPal Sandbox adapter now rejects invalid OAuth token

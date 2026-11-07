@@ -9,6 +9,22 @@ Sample response (illustrative, not a live result):
 {"status":"ok","mode":"sandbox-only","version":"0.2.0","git_commit":"0123456789abcdef0123456789abcdef01234567"}
 ```
 
+## Public browser CSP validation
+
+The automatic main-branch release gate verifies that the public demo
+and judge walkthrough enforce their Content Security Policies in
+addition to checking source revision and authorization boundaries.
+It independently hashes the actual inline JavaScript served by the
+homepage and compares it with the `script-src 'sha256-…'` directive.
+It rejects `unsafe-inline` or `unsafe-eval` in the public
+`script-src`, missing frame/base/form protections, or broader
+`connect-src` policies. The public demo permits no network calls;
+the judge guide permits same-origin checks only.
+
+This confirms header/source consistency, **not** that all browser
+behavior has been exercised or that the organizer workspace has
+a strict CSP. Existing CSS continues to use inline styles.
+
 ## Automatic checks on main
 
 A GitHub Actions job named **Live public release and authentication
