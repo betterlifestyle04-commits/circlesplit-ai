@@ -145,11 +145,9 @@ async def demo_access_control(request: Request, call_next):
     if request.url.path in ("/participant", "/api/participant/overview", "/api/participant/approve", "/api/participant/withdraw", "/api/participant/rsvp") or "/invite" in request.url.path:
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
-    if request.url.path == "/participant":
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-            "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
-        )
+    # All public-page CSP headers (including the private invitation portal)
+    # are owned by protect_response, which binds inline script hashes to
+    # checked-in HTML and does not allow arbitrary inline execution.
     return protect_response(response, request.url.path)
 
 
