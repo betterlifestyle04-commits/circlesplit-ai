@@ -163,7 +163,7 @@ def _verify_public_csp(path, result, html):
     _expect("no-store" in result.header("cache-control").lower(),
             f"{path}: public HTML must not be cached")
     codes = re.findall(
-        r"<script\\b(?![^>]*\\bsrc\\s*=)[^>]*>(.*?)</script\\s*>",
+        r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script\s*>",
         html, flags=re.IGNORECASE | re.DOTALL
     )
     # Enforce that the static public demo contains exactly its one known
