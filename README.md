@@ -4,6 +4,12 @@ AI-assisted group budgeting with participant approval and PayPal Sandbox checkou
 
 > **Hackathon development build. No real money movement.** This project is not production-ready and must not be publicly deployed without authentication, rate limits, and credential review.
 
+**Public source repository:** https://github.com/betterlifestyle04-commits/circlesplit-ai
+
+**Public interactive demo:** https://circlesplit-ai-demo.onrender.com/
+
+**Public judge walkthrough:** https://circlesplit-ai-demo.onrender.com/judge
+
 **Devpost project page:** https://devpost.com/software/circlesplit-ai
 
 **Hackathon submission:** publishing the project page is *not* the same
