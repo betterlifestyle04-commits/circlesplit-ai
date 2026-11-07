@@ -28,6 +28,7 @@ import paypal
 from security import cross_origin_mutation, protect_response, owner_only_sandbox_action, public_demo_script
 from provider_limits import ProviderLimiter, provider_group
 from storage_readiness import storage_readiness
+from judge_access import assess_judge_access
 from ledger_audit import local_ledger_audit
 from recovery_triage import recovery_risk_summary
 from webhook_audit import signed_webhook_audit
@@ -655,6 +656,19 @@ def health():
     safe_revision = revision.lower() if re.fullmatch(r"[0-9a-fA-F]{40}", revision) else None
     return {"status": "ok", "mode": "sandbox-only", "version": "0.2.0",
             "git_commit": safe_revision}
+
+@app.get("/api/judge-access-readiness")
+def judge_access_readiness(request: Request):
+    """Private, owner-only check of judge credentials' configuration and expiry.
+
+    Judge and anonymous callers cannot discover this status or any secrets.
+    It does not authenticate with PayPal, Gemini or the judge password.
+    """
+    role = getattr(request.state, "viewer_role", None)
+    if os.getenv("CIRCLESPLIT_HOSTED") == "1" and role != "owner":
+        raise HTTPException(403, "Organizer credentials required for judge access configuration")
+    return assess_judge_access()
+
 
 @app.get("/api/judge-readiness")
 def judge_readiness():
