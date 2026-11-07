@@ -4,7 +4,22 @@ AI-assisted group budgeting with participant approval and PayPal Sandbox checkou
 
 > **Hackathon development build. No real money movement.** This project is not production-ready and must not be publicly deployed without authentication, rate limits, and credential review.
 
-**Devpost draft:** https://devpost.com/software/circlesplit-ai
+**Public source repository:** https://github.com/betterlifestyle04-commits/circlesplit-ai
+
+**Public interactive demo:** https://circlesplit-ai-demo.onrender.com/
+
+**Public judge walkthrough:** https://circlesplit-ai-demo.onrender.com/judge
+
+**Devpost project page:** https://devpost.com/software/circlesplit-ai
+
+**Hackathon submission:** publishing the project page is *not* the same
+as submitting an entry. The PayPal AI Hackathon requires a publicly
+playable YouTube demonstration video under 3 minutes and completion of
+all required submission questions. See the
+[final Devpost submission handoff](docs/DEVPOST_FINAL_SUBMISSION.md)
+and [recordable 2:45 video plan](docs/VIDEO_DEMO_SCRIPT.md).
+Use the offline `python tools/submission_preflight.py` check to identify
+missing source/video prerequisites; it does not verify Devpost status.
 
 ## What it does
 - Organizer creates an event, records expenses and participants.

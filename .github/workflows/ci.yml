@@ -68,7 +68,7 @@ jobs:
           Path("/tmp/circlesplit-participant-inline.js").write_text(scripts[0])
           PY
           node --check /tmp/circlesplit-participant-inline.js
-      - run: python -m compileall -q app.py domain.py paypal.py calendar_export.py csp.py security.py provider_limits.py storage_readiness.py ledger_audit.py recovery_triage.py webhook_audit.py attendance_risk.py tools/sqlite_snapshot.py tools/encrypted_snapshot.py tools/verify_live.py
+      - run: python -m compileall -q app.py domain.py paypal.py calendar_export.py csp.py security.py provider_limits.py storage_readiness.py ledger_audit.py recovery_triage.py webhook_audit.py attendance_risk.py tools/sqlite_snapshot.py tools/encrypted_snapshot.py tools/verify_live.py tools/submission_preflight.py
 
   # Main-branch releases are checked *after* unit tests, with no secrets.
   # The smoke checker polls only while Render is deploying/waking.
