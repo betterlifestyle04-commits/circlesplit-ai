@@ -21,8 +21,8 @@
     }),
     Object.freeze({
       id: "paypal", label: "PayPal Sandbox", title: "Verify a completed test capture",
-      expected: "Use ONLY a PayPal Sandbox personal buyer account. Order created is not paid; look for VERIFIED CAPTURE. Never retry an uncertain charge.",
-      href: "#judge-paypal", scope: "Private workspace + sandbox buyer"
+      expected: "Judge credentials can inspect the local Sandbox ledger and audits but cannot create, capture or reconcile PayPal test orders. Watch the organizer-run Sandbox demo video for actual provider evidence. Order created is not paid; look for VERIFIED CAPTURE, which may disappear from ephemeral storage after redeploy.",
+      href: "#judge-paypal", scope: "Read-only judge view · Organizer-only Sandbox"
     }),
     Object.freeze({
       id: "evidence", label: "Evidence & limits", title: "Inspect evidence and engineering boundaries",
