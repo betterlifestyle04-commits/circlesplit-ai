@@ -39,7 +39,7 @@ button:focus-visible,a:focus-visible{outline:3px solid #14a988;outline-offset:3p
 <main><span class="eyebrow">PayPal AI Hackathon 2026</span><h1>Judge walkthrough</h1>
 <p class="lead">A reproducible evaluation of AI-assisted event budgeting, exact-cent cost splitting, explicit human approval, and verified PayPal sandbox captures. No real funds are involved.</p>
 <div class="actions"><a class="btn primary" href="/">Explore public demo</a><a class="btn" href="/workspace">Open protected integration workspace</a></div>
-<div class="warn"><strong>Two intentionally separate experiences.</strong> The public homepage uses fictional data in your browser and simulated contributions only. The protected integration workspace calls real Gemini and PayPal sandbox APIs; access credentials are provided privately in Devpost testing instructions. This avoids exposing AI usage and payment APIs to anonymous visitors.</div>
+<div class="warn"><strong>Three deliberately different access levels.</strong> The public homepage is a fictional browser-only simulation. A separate time-limited judge login lets reviewers test Gemini, plan events, inspect read-only payment evidence, and simulate contributions in the protected workspace. <strong>Only organizer credentials can initiate, capture, or reconcile PayPal Sandbox orders.</strong> The under-three-minute demo video must show the actual organizer-run Sandbox flow. Judge access credentials are supplied privately in Devpost testing instructions; PayPal buyer credentials are never shared publicly.</div>
 <section class="card guide" aria-labelledby="judge-guide-label">
  <div class="guide-top"><div><span class="eyebrow">Self-guided evaluation</span>
   <h2 id="judge-guide-label">Choose what to inspect</h2></div>
@@ -49,7 +49,7 @@ button:focus-visible,a:focus-visible{outline:3px solid #14a988;outline-offset:3p
   <button type="button" data-judge-step="public" aria-current="step">1 · Public demo</button>
   <button type="button" data-judge-step="ai">2 · Gemini AI</button>
   <button type="button" data-judge-step="consent">3 · Consent</button>
-  <button type="button" data-judge-step="paypal">4 · PayPal test</button>
+  <button type="button" data-judge-step="paypal">4 · Sandbox evidence</button>
   <button type="button" data-judge-step="evidence">5 · Evidence</button>
  </nav>
  <div class="guide-summary">
@@ -88,12 +88,13 @@ button:focus-visible,a:focus-visible{outline:3px solid #14a988;outline-offset:3p
 <li>Approve the displayed amount. This records fictional consent only; it does not initiate a PayPal transaction.</li>
 <li>Before creating any checkout, test the withdrawal button. Withdrawal blocks a new order until a fresh participant-link approval.</li></ol>
 <p class="small">Never publish invitation bearer links. They are not identity proof; the organizer and judge can use fictional data only. After a checkout starts, withdrawal cannot cancel or refund it.</p></section>
-<section class="card" id="judge-paypal"><span class="chip">PayPal sandbox only</span><h2>4 · Verify one captured payment</h2>
-<ol><li>Create a new fictional $11 event with one participant in the protected workspace.</li>
-<li>Approve the participant's assigned share, then select PayPal test.</li>
-<li>Use a PayPal sandbox PERSONAL buyer account from the developer dashboard. Confirm checkout uses the sandbox PayPal hostname; never use real cards or live credentials.</li>
-<li>Approve checkout and return to CircleSplit. Activity should display VERIFIED CAPTURE, not just ORDER CREATED.</li>
-<li>If interrupted, use Activity → Check PayPal to resume the existing order. Never create repeated orders for the same participant.</li></ol><p class="small">The shared testing workspace has short provider-request budgets to prevent accidental API spend. If a provider action returns HTTP 429, follow its retry time rather than making a duplicate payment request.</p></section>
+<section class="card" id="judge-paypal"><span class="chip">Judge: inspect · Organizer: execute</span><h2>4 · Review Sandbox capture evidence</h2>
+<ol><li>With the separately supplied <strong>judge login</strong>, open the protected workspace, navigate to Activity, and inspect any local Sandbox ledger entries and read-only audits. <strong>VERIFIED CAPTURE</strong> means a checked Sandbox capture; <strong>ORDER CREATED</strong> is not paid, and <strong>SIMULATED</strong> is not a provider payment.</li>
+<li>Do not attempt <strong>PayPal test</strong>, <strong>Check PayPal</strong>, or capture as a judge. Those controls require <strong>organizer credentials</strong> and are intentionally disabled or rejected for the judge role.</li>
+<li>Review the public under-three-minute YouTube demonstration of the <strong>organizer-run</strong> flow: an $11 fictional contribution, a PayPal Sandbox personal buyer approving on a trusted Sandbox page, followed by a verified capture in Activity. Never use a real card or share buyer credentials.</li>
+<li>If the current ledger contains no captures, that does not disprove prior recorded testing: Render Free's temporary SQLite data can reset on redeploy. Use the authentic recorded video and GitHub implementation/tests for evidence, rather than repeating an uncertain payment.</li>
+<li>Only an authorized organizer may perform a new Sandbox checkout or reconcile an existing order. Never repeat a pending creation or capture just because a response timed out.</li></ol>
+<p class="small">This judge flow is read-only for provider activity. Gemini and fictional planning are testable with judge credentials if the service is configured and available; provider-key presence and healthy deployment do not independently prove a completed payment.</p></section>
 <section class="card" id="judge-evidence"><span class="chip">Evidence and limitations</span><h2>5 · Inspect the implementation</h2>
 <p>On November 2–3, 2026, the hosted integration workspace returned a real Gemini response and recorded one $11.00 USD PayPal sandbox capture, with HTTP 200 capture and webhook requests.</p>
 <p class="small" style="margin-top:15px">This is a hackathon MVP. Public demonstration data is fictional; the protected workspace uses shared test records and Render Free's ephemeral SQLite. Data may reset after deployment. No production payments, real identity verification, escrow, or payout splitting are claimed.</p>
