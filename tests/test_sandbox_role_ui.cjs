@@ -31,6 +31,24 @@ function renderRole(canManage){
  return {el};
 }
 
+const judgeAccessFunction=between("async function checkJudgeAccess(){","async function checkReadiness(){");
+
+function judgeAccessHarness(canManage,response){
+ const elements=new Map(),calls=[];
+ const el=id=>{
+  if(!elements.has(id))elements.set(id,{style:{display:"none"},textContent:"",disabled:false});
+  return elements.get(id);
+ };
+ const context=vm.createContext({
+  state:{sandbox_order_actions_allowed:canManage},
+  el,request:async path=>{calls.push(path);return response;},
+  Error
+ });
+ vm.runInContext(judgeAccessFunction,context,{timeout:2000});
+ const check=vm.runInContext("checkJudgeAccess",context);
+ return {el,calls,check};
+}
+
 test("judge workspace displays a clear role warning and disables manifest export",()=>{
  assert.match(html,/id="sandbox-role-banner"[^>]*role="status"/);
  const judge=renderRole(false);
@@ -83,4 +101,55 @@ test("judge role suppresses PayPal order/capture controls in transaction and rec
  assert.match(html,/allowed&&state\.sandbox_order_actions_allowed!==false/);
  assert.match(html,/disabled title='Organizer credentials required'/);
  assert.match(html,/Organizer review required/);
+});
+
+
+test("judge expiry configuration check is owner only in UI and does not call private endpoint for judge",async()=>{
+ const h=judgeAccessHarness(false,{ready_for_judging:true,mode:"READ_ONLY_JUDGE_CONFIGURATION_CHECK",problems:[]});
+ await h.check();
+ assert.deepEqual(h.calls,[]);
+ assert.match(h.el("judge-access-status").textContent,/Only the organizer/);
+ assert.match(html,/id="judge-access-check"/);
+ assert.match(html,/id="judge-access-status"[^>]*role="status"/);
+ const judge=renderRole(false);
+ assert.equal(judge.el("judge-access-tools").style.display,"none");
+ const owner=renderRole(true);
+ assert.equal(owner.el("judge-access-tools").style.display,"block");
+});
+
+test("owner sees truthful judge expiry coverage without seeing credentials",async()=>{
+ const h=judgeAccessHarness(true,{
+  mode:"READ_ONLY_JUDGE_CONFIGURATION_CHECK",
+  ready_for_judging:true,problems:[],
+  judging_ends_at_utc:"2026-12-15T16:00:00Z",
+  sandbox_actions_allowed_for_judges:false
+ });
+ await h.check();
+ assert.deepEqual(h.calls,["/api/judge-access-readiness"]);
+ assert.match(h.el("judge-access-status").textContent,/covers the published judging period/);
+ assert.match(h.el("judge-access-status").textContent,/incognito browser/);
+ assert.match(h.el("judge-access-status").textContent,/cannot initiate PayPal Sandbox/);
+ assert.equal(h.el("judge-access-check").disabled,false);
+ assert.doesNotMatch(h.el("judge-access-status").textContent,/username|password|Bearer/);
+});
+
+test("unsafe judge expiry reports actionable problems without leaking server data",async()=>{
+ const h=judgeAccessHarness(true,{
+  mode:"READ_ONLY_JUDGE_CONFIGURATION_CHECK",
+  ready_for_judging:false,
+  problems:["judge_login_disabled","judge_login_expires_during_judging","UNKNOWN_CODE"]
+ });
+ await h.check();
+ assert.match(h.el("judge-access-status").textContent,/NOT READY/);
+ assert.match(h.el("judge-access-status").textContent,/Enable the separate judge login/);
+ assert.match(h.el("judge-access-status").textContent,/15 December 2026/);
+ assert.match(h.el("judge-access-status").textContent,/Review access configuration/);
+ assert.equal(h.el("judge-access-check").disabled,false);
+});
+
+test("malformed owner access response fails closed without a login claim",async()=>{
+ const h=judgeAccessHarness(true,{ready_for_judging:true});
+ await h.check();
+ assert.match(h.el("judge-access-status").textContent,/Could not inspect/);
+ assert.equal(h.el("judge-access-check").disabled,false);
 });

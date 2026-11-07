@@ -33,6 +33,11 @@ https://paypalaihackathon.devpost.com/
 - [ ] Give judges separate **restricted** integration-workspace credentials
   via Devpost's optional **testing instructions/credentials** field;
   do not place credentials in this public repo or video.
+  Before submission, use the organizer-only **Check judge login expiry**
+  control and verify that access covers the official judging end,
+  **15 December 2026, 16:00 UTC**. Test a real judge login in incognito.
+  Judge credentials cannot create/capture/reconcile PayPal Sandbox
+  orders; the organizer-run video supplies that evidence.
 - [ ] Click final **Submit** and independently confirm Devpost reports
   **Submitted** and/or the entry's \`submitted_at\` is populated.
 
@@ -169,15 +174,18 @@ other AI developer tools you personally used only if applicable.
 
 Start with https://circlesplit-ai-demo.onrender.com/judge .
 The homepage provides a fully interactive fictional no-login demo.
-For real Gemini and PayPal **Sandbox** integration, use the separate
-protected workspace at
-https://circlesplit-ai-demo.onrender.com/workspace and the time-limited
+For real **Gemini** integration and **read-only PayPal Sandbox ledger
+inspection**, use the separate protected workspace at
+https://circlesplit-ai-demo.onrender.com/workspace and time-limited
 judge credentials supplied **privately in this field**. Copy the sample
-expense note from /judge; test an editable $235 Gemini proposal.
-A Sandbox capture requires a **PayPal Sandbox personal buyer account**.
-No live card or real-money payment is supported. If a test order is
-uncertain, do not retry; inspect Activity and the existing order.
-The shared testing database is temporary and may reset.
+expense note from /judge; test an editable $235 Gemini proposal and
+inspect Activity for local payment states. **Judge credentials cannot
+create, capture, or reconcile PayPal Sandbox orders.** These
+organizer-only actions are demonstrated in the genuine under-three-minute
+video; they require organizer credentials and a Sandbox personal buyer.
+No live card or real-money payment is supported. An ORDER CREATED result
+is not a VERIFIED CAPTURE. The shared testing database is temporary
+and may reset.
 
 **Insert actual authorized judge credentials only at submission time**,
 not in the public repository, a public issue, or this template.
@@ -190,10 +198,11 @@ not in the public repository, a public issue, or this template.
 2. [ ] YouTube demo plays **without login**, lasts strictly under
    3:00, shows actual software running, and discloses no credentials,
    invitation tokens, order IDs or personal buyer data.
-3. [ ] Judge credentials are valid **through the judging period** and
-   have been provided privately; ordinary public users do not get them.
-   Judge access may be read-only for certain payment operations. Do not
-   overstate what it permits.
+3. [ ] Owner-only judge access readiness covers
+   **15 December 2026, 16:00 UTC** and the separate login succeeds
+   in an incognito browser. Provide credentials privately; ordinary
+   public users do not get them. Judge access **cannot create, capture,
+   or reconcile PayPal Sandbox orders**. Do not overstate what it permits.
 4. [ ] Repository remains public with MIT LICENSE, setup instructions,
    implementation, and both technologies explained.
 5. [ ] All required form fields are complete; country, team, age,

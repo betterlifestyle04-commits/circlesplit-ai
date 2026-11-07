@@ -39,6 +39,7 @@ PUBLIC_PAGES = {
 PRIVATE_PATHS = (
     "/workspace",
     "/api/state",
+    "/api/judge-access-readiness",
     "/api/paypal/recovery",
     "/api/paypal/webhook-audit",
     "/api/paypal/reconciliation-export",

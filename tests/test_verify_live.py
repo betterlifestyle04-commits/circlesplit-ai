@@ -136,6 +136,7 @@ def test_missing_public_assets_or_pages_fail_release(hosted, path):
 @pytest.mark.parametrize("path", [
     "/workspace",
     "/api/state",
+    "/api/judge-access-readiness",
     "/api/paypal/recovery",
     "/api/paypal/webhook-audit",
     "/api/paypal/reconciliation-export",

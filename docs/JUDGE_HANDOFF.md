@@ -6,7 +6,7 @@
 - Protected live Gemini and PayPal sandbox workspace: https://circlesplit-ai-demo.onrender.com/workspace
 - Source code and automated tests: https://github.com/betterlifestyle04-commits/circlesplit-ai
 
-The public homepage is a browser-local simulation. Only the protected workspace connects to the actual Gemini model and PayPal SANDBOX.
+The public homepage is a browser-local simulation. Only the protected workspace connects to actual Gemini and PayPal SANDBOX. **A time-limited judge login can inspect plans, run Gemini review, simulate contributions and view local ledger/audits; it cannot create, capture, or reconcile real PayPal Sandbox test orders.** Those actions require the separate organizer login. Public demo and owner-only test evidence must never be confused.
 
 ## Optional protected affordability demonstration
 
@@ -51,26 +51,48 @@ weighted split method, and aggregate cost categories. Check that the private
 view reveals no other person's name or share. Approving the quoted amount
 records consent only: it does not initiate PayPal or move money.
 
-Before PayPal Sandbox checkout: In **Contributions**, select
-**Check readiness** on the fictional participant. The read-only preflight
-should explain missing approval, declined RSVP, an already-started order, or
-any inconsistent share allocation. After approving an unchanged share,
-**PayPal test** repeats readiness checks, requests explicit confirmation,
-and creates a new sandbox-only order if locally eligible. It cannot confirm
-provider availability or settlement. Never retry an uncertain creation
-response; inspect Activity and PayPal Sandbox instead.
+PayPal review **using judge credentials**: open **Activity** and inspect the
+read-only payment ledger and local signed-webhook audit. Distinguish
+**VERIFIED CAPTURE** (test provider capture verified), **ORDER CREATED —
+NOT PAID** (no capture), and **SIMULATED** (fictional only). The judge
+login intentionally cannot use **PayPal test**, **Check PayPal**, create
+an order, capture, or reconcile. Do **not** tell judges to make a new
+Sandbox payment under the judge password: the server returns HTTP 403.
 
-When PayPal Sandbox returns to the workspace, CircleSplit checks the
-**existing** order. A return does not automatically capture funds. If
-PayPal reports `APPROVED`, the organizer may explicitly confirm the
-test capture; the server independently rechecks the provider order and
-exact amount before attempting it. If the result is ambiguous, use
-Activity → Check PayPal and investigate the original order. Never try a
-second capture merely because an earlier screen timed out.
+For actual Sandbox integration evidence, watch the public, authentic,
+**under-three-minute demo video** showing an **organizer-initiated**
+$11.00 fictional order, PayPal SANDBOX personal buyer approval and a
+verified capture. The owner—not the judge—may reproduce that flow with
+organizer credentials and a separate Sandbox personal buyer. A Sandbox
+buyer account is never a live PayPal account or real payment card.
+If an order is uncertain, do not retry creation or capture; the owner
+must investigate the existing order in PayPal's Sandbox and Activity.
 
-PayPal: Make a fresh fictional event costing $11.00 USD with one participant. Approve the share; select PayPal test. Use a *PayPal SANDBOX personal buyer account* obtained from PayPal Developer Dashboard (never a live PayPal account or real card). Complete checkout; on return, CircleSplit should show VERIFIED CAPTURE under Activity. If the flow is interrupted, use Activity → Check PayPal to resume or reconcile the *existing order*, not create duplicates.
+**Current database note:** Render Free uses ephemeral SQLite. Earlier
+verified $11.00 test evidence from November 3 can disappear after
+redeploy, so a missing current capture count cannot be treated as proof
+of a failed past test. The video must be recorded from genuine provider
+output; a simulated or recreated UI state is insufficient.
 
 The test environment is sandbox only. The protected integration workspace uses shared fictional data and temporary SQLite storage; it may reset after deployment. If judges prefer not to use a sandbox buyer account, the under-3-minute YouTube video documents our confirmed capture and the repository contains the integration and tests.
+
+## Judge login validity through the December judging window
+
+The official judging window ends **15 December 2026 at 16:00 UTC**.
+Before submitting, sign into the protected workspace with the organizer
+login and select **Check judge login expiry**. The owner-only
+`GET /api/judge-access-readiness` endpoint checks the separate judge
+username/password **configuration** (without revealing values), whether
+the login is enabled, and whether its timezone-aware expiry covers the
+judging period. It cannot prove the login works, so separately sign
+in with judge credentials in an incognito window to verify the actual
+read-only experience. Configure `JUDGE_ACCESS_ENABLED`,
+`JUDGE_USERNAME`, `JUDGE_PASSWORD`, and
+`JUDGE_ACCESS_EXPIRES_AT` as **Render secrets**, not GitHub files.
+
+Do **not** disable the owner-only payment boundary to make the judge
+demo easier. Provide prior genuine Sandbox evidence through the public
+YouTube demo and permit read-only inspection with judge credentials.
 
 ## Secrets and credential handling
 - The judge workspace password must be supplied to judges **privately**, e.g. in Devpost's optional "Testing instructions or credentials" submission field, not in public repositories.
@@ -83,7 +105,8 @@ The test environment is sandbox only. The protected integration workspace uses s
 - Verify the public /judge page works without a password.
 - Verify the separate judge login in an incognito window.
 - Run the Gemini extraction once.
-- Complete a PayPal sandbox checkout once, confirm VERIFIED CAPTURE and successful webhook response.
+- With organizer credentials, complete a genuine PayPal Sandbox checkout once for the private demonstration footage; verify VERIFIED CAPTURE and preserve the video. The separate judge login intentionally cannot initiate this operation.
+- Confirm `/api/judge-access-readiness` reports a judge expiry covering **15 December 2026, 16:00 UTC**, and separately test the judge login in an incognito window.
 - Record a **public YouTube demo video under 3 minutes** (no visible credentials or buyer details).
 - Confirm the public repository includes the MIT license and setup instructions.
 - Complete required Devpost submission questions truthfully.

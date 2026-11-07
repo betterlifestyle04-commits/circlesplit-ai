@@ -54,6 +54,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
      <div id="judge-health" class="muted" style="margin-top:5px">Checking test environment…</div>
      <div id="storage-warning" class="banner" role="status" style="display:none;margin-top:10px"></div>
      <div id="sandbox-role-banner" class="banner" role="status" style="display:none;margin-top:10px"></div>
+     <div id="judge-access-tools" style="display:none;margin-top:10px">
+       <button type="button" id="judge-access-check" class="btn small" onclick="checkJudgeAccess()">Check judge login expiry</button>
+       <p id="judge-access-status" class="small muted" role="status" aria-live="polite" style="margin-top:7px">Organizer-only configuration check; no passwords are sent to the page. This does not test a real login.</p>
+     </div>
    </div>
   <section id="overview" class="tabpan active">
    <div class="title"><div><div class="eyebrow">YOUR WORKSPACE</div><h1>Money together. Made simple.</h1><p class="sub">Manage group spending, create fair splits, and make every contribution transparent.</p></div><button class="btn primary" onclick="switchTab('events');focusNew()">＋ Create event</button></div>
@@ -1972,8 +1976,9 @@ function render(){
  const roleBanner=el("sandbox-role-banner");
  if(roleBanner){
   roleBanner.style.display=sandboxOwner?"none":"block";
-  roleBanner.textContent=sandboxOwner?"":"Judge testing mode: planning, simulations and read-only diagnostics are available. Creating, capturing or reconciling PayPal Sandbox orders requires organizer credentials.";
+  roleBanner.textContent=sandboxOwner?"":"Judge testing mode: planning, Gemini review, simulations and read-only local payment evidence are available. Creating, capturing or reconciling PayPal Sandbox orders requires organizer credentials. Inspect the completed test in the demo video; a stored capture may disappear after redeploy.";
  }
+ const accessTools=el("judge-access-tools");if(accessTools)accessTools.style.display=sandboxOwner?"block":"none";
  const exportButton=el("recovery-export");if(exportButton)exportButton.disabled=!sandboxOwner;
  let events=state.events,e=event(),people=events.reduce(function(n,x){return n+x.people.length},0),budget=events.reduce(function(n,x){return n+x.total_cents},0),paid=events.reduce(function(n,x){return n+x.sandbox_cents},0);
  el("kpi-events").textContent=events.length;el("kpi-budget").textContent=money(budget);el("kpi-real").textContent=money(paid);el("kpi-people").textContent=people;renderInsights();renderPulse();renderDirectory();renderCategoryInsights();renderPlanningPortfolio();
@@ -2113,6 +2118,38 @@ const continuityMonitor=window.CircleSplitContinuity.setup(
  ()=>request("/api/judge-readiness"),
  message=>window.confirm(message)
 );
+async function checkJudgeAccess(){
+ const root=el("judge-access-status"),button=el("judge-access-check");
+ if(state.sandbox_order_actions_allowed===false){
+  root.textContent="Only the organizer can inspect judge access configuration.";
+  return;
+ }
+ button.disabled=true;
+ root.textContent="Checking judge login configuration and judging-period expiry…";
+ try{
+  const report=await request("/api/judge-access-readiness");
+  if(report.mode!=="READ_ONLY_JUDGE_CONFIGURATION_CHECK"||
+     !Array.isArray(report.problems)||typeof report.ready_for_judging!=="boolean")
+   throw Error("Unrecognized access status");
+  const explanations={
+   judge_login_disabled:"Enable the separate judge login",
+   judge_username_missing:"Set a judge username",
+   judge_username_matches_owner:"Use a username different from the organizer",
+   judge_password_missing_or_short:"Set a separate, strong judge password",
+   judge_password_matches_owner:"Do not reuse the organizer password",
+   judge_expiry_missing_or_invalid:"Set a timezone-aware judge login expiry",
+   judge_login_expired:"Judge access has already expired",
+   judge_login_expires_during_judging:"Extend access through 15 December 2026, 16:00 UTC",
+   judging_window_ended:"The published judging window has already ended"
+  };
+  const problems=report.problems.map(code=>explanations[code]||"Review access configuration");
+  root.textContent=report.ready_for_judging?
+   "Judge configuration covers the published judging period through 15 December 2026, 16:00 UTC. Verify the separate judge login in an incognito browser. Judge credentials cannot initiate PayPal Sandbox payment actions.":
+   "Judge access NOT READY: "+problems.join("; ")+". No passwords were disclosed. Verify a separate judge login before submission.";
+ }catch(_err){
+  root.textContent="Could not inspect judge access configuration. Use organizer login and check the secure deployment settings.";
+ }finally{button.disabled=false}
+}
 async function checkReadiness(){
  try{
    let d=await request("/api/judge-readiness");
