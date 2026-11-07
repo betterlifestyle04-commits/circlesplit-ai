@@ -4,6 +4,7 @@ These are defence in depth, not replacements for individual account identity,
 CSRF tokens, a durable database or payment-provider verification.
 """
 from urllib.parse import urlsplit
+from csp import PUBLIC_PAGE_CSP
 
 
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -81,6 +82,11 @@ def protect_response(response, path):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+    if response.status_code == 200 and path in PUBLIC_PAGE_CSP:
+        # No untrusted inline JavaScript or cross-origin network access
+        # from the fictional demo. The judge guide can fetch only /health.
+        response.headers["Content-Security-Policy"] = PUBLIC_PAGE_CSP[path]
+        response.headers["Cache-Control"] = "public, no-store, max-age=0"
     # Public approved JavaScript may be cached only according to the
     # explicit application policy. Failed auth for OTHER static resources
     # must not be cached (even by intermediary browsers/proxies).
