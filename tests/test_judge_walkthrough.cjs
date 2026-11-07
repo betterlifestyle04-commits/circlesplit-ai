@@ -54,7 +54,7 @@ test("walkthrough defines exactly five accessible, separate evaluation scopes",(
  assert.match(html,/aria-label="Evaluation checklist steps"/);
  assert.match(html,/id="judge-progress-text" role="status"/);
  assert.match(html,/id="judge-source-status" role="status"/);
- assert.match(html,/PayPal sandbox PERSONAL buyer/);
+ assert.match(html,/PayPal Sandbox personal buyer/);
  assert.match(html,/not the other participants' names or shares/i);
  assert.match(html,/No real funds/);
  assert.match(html,/Resilience lab/);
@@ -147,10 +147,22 @@ test("guide provides accurate fictional expectations and sandbox-only guardrails
  assert.match(SAMPLE_PROMPT,/\$30/);
  assert.match(STEPS[0].expected,/\$3\.34, \$3\.33, \$3\.33/);
  assert.match(STEPS[0].expected,/two no-shows.*need one extra fictional attendee/);
- assert.match(STEPS[3].expected,/Never retry an uncertain charge/);
+ assert.match(STEPS[3].expected,/cannot create, capture or reconcile PayPal test orders/);
  assert.match(STEPS[4].expected,/NOT provider availability/);
  assert.match(html,/checklist is only a navigation aid/i);
  assert.match(html,/resets on reload/);
  assert.match(html,/id="judge-copy-prompt"/);
  assert.match(html,/src="\/static\/judge_walkthrough\.js"/);
+});
+
+
+test("public judge guide truthfully separates readonly judge role from organizer-only provider actions",()=>{
+ assert.match(html,/Only organizer credentials can initiate, capture, or reconcile PayPal Sandbox orders/);
+ assert.match(html,/Judge: inspect · Organizer: execute/);
+ assert.match(html,/read-only payment evidence/);
+ assert.match(html,/With the separately supplied/);
+ assert.match(html,/recorded video and GitHub implementation/);
+ assert.match(STEPS[3].scope,/Read-only judge view/);
+ assert.match(STEPS[3].expected,/organizer-run Sandbox demo video/);
+ assert.doesNotMatch(STEPS[3].expected,/Use ONLY a PayPal Sandbox personal buyer account/);
 });
