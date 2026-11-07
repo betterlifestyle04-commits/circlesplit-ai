@@ -65,32 +65,34 @@ secrets and the permitted private Devpost field.
 
 ## Strict Content Security Policy for public pages
 
-The public `/` demo and `/judge` walkthrough now return an enforced
-`Content-Security-Policy`. Both block scripts from third-party
-origins, inline event handlers, JavaScript `eval`, external frames,
-objects and unexpected form submissions. The public planner additionally
-uses `connect-src 'none'`, so its browser-only features cannot
-silently make API or external network requests. The judge walkthrough
-permits same-origin connections only. Existing first-party public
-JavaScript modules continue to load normally.
+The public `/` demo, `/judge` walkthrough and `/participant`
+private-invitation entry page all receive enforced, page-specific
+`Content-Security-Policy` response headers. Scripts cannot use
+`'unsafe-inline'`, `'unsafe-eval'`, remote origins or wildcard
+permissions. The homepage and participant portal each use one
+repository-owned inline JavaScript program, authorized by its **exact
+SHA-256 hash**. The guide loads only a first-party external script.
+If deployed JavaScript bytes change without a matching policy, the
+browser rejects execution.
 
-The homepage has one inline program; rather than granting
-`script-src 'unsafe-inline'`, the server authorizes its **exact**
-SHA-256 at application startup. If the deployed file's script bytes
-change without a matching CSP, the browser will block execution.
-The new main-branch GitHub Actions live-release gate independently
-recalculates the served HTML's inline-script hash and refuses releases
-whose CSP is missing, weakened or inconsistent with the deployed page.
-Public HTML is no-store across deployments.
+The browser-only fictional planner uses `connect-src 'none'`.
+The judge walkthrough needs same-origin health checks, while the
+participant portal needs same-origin authenticated invitation API
+calls. All three pages deny untrusted embedding, form submissions
+and arbitrary executable code. Guest demo and judge HTML are
+`public, no-store`; the invitation page is explicitly
+`private, no-store` with `Referrer-Policy: no-referrer`, so
+private invitation metadata is not stored in shared caches or
+sent as a referrer.
 
-Compatibility boundary: existing embedded public CSS and style
-attributes still require `style-src 'unsafe-inline'`, which is less
-restrictive than a nonce- or hash-based stylesheet policy. The private
-organizer workspace uses historical inline event handlers and has
-**not** yet migrated to an equally strict script policy; the
-participant portal retains its existing narrower CSP. CSP is defense
-in depth, **not** user authentication, a substitute for validation or
-an assurance of durable payment storage.
+The GitHub Actions live-release gate **independently re-hashes all
+served inline scripts** and rejects missing, weakened or inconsistent
+CSP, unintended public caching, and referrer protection regressions.
+Existing embedded CSS/styles still use `style-src 'unsafe-inline'`;
+the protected organizer workspace has legacy inline event handlers
+and is **not** covered by the strict script policy. This protection
+does not provide identity verification, account isolation, durable
+storage, or proof of actual browser testing.
 
 ## Fail-closed Sandbox provider data and callback validation
 
