@@ -161,15 +161,22 @@ def _verify_public_csp(path, result, html):
     expected_connection = "connect-src 'none'" if path == "/" else "connect-src 'self'"
     _expect(expected_connection in directives,
             f"{path}: incorrect public network policy")
-    _expect("no-store" in result.header("cache-control").lower(),
+    caching = result.header("cache-control").lower()
+    _expect("no-store" in caching,
             f"{path}: public HTML must not be cached")
+    if path == "/participant":
+        _expect("private" in caching.split(",")[0].split(),
+                "/participant: sensitive invitation HTML must be private")
+        _expect(result.header("referrer-policy") == "no-referrer",
+                "/participant: invitation URLs must not leak via referrer")
     codes = re.findall(
         r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script\s*>",
         html, flags=re.IGNORECASE | re.DOTALL
     )
-    # Enforce that the static public demo contains exactly its one known
-    # inline program. Judge guide must have none (only external JS).
-    _expect(len(codes) == (1 if path == "/" else 0),
+    # Two pages have exactly one authorized inline program. The judge
+    # walkthrough runs one same-origin external module and no inline JS.
+    expected_inline = 1 if path in ("/", "/participant") else 0
+    _expect(len(codes) == expected_inline,
             f"{path}: unexpected number of public inline scripts")
     for code in codes:
         expected_hash = "'sha256-" + base64.b64encode(
@@ -215,12 +222,7 @@ def verify_once(base, expected_sha, fetch=request_once, timeout=10.0):
     for path, marker in PUBLIC_PAGES.items():
         response = get(path)
         html = _read_text(response, path, "text/html", marker)
-        if path in ("/", "/judge"):
-            _verify_public_csp(path, response, html)
-        elif path == "/participant":
-            _expect("frame-ancestors 'none'" in
-                    response.header("content-security-policy"),
-                    "/participant: missing frame-ancestor protection")
+        _verify_public_csp(path, response, html)
     for path, marker in PUBLIC_SCRIPTS.items():
         response = get(path)
         # Check HTTP status before content-type; 503 is retryable during

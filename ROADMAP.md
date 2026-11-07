@@ -3,6 +3,7 @@
 This document distinguishes implemented code, recorded one-off sandbox checks, and work that remains. CircleSplit is a hackathon prototype, **not** a real-money product.
 
 ## Implemented and covered by automated tests
+- [x] Private participant invitation page upgrades from unrestricted `script-src 'unsafe-inline'` to exact SHA-256 inline program, scoped same-origin API calls and private no-store/no-referrer response, with automated deployed hash/headers checks (November 8, 2026)
 - [x] Owner-only judge access readiness checks separate credentials and expiration through official 15 December 2026 16:00 UTC judging end without returning secrets; public guide accurately distinguishes judge read-only Sandbox evidence from organizer-only payment operations (November 7, 2026)
 - [x] Enforced hash-authorized CSP on public homepage and judge walkthrough; public demo network blocked, third-party scripts/eval forbidden, public HTML no-store, live release gate checks exact served script SHA-256 and CSP directives (November 7, 2026)
 - [x] Fail-closed PayPal Sandbox upstream parsing: reject non-object OAuth/API responses, unsafe bearer values, malformed approval links and order IDs; prevalidate trusted hosted return URLs before creating payment attempts, preserve manual reconciliation after ambiguity (November 6, 2026)

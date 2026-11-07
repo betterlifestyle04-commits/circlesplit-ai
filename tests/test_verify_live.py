@@ -124,6 +124,7 @@ def test_missing_commit_is_not_assumed_current(hosted):
     "/static/judge_walkthrough.js",
     "/",
     "/judge",
+    "/participant",
 ])
 def test_missing_public_assets_or_pages_fail_release(hosted, path):
     fetch, calls = transport(hosted, rewrite=lambda p, r:
@@ -262,7 +263,7 @@ def test_wait_rejects_invalid_argument_before_any_http():
     assert calls == []
 
 
-@pytest.mark.parametrize("path",["/","/judge"])
+@pytest.mark.parametrize("path",["/","/judge","/participant"])
 def test_missing_public_csp_must_fail_live_release_gate(hosted,path):
     fetch,_=transport(hosted,rewrite=lambda p,r:
         replace(r,headers={k:v for k,v in r.headers.items()
@@ -272,7 +273,7 @@ def test_missing_public_csp_must_fail_live_release_gate(hosted,path):
             "missing strict CSP",retryable=False)
 
 
-@pytest.mark.parametrize("path",["/","/judge"])
+@pytest.mark.parametrize("path",["/","/judge","/participant"])
 def test_reintroduced_inline_script_permission_fails_release_gate(hosted,path):
     fetch,_=transport(hosted,rewrite=lambda p,r:
         replace(r,headers={**r.headers,"content-security-policy":
@@ -294,6 +295,7 @@ def test_wrong_deployed_public_script_hash_fails_even_when_html_is_http_200(host
 @pytest.mark.parametrize("path,network_value",[
     ("/","connect-src 'self'"),
     ("/judge","connect-src *"),
+    ("/participant","connect-src *"),
 ])
 def test_broadened_public_connect_src_fails_release_gate(hosted,path,network_value):
     original="connect-src 'none'" if path=="/" else "connect-src 'self'"
@@ -305,10 +307,52 @@ def test_broadened_public_connect_src_fails_release_gate(hosted,path,network_val
             "incorrect public network policy",retryable=False)
 
 
-@pytest.mark.parametrize("path",["/","/judge"])
+@pytest.mark.parametrize("path",["/","/judge","/participant"])
 def test_cached_public_html_is_not_release_ready(hosted,path):
     fetch,_=transport(hosted,rewrite=lambda p,r:
         replace(r,headers={**r.headers,"cache-control":"public, max-age=86400"})
         if p==path else r)
     failure(lambda:verify_once("https://demo.example",SHA,fetch=fetch),
             "public HTML must not be cached",retryable=False)
+
+
+def test_tampered_participant_script_body_fails_before_any_private_requests(hosted):
+    fetch, calls = transport(hosted, rewrite=lambda path, result:
+        replace(result, body=result.body.replace(
+            b"<script>", b"<script>\nconsole.log('injected participant code');", 1
+        )) if path == "/participant" else result)
+    failure(lambda: verify_once("https://demo.example", SHA, fetch=fetch),
+            "CSP hash does not match", retryable=False)
+    assert ("GET", "/participant") in calls
+    assert all(p not in PRIVATE_PATHS for _, p in calls)
+
+
+def test_participant_response_must_remain_private_even_if_no_store(hosted):
+    fetch, _ = transport(hosted, rewrite=lambda path, result:
+        replace(result, headers={**result.headers,
+            "cache-control": "public, no-store, max-age=0"})
+        if path == "/participant" else result)
+    failure(lambda: verify_once("https://demo.example", SHA, fetch=fetch),
+            "invitation HTML must be private", retryable=False)
+
+
+def test_participant_response_must_keep_no_referrer_policy(hosted):
+    fetch, _ = transport(hosted, rewrite=lambda path, result:
+        replace(result, headers={**result.headers,
+            "referrer-policy": "origin"})
+        if path == "/participant" else result)
+    failure(lambda: verify_once("https://demo.example", SHA, fetch=fetch),
+            "invitation URLs must not leak", retryable=False)
+
+
+def test_participant_script_policy_cannot_be_replaced_by_legacy_unsafe_inline(hosted):
+    old_policy = (
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+        "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    )
+    fetch, _ = transport(hosted, rewrite=lambda path, result:
+        replace(result, headers={**result.headers,
+            "content-security-policy": old_policy})
+        if path == "/participant" else result)
+    failure(lambda: verify_once("https://demo.example", SHA, fetch=fetch),
+            "missing strict CSP|public scripts must use", retryable=False)

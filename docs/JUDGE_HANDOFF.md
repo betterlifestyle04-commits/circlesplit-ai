@@ -33,7 +33,11 @@ PayPal/Gemini connectivity, data durability, buyer approval, or capture.
 The **public** planning example has a $10 fictional budget shared among
 three people, allocated as $3.34, $3.33, and $3.33, in exact cents.
 Private invitation consent should be tested with fictional data; never put
-bearer invitations in public issue comments or test recordings.
+bearer invitations in public issue comments or test recordings. The
+participant invitation page is served with a hash-locked script policy,
+private no-store caching and no-referrer headers. This limits browser
+exposure but does **not** verify participant identity or make
+bearer links safe to share publicly.
 
 
 **Never put judge passwords in this public file, the project description or the YouTube video.**

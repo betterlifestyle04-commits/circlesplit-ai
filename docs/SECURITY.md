@@ -33,39 +33,44 @@ after deployment; they cannot prove or refute old provider results.
 
 ## Public page CSP with exact inline-script hashes (November 7, 2026)
 
-The anonymous `/` demo and `/judge` walkthrough now receive
-`Content-Security-Policy` from `security.protect_response`, with
-relevant source directives constructed in `csp.py`. Both require
-`default-src 'none'`, `base-uri 'none'`, `object-src 'none'`,
-`frame-ancestors 'none'`, `form-action 'none'`,
-and `script-src 'self'` without `unsafe-inline`, `unsafe-eval`,
-remote origins or wildcard permission. Only the homepage's one
-repository-owned inline script is permitted, using a SHA-256 derived
-from its exact deployed UTF-8 source. Additional injected inline
-scripts, inline onload/onclick handlers, or mutated script source
-will not execute under the original policy.
+The three anonymous entry pages `/`, `/judge`, and `/participant`
+receive an enforced `Content-Security-Policy` from
+`security.protect_response`, with source directives built in
+`csp.py`. They require `default-src 'none'`, `base-uri 'none'`,
+`object-src 'none'`, `frame-ancestors 'none'`,
+`form-action 'none'`, and no remote/wildcard/unsafe-inline/
+unsafe-eval JavaScript. Both the public fictional planner and
+private-invitation page have exactly one inline program, each
+authorized by a SHA-256 of its deployed UTF-8 bytes.
+The public judge guide has no inline script and loads only its
+first-party, allowlisted JavaScript module. Injected, modified or
+additional inline JavaScript won't match the original hash.
 
-The public fictional planner has `connect-src 'none'` to prevent
-unexpected browser network/API calls. The guide permits
-`connect-src 'self'` for a local health check. Both pages set
-`Cache-Control: public, no-store, max-age=0` to avoid HTML/CSP drift
-between Render deployments. Public external JavaScript remains limited
-by existing exact-path hosted access controls; private workspace code
-and APIs stay behind Basic authentication.
+`/` uses `connect-src 'none'` because the fictional planner never
+contacts the server. `/judge` uses `connect-src 'self'` solely for
+its health check. `/participant` also uses `connect-src 'self'`
+to fetch invitation details, record fictional consent/RSVP and
+download an event calendar from the same-origin API. An
+invitation's bearer token is not embedded in the HTML.
+The private invitation HTML requires
+`Cache-Control: private, no-store, max-age=0` and
+`Referrer-Policy: no-referrer`. The public demo and judge guide
+use `public, no-store, max-age=0` to avoid HTML/CSP mismatch
+between Render revisions.
 
-CSP is not a general substitute for XSS-safe DOM updates, server
-authorization, CSRF defenses, or isolated per-user accounts. CSS
-retains `style-src 'unsafe-inline'` for existing style attributes.
-The protected organizer workspace's legacy inline handlers are
-**not** covered by the strict public CSP, and the participant portal
-still uses its previous inline-script policy. A separate migration
-is needed to eliminate these residual allowances.
+CSS continues to use `style-src 'unsafe-inline'` to support existing
+style attributes; only the **JavaScript** policy is hash-based.
+The organizer workspace is authenticated but has historical
+inline event handlers; it is **not** covered by this strict CSP.
+A future migration should remove those remaining allowances.
+CSP cannot replace server-side authorization, validated consent,
+true identity verification, CSRF controls, or durable payment records.
 
-Offline FastAPI tests verify the served hashes independently, CSP
-directives, blocked simulated injection, page cache rules and private
-route separation. The GitHub Actions public live-release gate
-recomputes the SHA-256 from the **served** HTML and fails on missing,
-weakened or mismatched CSP, without credentials or payment requests.
+The offline FastAPI tests and anonymous GitHub Actions release gate
+independently recompute SHA-256 from **served** HTML and reject
+missing/unsafe CSP, changed JS, overly broad API connectivity,
+inappropriate shared caching and invitation referrer leaks.
+No credentials or payment requests are needed for these checks.
 
 ## PayPal Sandbox upstream and callback input validation (November 6, 2026)
 
