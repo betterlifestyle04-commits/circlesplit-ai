@@ -10,6 +10,27 @@ This repo is a hackathon **prototype**, not an online payment platform. All user
 - The PayPal webhook is exempt from judge Basic auth because PayPal cannot send judge credentials, but its signature must be verified by PayPal before any state change.
 
 
+## Owner-only judge access expiry readiness (November 7, 2026)
+
+An authenticated `GET /api/judge-access-readiness` endpoint permits
+only the owner role on hosted Render. It returns **no usernames, raw
+passwords, hashes or environment values**. The pure checker
+(`judge_access.py`) evaluates whether a separate judge login is
+enabled, distinct from owner credentials, configured with the minimum
+password length and has a valid timezone-aware expiry covering the
+official 15 December 2026, 16:00 UTC judging end.
+
+Both anonymous requests and requests with time-limited judge Basic
+auth cannot inspect the configuration (HTTP 401/403). This route
+performs no provider calls or payment database mutations. Its
+`ready_for_judging` result only assesses configuration; it does not
+perform a real login or guarantee service availability. Owners must
+independently use incognito to test the actual judge login. Existing
+middleware still blocks all judge-initiated PayPal Sandbox POST
+actions, and the public judge walkthrough clearly labels this
+limitation. Current capture counts in ephemeral SQLite may be reset
+after deployment; they cannot prove or refute old provider results.
+
 ## Public page CSP with exact inline-script hashes (November 7, 2026)
 
 The anonymous `/` demo and `/judge` walkthrough now receive
