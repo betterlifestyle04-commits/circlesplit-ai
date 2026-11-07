@@ -11,19 +11,22 @@ Sample response (illustrative, not a live result):
 
 ## Public browser CSP validation
 
-The automatic main-branch release gate verifies that the public demo
-and judge walkthrough enforce their Content Security Policies in
-addition to checking source revision and authorization boundaries.
-It independently hashes the actual inline JavaScript served by the
-homepage and compares it with the `script-src 'sha256-…'` directive.
-It rejects `unsafe-inline` or `unsafe-eval` in the public
-`script-src`, missing frame/base/form protections, or broader
-`connect-src` policies. The public demo permits no network calls;
-the judge guide permits same-origin checks only.
+The automatic main-branch gate checks CSP on all three anonymously
+served entry pages: public planner (`/`), judge guide (`/judge`)
+and the invitation portal (`/participant`). It independently
+hashes the **actual served** inline JavaScript in both the planner and
+invitation portal and compares each with its `script-src 'sha256-…'`.
+It rejects `unsafe-inline`, `unsafe-eval`, missing frame/base/form
+protections, or broader `connect-src` permissions. The public planner
+cannot use browser network APIs; the judge guide and participant
+portal can reach only same-origin endpoints.
 
-This confirms header/source consistency, **not** that all browser
-behavior has been exercised or that the organizer workspace has
-a strict CSP. Existing CSS continues to use inline styles.
+The invitation portal also requires `private, no-store` caching and
+`Referrer-Policy: no-referrer` to prevent shared-cache or referral
+exposure of invitation metadata. This confirms served policy/source
+consistency—not that all interactive browser flows were executed, nor
+that the organizer workspace has a strict CSP. Embedded CSS still
+uses inline style allowances.
 
 ## Automatic checks on main
 
