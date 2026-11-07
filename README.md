@@ -42,6 +42,27 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Judge access is separate from organizer payment authority
+
+The hosted testing workspace has separate owner and time-limited
+judge credentials. Judges can inspect fictional planning, test Gemini
+when configured, review simulated contributions and read-only local
+payment diagnostics. **Only owner credentials may create, capture,
+or reconcile PayPal Sandbox orders.** The judge walkthrough no longer
+instructs a reviewer to attempt a prohibited payment. Actual provider
+evidence belongs in the authentic under-three-minute video, not a
+fabricated simulation.
+
+Before submission the organizer may select **Check judge login expiry**
+in the protected workspace. A private, owner-only
+`GET /api/judge-access-readiness` check reports no usernames or
+passwords. It verifies that separate judge access is enabled and its
+expiry covers the official judging end **15 December 2026, 16:00 UTC**.
+This is a **configuration check**, not proof of successful real login.
+Open a separate incognito window with real judge credentials to
+independently verify access; store all credentials only in Render
+secrets and the permitted private Devpost field.
+
 ## Strict Content Security Policy for public pages
 
 The public `/` demo and `/judge` walkthrough now return an enforced
