@@ -83,10 +83,12 @@ def protect_response(response, path):
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
     if response.status_code == 200 and path in PUBLIC_PAGE_CSP:
-        # No untrusted inline JavaScript or cross-origin network access
-        # from the fictional demo. The judge guide can fetch only /health.
+        # Hash-authorize exactly the deployed inline program(s) on each
+        # public page. The participant page still needs same-origin API calls;
+        # its HTML is private and must never be stored by shared caches.
         response.headers["Content-Security-Policy"] = PUBLIC_PAGE_CSP[path]
-        response.headers["Cache-Control"] = "public, no-store, max-age=0"
+        cache_scope = "private" if path == "/participant" else "public"
+        response.headers["Cache-Control"] = cache_scope + ", no-store, max-age=0"
     # Public approved JavaScript may be cached only according to the
     # explicit application policy. Failed auth for OTHER static resources
     # must not be cached (even by intermediary browsers/proxies).
