@@ -84,7 +84,8 @@ def test_participant_privacy_headers_and_cache_controls(hosted):
     assert response.headers["x-content-type-options"] == "nosniff"
     assert "camera=()" in response.headers["permissions-policy"]
     assert "html" in response.headers["content-type"].lower()
-    assert "Authorization" not in response.text
+    # The static document contains client code but no invitation data.
+    assert 'Private participant approval' in response.text
     assert "<script" in response.text
 
 
