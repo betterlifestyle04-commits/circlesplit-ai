@@ -1976,7 +1976,7 @@ function render(){
  const roleBanner=el("sandbox-role-banner");
  if(roleBanner){
   roleBanner.style.display=sandboxOwner?"none":"block";
-  roleBanner.textContent=sandboxOwner?"":"Judge testing mode: planning, Gemini review, simulations and read-only local payment evidence are available. Creating, capturing or reconciling PayPal Sandbox orders is organizer-only. Inspect the completed test in the demo video; a stored capture may disappear after redeploy.";
+  roleBanner.textContent=sandboxOwner?"":"Judge testing mode: planning, Gemini review, simulations and read-only local payment evidence are available. Creating, capturing or reconciling PayPal Sandbox orders requires organizer credentials. Inspect the completed test in the demo video; a stored capture may disappear after redeploy.";
  }
  const accessTools=el("judge-access-tools");if(accessTools)accessTools.style.display=sandboxOwner?"block":"none";
  const exportButton=el("recovery-export");if(exportButton)exportButton.disabled=!sandboxOwner;
