@@ -356,3 +356,34 @@ def test_participant_script_policy_cannot_be_replaced_by_legacy_unsafe_inline(ho
         if path == "/participant" else result)
     failure(lambda: verify_once("https://demo.example", SHA, fetch=fetch),
             "missing strict CSP|public scripts must use", retryable=False)
+
+
+def test_guide_missing_browser_math_asset_reference_blocks_live_gate(hosted):
+    fetch,_=transport(hosted,rewrite=lambda p,r:
+        replace(r,body=r.body.replace(
+            b'<script src="/static/public_recovery.js"></script>',
+            b"",1))
+        if p=="/judge" else r)
+    failure(lambda:verify_once("https://demo.example",SHA,fetch=fetch),
+            "browser math module must load before",retryable=False)
+
+
+def test_guide_reversed_script_order_fails_release_gate(hosted):
+    fetch,_=transport(hosted,rewrite=lambda p,r:
+        replace(r,body=r.body.replace(
+            b'<script src="/static/public_recovery.js"></script>\n'
+            b'<script src="/static/judge_walkthrough.js"></script>',
+            b'<script src="/static/judge_walkthrough.js"></script>\n'
+            b'<script src="/static/public_recovery.js"></script>',1))
+        if p=="/judge" else r)
+    failure(lambda:verify_once("https://demo.example",SHA,fetch=fetch),
+            "browser math module must load before",retryable=False)
+
+
+def test_guide_missing_local_check_control_fails_release_gate(hosted):
+    fetch,_=transport(hosted,rewrite=lambda p,r:
+        replace(r,body=r.body.replace(
+            b'id="judge-run-local-tests"',b'id="missing-math-action"',1))
+        if p=="/judge" else r)
+    failure(lambda:verify_once("https://demo.example",SHA,fetch=fetch),
+            "missing accessible local verification controls",retryable=False)
