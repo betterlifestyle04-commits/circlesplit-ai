@@ -184,6 +184,18 @@ def _verify_public_csp(path, result, html):
         ).decode("ascii") + "'"
         _expect(expected_hash in script.split(),
                 f"{path}: deployed CSP hash does not match inline JavaScript")
+    if path == "/judge":
+        # This walkthrough must load its real, already-public browser math
+        # module before the controller. Otherwise the new one-click checks
+        # would silently report "unavailable" despite an HTTP 200 page.
+        recovery = '<script src="/static/public_recovery.js"></script>'
+        walkthrough = '<script src="/static/judge_walkthrough.js"></script>'
+        _expect(html.count(recovery) == 1 and html.count(walkthrough) == 1
+                and html.index(recovery) < html.index(walkthrough),
+                "/judge: browser math module must load before judge controller")
+        _expect('id="judge-run-local-tests"' in html and
+                'id="judge-math-status"' in html,
+                "/judge: missing accessible local verification controls")
 
 
 def verify_once(base, expected_sha, fetch=request_once, timeout=10.0):
