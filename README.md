@@ -42,6 +42,25 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000. Test credentials go in server environment variables, **never GitHub**.
 
+## Judge-friendly 5-check browser math verification
+
+The no-login [judge walkthrough](https://circlesplit-ai-demo.onrender.com/judge)
+now offers a **Run 5 local math checks** button. It executes the
+**same** first-party `public_recovery.js` arithmetic code as the public
+planner and reports transparent pass/fail results for $10 split among
+three participants, $220 / 20-person equal shares, weighted cents,
+and 2- and 5-person no-show recovery at a $12 share cap.
+
+This is a **read-only browser-local** check: no provider request,
+API call, credentials, storage writes, participant approvals, or
+payment verification. It does not attest that Gemini is available,
+that a PayPal Sandbox capture completed, or that real users tested
+the product. Reviewers can still independently interact with the
+public planner and review genuine provider evidence in the video.
+The main-branch live-release gate now verifies that the arithmetic
+module is loaded **before** the judge controller, and that the
+accessible check controls remain on the page.
+
 ## Judge access is separate from organizer payment authority
 
 The hosted testing workspace has separate owner and time-limited
