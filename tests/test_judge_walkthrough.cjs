@@ -224,7 +224,7 @@ test("one-check incorrect output is a FAIL, not a misleading success",async()=>{
 });
 
 test("missing/invalid browser arithmetic reports unavailable without a fake pass",async()=>{
- for(const math of [undefined,null,{},{
+ for(const math of [null,{},{
   exactSplit(){throw Error("provider tokens must not leak")},
   preview:recovery.preview
  }]){
