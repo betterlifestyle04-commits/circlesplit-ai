@@ -22,7 +22,18 @@ do **not** change current approvals, participation, or any PayPal order.
 ## Guided browser walkthrough (no credentials)
 
 Open the public [judge guide](https://circlesplit-ai-demo.onrender.com/judge)
-for a five-step interactive navigation panel. Its progress labels are
+for a five-step interactive navigation panel. Step 1 now includes
+**Run 5 local math checks**, a one-click, independently readable
+PASS/FAIL view using the public planner's real arithmetic library.
+It verifies the documented $10 / 3-person exact-cent result,
+$220 / 20-person equal split, weighted remainder allocation, and
+$12-cap attendance replacement requirements (2 no-shows → 1
+fictional replacement; 5 no-shows → 4). The checks operate on
+hard-coded fictional input entirely in the reviewer's browser.
+They never call PayPal, Gemini, the server, or a participant API,
+and do **not** prove that the real payment integration works.
+The reviewer's progress checkboxes remain manual and are never
+automatically marked completed by these math checks. Its progress labels are
 page-local **manual checkmarks**, not automated assertions or submission
 confirmation, and reset on page reload. Every stage has a link to its
 detailed testing instructions. Judges can copy the fictional Gemini example
