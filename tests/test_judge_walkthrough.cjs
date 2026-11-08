@@ -3,14 +3,16 @@ const {test}=require("node:test");
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
-const {STEPS,SAMPLE_PROMPT,progress,verifiedPublicHealth,checkPublicSource,setupJudgeUI}
+const {STEPS,SAMPLE_PROMPT,progress,verifiedPublicHealth,checkPublicSource,
+       runLocalMathChecks,setupJudgeUI}
  =require("../static/judge_walkthrough.js");
+const recovery=require("../static/public_recovery.js");
 
 const html=fs.readFileSync(path.join(__dirname,"../static/judge.html"),"utf8");
 const GIT_SHA="84c3de492a6b31a00d5396031517db31c1f62fbd";
 
 function harness({health={status:"ok",mode:"sandbox-only",git_commit:GIT_SHA},
-                 clipboardEnabled=true}={}){
+                 clipboardEnabled=true,math=recovery}={}){
  const elements=new Map(),calls=[],copied=[];
  function element(id){
   if(!elements.has(id)){
@@ -41,7 +43,7 @@ function harness({health={status:"ok",mode:"sandbox-only",git_commit:GIT_SHA},
   return {ok:health!==null,json:async()=>health};
  };
  const clip=clipboardEnabled?{async writeText(value){copied.push(value)}}:null;
- const ui=setupJudgeUI(doc,fetchFn,clip);
+ const ui=setupJudgeUI(doc,fetchFn,clip,math);
  return {element,buttons,calls,copied,ui};
 }
 
@@ -165,4 +167,97 @@ test("public judge guide truthfully separates readonly judge role from organizer
  assert.match(STEPS[3].scope,/Read-only judge view/);
  assert.match(STEPS[3].expected,/organizer-run Sandbox demo video/);
  assert.doesNotMatch(STEPS[3].expected,/Use ONLY a PayPal Sandbox personal buyer account/);
+});
+
+
+test("public judge guide loads real browser-only recovery code before judge UI",()=>{
+ const first=html.indexOf('<script src="/static/public_recovery.js"></script>');
+ const second=html.indexOf('<script src="/static/judge_walkthrough.js"></script>');
+ assert(first>=0&&second>first,"Real math module must be loaded first");
+ assert.match(html,/id="judge-run-local-tests"/);
+ assert.match(html,/id="judge-math-status"[^>]*role="status" aria-live="polite"/);
+ assert.match(html,/id="judge-math-results"/);
+ assert.match(html,/No network, Gemini or PayPal/);
+ assert.match(html,/5 local math checks/);
+});
+
+test("judge self-check runs five real browser arithmetic examples without network or writes",async()=>{
+ const before=JSON.stringify(recovery);
+ const h=harness();
+ await h.element("judge-run-local-tests").click();
+ const status=h.element("judge-math-status").textContent;
+ const report=h.element("judge-math-results").textContent;
+ assert.match(status,/PASS: 5\/5 browser-only math checks passed/);
+ assert.match(status,/No network, Gemini or PayPal/);
+ assert.equal(report.split("\n").length,5);
+ assert.equal((report.match(/PASS —/g)||[]).length,5);
+ assert.match(report,/\$3\.34 \+ \$3\.33 \+ \$3\.33/);
+ assert.match(report,/\$50\.00 \+ \$33\.34 \+ \$16\.67/);
+ assert.match(report,/1 fictional replacement/);
+ assert.match(report,/4 fictional replacements/);
+ assert.deepEqual(h.calls,[],"Must not call the health endpoint or a provider");
+ assert.equal(h.element("judge-run-local-tests").disabled,false);
+ assert.equal(JSON.stringify(recovery),before);
+ assert.equal(h.ui.progress().completed,0,"Math checks are not automatically judge-reviewed");
+});
+
+test("one-check incorrect output is a FAIL, not a misleading success",async()=>{
+ const modified={
+  exactSplit(...args){
+   if(args[0]===1000) return [333,333,334];
+   return recovery.exactSplit(...args);
+  },
+  preview:recovery.preview
+ };
+ const result=runLocalMathChecks(modified);
+ assert.equal(result.mode,"BROWSER_LOCAL_MATH_CHECKS");
+ assert.equal(result.total,5);
+ assert.equal(result.passed,4);
+ assert.equal(result.success,false);
+ assert.equal(result.checks[0].passed,false);
+ assert.match(result.checks[0].detail,/did not match/);
+ const h=harness({math:modified});
+ await h.element("judge-run-local-tests").click();
+ assert.match(h.element("judge-math-status").textContent,/FAIL: 4\/5/);
+ assert.match(h.element("judge-math-results").textContent,/FAIL —/);
+ assert.deepEqual(h.calls,[]);
+});
+
+test("missing/invalid browser arithmetic reports unavailable without a fake pass",async()=>{
+ for(const math of [undefined,null,{},{
+  exactSplit(){throw Error("provider tokens must not leak")},
+  preview:recovery.preview
+ }]){
+  const h=harness({math});
+  await h.element("judge-run-local-tests").click();
+  if(math?.exactSplit){
+   assert.match(h.element("judge-math-status").textContent,/FAIL:/);
+   assert.match(h.element("judge-math-results").textContent,/Calculation unavailable/);
+  }else{
+   assert.match(h.element("judge-math-status").textContent,/UNAVAILABLE/);
+   assert.equal(h.element("judge-math-results").textContent,"");
+  }
+  assert.equal(h.element("judge-run-local-tests").disabled,false);
+  assert.deepEqual(h.calls,[]);
+  assert.doesNotMatch(h.element("judge-math-results").textContent,/provider tokens must not leak/);
+ }
+});
+
+test("browser math self-check exposes no payment or invitation identifiers",()=>{
+ const result=runLocalMathChecks(recovery);
+ assert(result.success);
+ assert.deepEqual(result.checks.map(x=>x.id),[
+  "equal-cent-rounding","volleyball-equal","weighted-remainders",
+  "two-no-shows","five-no-shows"
+ ]);
+ assert.equal(result.passed,5);
+ assert.equal(result.total,5);
+ assert.equal(result.checks.every(x=>x.passed===true),true);
+ const serialized=JSON.stringify(result).toLowerCase();
+ for(const forbidden of ["capture_id","order_id","access_token",
+                           "private key","paypal.com","gemini_api_key"]){
+  assert(!serialized.includes(forbidden),forbidden);
+ }
+ assert.equal(result.notice,
+  "Fictional browser math only. No server, Gemini or PayPal verification.");
 });
