@@ -177,7 +177,7 @@ test("public judge guide loads real browser-only recovery code before judge UI",
  assert.match(html,/id="judge-run-local-tests"/);
  assert.match(html,/id="judge-math-status"[^>]*role="status" aria-live="polite"/);
  assert.match(html,/id="judge-math-results"/);
- assert.match(html,/No network, Gemini or PayPal/);
+ assert.match(html,/no credentials, network calls, account changes/);
  assert.match(html,/5 local math checks/);
 });
 
