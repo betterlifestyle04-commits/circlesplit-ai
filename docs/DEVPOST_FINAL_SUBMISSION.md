@@ -19,6 +19,10 @@ https://paypalaihackathon.devpost.com/
 
 - [x] Public working demo: https://circlesplit-ai-demo.onrender.com/
 - [x] Public reviewer walkthrough: https://circlesplit-ai-demo.onrender.com/judge
+  - Step 1 now includes a one-click **Run 5 local math checks**
+    verification for fictional exact-cent and no-show math; judges
+    can reproduce this without credentials. These are not Gemini
+    or PayPal integration tests.
 - [x] Public source, runnable setup and MIT license:
   https://github.com/betterlifestyle04-commits/circlesplit-ai
 - [x] Source describes both Google Gemini AI and PayPal **Sandbox** Orders v2.

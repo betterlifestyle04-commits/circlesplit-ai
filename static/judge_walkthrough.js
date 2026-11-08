@@ -56,7 +56,116 @@
     return verifiedPublicHealth(await response.json());
   }
 
-  function setupJudgeUI(doc, fetchFn, clipboard) {
+
+  function runLocalMathChecks(math) {
+    // Operates only on hard-coded fictional in-memory inputs; no fetch,
+    // localStorage, participant tokens or external provider is involved.
+    if (!math || typeof math.exactSplit !== "function" ||
+        typeof math.preview !== "function") {
+      throw Error("Local arithmetic module unavailable");
+    }
+    const participants = n => Array.from({length:n},(_,index)=>({
+      id:index+10,weight:1
+    }));
+    const cases = [
+      {
+        id:"equal-cent-rounding",
+        label:"$10 / 3 exact-cent allocation",
+        evaluate(){
+          const result=math.exactSplit(1000,participants(3),"equal");
+          const correct=Array.isArray(result) && result.length===3 &&
+            result[0]===334 && result[1]===333 && result[2]===333 &&
+            result.reduce((a,b)=>a+b,0)===1000;
+          return {correct,detail:correct?"$3.34 + $3.33 + $3.33 = $10.00":
+            "Exact cents did not match the expected distribution"};
+        }
+      },
+      {
+        id:"volleyball-equal",
+        label:"$220 / 20 volleyball budget",
+        evaluate(){
+          const result=math.exactSplit(22000,participants(20),"equal");
+          const correct=Array.isArray(result) && result.length===20 &&
+            result.every(v=>v===1100) &&
+            result.reduce((a,b)=>a+b,0)===22000;
+          return {correct,detail:correct?"20 × $11.00 = $220.00":
+            "Volleyball allocation did not balance"};
+        }
+      },
+      {
+        id:"weighted-remainders",
+        label:"Weighted largest-remainder allocation",
+        evaluate(){
+          const result=math.exactSplit(10001,[
+            {id:10,weight:3},{id:11,weight:2},{id:12,weight:1}
+          ],"weighted");
+          const correct=Array.isArray(result) && result.length===3 &&
+            result[0]===5000 && result[1]===3334 && result[2]===1667 &&
+            result.reduce((a,b)=>a+b,0)===10001;
+          return {correct,detail:correct?"$50.00 + $33.34 + $16.67 = $100.01":
+            "Weighted shares or remainder allocation were inconsistent"};
+        }
+      },
+      {
+        id:"two-no-shows",
+        label:"2 absences with a $12 share cap",
+        evaluate(){
+          const people=participants(20),snapshot=JSON.stringify(people);
+          const result=math.preview({
+            total_cents:22000,people,strategy:"equal",
+            maximum_absent:5,max_share_cents:1200
+          });
+          const row=result?.projections?.[2];
+          const correct=result.mode==="BROWSER_LOCAL_FICTIONAL_DEMO" &&
+            result.read_only===true &&
+            result.first_target_breach_at_absences===2 &&
+            row?.absent_people===2 &&
+            row?.largest_share_cents===1223 &&
+            row?.minimum_replacements_needed===1 &&
+            JSON.stringify(people)===snapshot;
+          return {correct,detail:correct?"$12.23 largest share; 1 fictional replacement":
+            "Attendance simulation or read-only invariant differed"};
+        }
+      },
+      {
+        id:"five-no-shows",
+        label:"5 absences with a $12 share cap",
+        evaluate(){
+          const people=participants(20),snapshot=JSON.stringify(people);
+          const result=math.preview({
+            total_cents:22000,people,strategy:"equal",
+            maximum_absent:5,max_share_cents:1200
+          });
+          const row=result?.projections?.[5];
+          const correct=result.mode==="BROWSER_LOCAL_FICTIONAL_DEMO" &&
+            result.read_only===true &&
+            row?.absent_people===5 && row?.largest_share_cents===1467 &&
+            row?.minimum_replacements_needed===4 &&
+            JSON.stringify(people)===snapshot;
+          return {correct,detail:correct?"$14.67 largest share; 4 fictional replacements":
+            "Five-absence response or read-only invariant differed"};
+        }
+      }
+    ];
+    const checks=cases.map(check=>{
+      try {
+        const result=check.evaluate();
+        return {id:check.id,label:check.label,
+          passed:result.correct===true,detail:result.detail};
+      } catch (_err) {
+        return {id:check.id,label:check.label,passed:false,
+          detail:"Calculation unavailable or returned an invalid result"};
+      }
+    });
+    const passed=checks.filter(check=>check.passed).length;
+    return {
+      mode:"BROWSER_LOCAL_MATH_CHECKS",
+      total:checks.length,passed,success:passed===checks.length,checks,
+      notice:"Fictional browser math only. No server, Gemini or PayPal verification."
+    };
+  }
+
+  function setupJudgeUI(doc, fetchFn, clipboard, math) {
     const $ = id => doc.getElementById(id);
     const navigation = [...doc.querySelectorAll("[data-judge-step]")];
     const view = {
@@ -66,7 +175,10 @@
       previous: $("judge-prev"), next: $("judge-next"),
       detail: $("judge-step-detail"), status: $("judge-status"),
       check: $("judge-source-check"), health: $("judge-source-status"),
-      copy: $("judge-copy-prompt")
+      copy: $("judge-copy-prompt"),
+      mathButton: $("judge-run-local-tests"),
+      mathStatus: $("judge-math-status"),
+      mathResults: $("judge-math-results")
     };
     if (navigation.length !== STEPS.length ||
         Object.values(view).some(value => !value)) {
@@ -114,6 +226,26 @@
     view.next.addEventListener("click", () => {
       if (current < STEPS.length - 1) { current += 1; render(); }
     });
+    view.mathButton.addEventListener("click", () => {
+      view.mathButton.disabled=true;
+      try {
+        const report=runLocalMathChecks(math);
+        view.mathStatus.textContent=report.success ?
+          "PASS: "+report.passed+"/"+report.total+
+          " browser-only math checks passed. No network, Gemini or PayPal calls." :
+          "FAIL: "+report.passed+"/"+report.total+
+          " browser-only math checks passed. Review the failed tests below.";
+        view.mathResults.textContent=report.checks.map(check=>
+          (check.passed?"PASS":"FAIL")+" — "+check.label+": "+check.detail
+        ).join("\n");
+      } catch (_err) {
+        view.mathStatus.textContent=
+          "UNAVAILABLE: Public arithmetic code could not be loaded. No payment or server tests were run.";
+        view.mathResults.textContent="";
+      } finally {
+        view.mathButton.disabled=false;
+      }
+    });
     view.copy.addEventListener("click", async () => {
       try {
         if (!clipboard || typeof clipboard.writeText !== "function") {
@@ -150,11 +282,11 @@
   }
 
   const api = { STEPS, SAMPLE_PROMPT, progress, verifiedPublicHealth,
-                checkPublicSource, setupJudgeUI };
+                checkPublicSource, runLocalMathChecks, setupJudgeUI };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else {
     root.CircleSplitJudge = api;
     if (root.document) setupJudgeUI(root.document, root.fetch.bind(root),
-      root.navigator && root.navigator.clipboard);
+      root.navigator && root.navigator.clipboard, root.CircleSplitPublicRecovery);
   }
 })(typeof window !== "undefined" ? window : {});

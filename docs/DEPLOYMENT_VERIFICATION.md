@@ -28,6 +28,22 @@ consistency—not that all interactive browser flows were executed, nor
 that the organizer workspace has a strict CSP. Embedded CSS still
 uses inline style allowances.
 
+## Judge arithmetic module loading and self-check UI
+
+In addition to hash-authenticated public scripts, the release gate
+requires the public `/judge` document to load the audited
+`/static/public_recovery.js` arithmetic module **before**
+`/static/judge_walkthrough.js`. It also checks that the run button
+and accessible results status remain present. Missing or misordered
+resources cause an immediate non-retryable release failure rather
+than presenting a broken self-check to judges.
+
+These live checks validate HTTP output and static script ordering.
+The actual five example calculations and isolated browser UI behavior
+are tested in the separate Node suite. Neither proves actual Gemini
+model access, PayPal provider reachability, judge credential validity
+or the durability of the ephemeral database.
+
 ## Automatic checks on main
 
 A GitHub Actions job named **Live public release and authentication
