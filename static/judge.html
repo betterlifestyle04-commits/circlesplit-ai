@@ -79,6 +79,8 @@ button:focus-visible,a:focus-visible{outline:3px solid #14a988;outline-offset:3p
  <strong>Run the real browser arithmetic</strong>
  <p class="small" style="margin:7px 0 13px">Instantly check exact-cent equal and weighted allocations and attendance resilience using the same browser-only code as the public demo. Read-only: no credentials, network calls, account changes, or provider payments. These checks do not verify Gemini or PayPal.</p>
  <button type="button" class="btn primary" id="judge-run-local-tests">Run 5 local math checks</button>
+ <button type="button" class="btn" id="judge-copy-evidence" disabled>Copy verification summary</button>
+ <p class="small" id="judge-copy-evidence-status" role="status" aria-live="polite" style="margin:9px 0 0">Run the local math checks to enable a copyable, credential-free report. You can optionally check the source revision in step 5 first.</p>
  <p id="judge-math-status" class="small" role="status" aria-live="polite" style="margin:12px 0 0">Not run. Each result comes from this browser's public arithmetic functions.</p>
  <pre id="judge-math-results" style="white-space:pre-wrap;word-break:break-word;font:12px/1.7 ui-monospace,Consolas,monospace;margin:8px 0 0" aria-label="Per-check local arithmetic results"></pre>
 </div></section>
