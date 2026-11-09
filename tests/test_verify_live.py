@@ -387,3 +387,19 @@ def test_guide_missing_local_check_control_fails_release_gate(hosted):
         if p=="/judge" else r)
     failure(lambda:verify_once("https://demo.example",SHA,fetch=fetch),
             "missing accessible local verification controls",retryable=False)
+
+
+@pytest.mark.parametrize(("original", "replacement"), [
+    (b'id="judge-copy-evidence" disabled', b'id="missing-copy-action" disabled'),
+    (b'id="judge-copy-evidence-status"', b'id="missing-copy-status"'),
+    (b'id="judge-copy-evidence" disabled', b'id="judge-copy-evidence"'),
+])
+def test_guide_missing_or_prematurely_enabled_copy_control_blocks_release_gate(
+        hosted, original, replacement):
+    fetch, calls = transport(hosted, rewrite=lambda p, r:
+        replace(r, body=r.body.replace(original, replacement, 1))
+        if p == "/judge" else r)
+    failure(lambda: verify_once("https://demo.example", SHA, fetch=fetch),
+            "missing disabled-by-default evidence copy controls", retryable=False)
+    assert ("GET", "/judge") in calls
+    assert all(p not in PRIVATE_PATHS for _, p in calls)
