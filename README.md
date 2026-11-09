@@ -19,7 +19,12 @@ all required submission questions. See the
 [final Devpost submission handoff](docs/DEVPOST_FINAL_SUBMISSION.md)
 and [recordable 2:45 video plan](docs/VIDEO_DEMO_SCRIPT.md).
 Use the offline `python tools/submission_preflight.py` check to identify
-missing source/video prerequisites; it does not verify Devpost status.
+missing source/video prerequisites **and detect common credential exposure
+patterns in public-facing documents/HTML**. A finding blocks preflight but
+does not print the suspicious value. If one occurs, remove it and rotate
+any actually exposed credentials. The scan is deliberately limited:
+it is not a repository-wide secret audit, does not inspect the uploaded
+video, and cannot verify Devpost status.
 
 ## What it does
 - Organizer creates an event, records expenses and participants.

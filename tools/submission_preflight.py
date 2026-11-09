@@ -53,6 +53,42 @@ def youtube_video_id(value):
     return None
 
 
+# This is a narrow release gate for human-facing, publicly served artifacts.
+# It is not a repository-wide secret scanner or proof that video footage is safe.
+PUBLIC_MATERIALS = (
+    "README.md",
+    "docs/JUDGE_HANDOFF.md",
+    "docs/DEVPOST_FINAL_SUBMISSION.md",
+    "docs/VIDEO_DEMO_SCRIPT.md",
+    "static/public.html",
+    "static/judge.html",
+)
+SECRET_PATTERNS = (
+    # PEM blocks, API tokens and a credential accidentally pasted into an
+    # environment-variable assignment are never appropriate in public guides.
+    ("private_key", re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----")),
+    ("google_api_key", re.compile(r"AIza[0-9A-Za-z_-]{30,}")),
+    ("github_access_token", re.compile(
+        r"(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})")),
+    ("openai_api_key", re.compile(r"sk-(?:proj-)?[A-Za-z0-9_-]{20,}")),
+    ("bearer_value", re.compile(r"(?i)\bBearer[ \t]+[A-Za-z0-9._~+/-]{20,}")),
+    ("credential_assignment", re.compile(
+        r"(?im)\b(?:PAYPAL_CLIENT_SECRET|"
+        r"GEMINI_API_KEY|DEMO_PASSWORD|JUDGE_PASSWORD|"
+        r"CIRCLESPLIT_BACKUP_KEY)\b[ \t]*[:=][ \t]*['\"\x60]?\S+")),
+    ("private_invite_link", re.compile(
+        r"(?i)(?:[?&#](?:token|invite|invitation)=[A-Za-z0-9_-]{24,})")),
+)
+
+
+def public_credential_indicators(contents):
+    """Return indicator labels only; never return matched secret text."""
+    if not isinstance(contents, str):
+        return ()
+    return tuple(label for label, pattern in SECRET_PATTERNS
+                 if pattern.search(contents))
+
+
 def inspect(root=ROOT, video_url=""):
     root = Path(root)
     tests = []
@@ -81,6 +117,22 @@ def inspect(root=ROOT, video_url=""):
     script = source("docs/VIDEO_DEMO_SCRIPT.md")
     public = source("static/public.html")
     judge = source("static/judge.html")
+
+    # A public artifact that is missing or unreadable is caught by the
+    # corresponding existence/content checks; this gate checks only the
+    # material we can inspect. Never log or return matched credential text.
+    risks = {
+        filename: public_credential_indicators(source(filename))
+        for filename in PUBLIC_MATERIALS
+    }
+    check(
+        "Public materials do not contain detectable credentials",
+        not any(risks.values()),
+        "Scan README, public guides and browser HTML for private keys, "
+        "bearer tokens, invite links or credential assignments. If blocked, "
+        "remove the exposure and rotate the affected secret before release. "
+        "This is not a repository-wide audit, browser test, or video inspection."
+    )
 
     check(
         "Public open-source license",
