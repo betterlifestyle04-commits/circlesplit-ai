@@ -165,6 +165,40 @@
     };
   }
 
+  function formatLocalMathReport(report) {
+    // Accept only results with a consistent count. Never turn a failure
+    // into an apparently successful copyable report.
+    if (!report || report.mode !== "BROWSER_LOCAL_MATH_CHECKS" ||
+        !Array.isArray(report.checks) || report.total !== 5 ||
+        report.checks.length !== report.total ||
+        !Number.isSafeInteger(report.passed)) {
+      throw Error("No valid local arithmetic report");
+    }
+    const lines = report.checks.map(check => {
+      if (!check || typeof check.passed !== "boolean" ||
+          typeof check.label !== "string" || typeof check.detail !== "string") {
+        throw Error("Invalid local arithmetic check");
+      }
+      return (check.passed ? "PASS" : "FAIL") + " — " +
+        check.label + ": " + check.detail;
+    });
+    const actualPassed = report.checks.filter(check => check.passed).length;
+    if (report.passed !== actualPassed ||
+        report.success !== (actualPassed === report.total)) {
+      throw Error("Inconsistent local arithmetic report");
+    }
+    return [
+      "CircleSplit AI — browser-local arithmetic report",
+      "Result: " + (report.success ? "PASS" : "FAIL") +
+        " (" + report.passed + "/" + report.total + ")",
+      ...lines,
+      "",
+      "Scope: Fictional browser-only exact-cent and no-show calculations.",
+      "No server checks, Gemini calls, PayPal operations, captures or payment verification.",
+      "This report does not prove deployment health or organizer/participant authentication."
+    ].join("\n");
+  }
+
   function setupJudgeUI(doc, fetchFn, clipboard, math) {
     const $ = id => doc.getElementById(id);
     const navigation = [...doc.querySelectorAll("[data-judge-step]")];
@@ -178,7 +212,9 @@
       copy: $("judge-copy-prompt"),
       mathButton: $("judge-run-local-tests"),
       mathStatus: $("judge-math-status"),
-      mathResults: $("judge-math-results")
+      mathResults: $("judge-math-results"),
+      copyMath: $("judge-copy-math-report"),
+      copyMathStatus: $("judge-copy-math-status")
     };
     if (navigation.length !== STEPS.length ||
         Object.values(view).some(value => !value)) {
@@ -187,6 +223,8 @@
 
     let current = 0;
     let lastHealthCommit = null;
+    let latestMathReport = null;
+    view.copyMath.disabled = true;
     const reviewed = new Set();
     const render = () => {
       const step = STEPS[current];
@@ -228,8 +266,14 @@
     });
     view.mathButton.addEventListener("click", () => {
       view.mathButton.disabled=true;
+      view.copyMath.disabled=true;
+      view.copyMathStatus.textContent="Not copied. Rechecking fictional arithmetic…";
+      latestMathReport=null;
       try {
         const report=runLocalMathChecks(math);
+        latestMathReport=report;
+        view.copyMath.disabled=false;
+        view.copyMathStatus.textContent="Report ready to copy, including any failed checks.";
         view.mathStatus.textContent=report.success ?
           "PASS: "+report.passed+"/"+report.total+
           " browser-only math checks passed. No network, Gemini or PayPal calls." :
@@ -242,8 +286,25 @@
         view.mathStatus.textContent=
           "UNAVAILABLE: Public arithmetic code could not be loaded. No payment or server tests were run.";
         view.mathResults.textContent="";
+        view.copyMathStatus.textContent="No valid report to copy; arithmetic code unavailable.";
       } finally {
         view.mathButton.disabled=false;
+      }
+    });
+    view.copyMath.addEventListener("click", async () => {
+      if (!latestMathReport) {
+        view.copyMathStatus.textContent="Run the local math checks before copying.";
+        return;
+      }
+      try {
+        if (!clipboard || typeof clipboard.writeText !== "function") {
+          throw Error("Clipboard unavailable");
+        }
+        const reportText=formatLocalMathReport(latestMathReport);
+        await clipboard.writeText(reportText);
+        view.copyMathStatus.textContent="Copied actual browser-only pass/fail results and limitations.";
+      } catch (_err) {
+        view.copyMathStatus.textContent="Copy unavailable. Select the visible results manually.";
       }
     });
     view.copy.addEventListener("click", async () => {
@@ -282,7 +343,7 @@
   }
 
   const api = { STEPS, SAMPLE_PROMPT, progress, verifiedPublicHealth,
-                checkPublicSource, runLocalMathChecks, setupJudgeUI };
+                checkPublicSource, runLocalMathChecks, formatLocalMathReport, setupJudgeUI };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else {
     root.CircleSplitJudge = api;
