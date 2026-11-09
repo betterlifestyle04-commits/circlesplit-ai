@@ -1,6 +1,6 @@
 # CircleSplit AI — PayPal AI Hackathon final submission handoff
 
-**Status checked 7 November 2026 from the connected Devpost project:**
+**Status checked 9 November 2026 from the connected Devpost project:**
 The CircleSplit AI project is **published** at
 https://devpost.com/software/circlesplit-ai but the PayPal AI Hackathon
 entry currently has **no recorded \`submitted_at\`**. The project has
@@ -44,6 +44,16 @@ https://paypalaihackathon.devpost.com/
   orders; the organizer-run video supplies that evidence.
 - [ ] Click final **Submit** and independently confirm Devpost reports
   **Submitted** and/or the entry's \`submitted_at\` is populated.
+
+For the **actual finished recording**, install FFmpeg `ffprobe` locally
+and run `python tools/video_preflight.py "/path/to/finished-demo.mp4"`.
+You can also pass `--video-file "/path/to/finished-demo.mp4"` to
+`tools/submission_preflight.py`. A recording at least 180 seconds long,
+with ambiguous duration or without a moving-video track is blocked.
+This file-only check does not inspect the recording's images for personal
+information, test real providers, measure the uploaded YouTube transcode,
+or confirm Devpost submission. A genuine public YouTube video and your
+final submission remain mandatory.
 
 For a local, no-network inspection run:
 \`\`\`bash
