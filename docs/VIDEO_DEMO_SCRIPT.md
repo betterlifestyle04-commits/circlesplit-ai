@@ -50,6 +50,32 @@ editing/filming plan, not evidence that the video has already been made.
 typing and login screens. Avoid speeding up the required provider proof
 so much that a judge cannot read the real status.
 
+## Check the finished local recording before YouTube upload
+
+After recording and editing the **actual** footage, install FFmpeg's
+`ffprobe` command locally (it is not bundled with the Render service).
+Then run:
+
+```bash
+python tools/video_preflight.py "/path/to/actual-demo.mp4"
+python tools/submission_preflight.py --video-file "/path/to/actual-demo.mp4"
+```
+
+The first command checks actual file metadata and blocks files with
+unknown duration, no moving-video stream, or a duration **at least
+180 seconds**. It warns when the recording is longer than 175 seconds,
+below the recommended 720p resolution, or lacks an audio track.
+These are filming/legibility advisories, **not additional contest rules**.
+Both commands are offline and do not echo file paths or raw metadata.
+
+The combined command above will still report a **missing YouTube URL**
+until you upload. After upload, repeat it with
+`--video-url "https://youtu.be/ACTUAL_ID"`. That URL check is only a
+syntax check; the final YouTube transcode may differ from your local
+file. **Play the uploaded video signed out, measure the actual YouTube
+length, inspect every frame for private details, and confirm authentic
+Gemini/PayPal Sandbox evidence before submitting.**
+
 ## Video quality and authenticity checks
 
 - Record the **functioning browser application** in 1080p landscape
