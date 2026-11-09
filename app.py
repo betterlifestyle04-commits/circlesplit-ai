@@ -1917,11 +1917,27 @@ def import_people(eid: int, data: BulkPeopleInput):
 
 @app.post("/api/events/{eid}/people")
 def add_person(eid: int, data: PersonInput):
+    # Match the bulk-import boundary before touching the ledger: a 201st
+    # person would violate the 200-member deterministic allocation limit.
+    name = data.name.strip()
+    if len(name) < 2:
+        raise HTTPException(422, "Participant name must have at least two characters")
     with db() as c:
         event = require_event(c,eid)
         require_editable(c,eid)
+        count = c.execute(
+            "SELECT COUNT(*) FROM people WHERE event_id=?", (eid,)
+        ).fetchone()[0]
+        if count >= 200:
+            raise HTTPException(422, "Maximum 200 fictional participants per event")
+        duplicate = c.execute(
+            "SELECT 1 FROM people WHERE event_id=? AND lower(trim(name))=lower(?)",
+            (eid, name)
+        ).fetchone()
+        if duplicate:
+            raise HTTPException(409, "Participant already exists in this event")
         row = c.execute("INSERT INTO people(event_id,name,weight) VALUES(?,?,?)",
-                  (eid,data.name,data.weight))
+                        (eid,name,data.weight))
         recalculate(c,eid,event["strategy"])
         record_history(c,eid,"participant_added",details={"participant_id":row.lastrowid})
     return {"ok": True}
