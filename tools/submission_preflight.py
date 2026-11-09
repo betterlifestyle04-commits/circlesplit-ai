@@ -17,6 +17,12 @@ import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
+# Support both `python tools/submission_preflight.py` and package imports.
+try:
+    from tools.video_preflight import inspect_video
+except ModuleNotFoundError:
+    from video_preflight import inspect_video
+
 PROJECT_URL = "https://devpost.com/software/circlesplit-ai"
 PUBLIC_DEMO = "https://circlesplit-ai-demo.onrender.com/"
 SOURCE_REPOSITORY = "https://github.com/betterlifestyle04-commits/circlesplit-ai"
@@ -89,7 +95,7 @@ def public_credential_indicators(contents):
                  if pattern.search(contents))
 
 
-def inspect(root=ROOT, video_url=""):
+def inspect(root=ROOT, video_url="", video_file=None):
     root = Path(root)
     tests = []
 
@@ -184,6 +190,18 @@ def inspect(root=ROOT, video_url=""):
          "Missing public YouTube video URL; mandatory under-three-minute demo is a submission blocker.")
     )
 
+    # A local recording can be checked independently of YouTube URL syntax.
+    # Never include file paths or raw ffprobe stdout/stderr in reports.
+    local_video = inspect_video(video_file) if video_file is not None else None
+    if local_video is not None:
+        check(
+            "Local demo recording metadata under 3 minutes",
+            local_video["status"] != "BLOCKED",
+            "Check actual local file duration strictly below 180 seconds and "
+            "confirm a usable video track exists. This does not establish "
+            "YouTube visibility, privacy, genuine provider activity or submission."
+        )
+
     # These cannot be proven by looking at source files. Never mark them pass
     # automatically, and never ask an operator to paste a password into CLI.
     checks = (
@@ -208,6 +226,7 @@ def inspect(root=ROOT, video_url=""):
         "status": "BLOCKED" if blockers else "NEEDS_MANUAL_REVIEW",
         "blockers": blockers,
         "checks": tests,
+        "local_video_metadata": local_video,
         "notice": (
             "No submission was made or verified. This check does not browse "
             "Devpost, YouTube, GitHub, Render, Gemini or PayPal. "
@@ -220,9 +239,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=str(ROOT), help="Local source checkout")
     parser.add_argument("--video-url", default="", help="Public YouTube URL only; not a password")
+    parser.add_argument("--video-file", default=None,
+                        help="Optional local demo recording to inspect with ffprobe, no upload")
     parser.add_argument("--json", action="store_true", help="Machine-readable summary")
     args = parser.parse_args(argv)
-    outcome = inspect(args.root, args.video_url)
+    outcome = inspect(args.root, args.video_url, args.video_file)
     if args.json:
         print(json.dumps(outcome, indent=2, sort_keys=True))
     else:
@@ -230,6 +251,13 @@ def main(argv=None):
         print("Deadline (UTC):", DEADLINE_UTC)
         for item in outcome["checks"]:
             print(f"  [{item['status'].upper()}] {item['name']}: {item['detail']}")
+        if outcome["local_video_metadata"] is not None:
+            local = outcome["local_video_metadata"]
+            duration = local["duration_seconds"]
+            print("Local recording metadata:", 
+                  "duration " + duration + " seconds" if duration else "not verified")
+            for warning in local["warnings"]:
+                print("ADVISORY:", warning)
         print(f"\nSTATUS: {outcome['status']}")
         if outcome["blockers"]:
             print("Blocking:", "; ".join(outcome["blockers"]))
