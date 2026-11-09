@@ -1278,13 +1278,45 @@ The shared judge password is **not** participant identity: it protects the organ
 
 ## Safety and demo limitations
 
-The MVP uses a single locally trusted organizer and **does not yet implement accounts or role-based permissions**. It should run locally (127.0.0.1) and must not be exposed directly to the Internet. AI output is untrusted and cannot initiate payments. Do not claim integration success until you test real sandbox credentials. PayPal orders remain authorization- and identity-sensitive. The project does not act as an escrow, money transmitter, or real payment splitting platform.
+The hosted prototype has a **Basic-auth protected organizer workspace**
+and a **separate restricted, read-only judge role**. These are not
+individual production-grade accounts or verified participant identities.
+The protected workspace and PayPal Sandbox APIs must not be exposed
+without the configured hosted safeguards. Run local development on
+`127.0.0.1`. AI output is untrusted and cannot initiate payments.
+No integration should be claimed as working solely from the public
+fictional demo or CI mocks. PayPal orders remain authorization- and
+identity-sensitive. The project does not act as escrow, a money
+transmitter, or a real-money payment splitting platform.
 
 ## Submission requirements
 
 Official hackathon: https://paypalaihackathon.devpost.com/
-Deadline: **November 12, 2026 at 12:00 PM PST**.
-The judges require a working demo, public source code under an approved open-source license, documented PayPal + AI integration, and a public YouTube demo **under 3 minutes**. This repo is a work in progress and has not yet met every requirement.
+**Deadline: Thursday, November 12, 2026, 20:00 UTC / 21:00 Oslo time.**
+The judges require a functioning demo, public open-source repository
+with a visible license, meaningful PayPal Sandbox + AI integration, and
+a public YouTube demo **under three minutes**.
+
+To inspect a completed local screen recording before uploading, install
+FFmpeg's `ffprobe` locally and use:
+
+```bash
+python tools/video_preflight.py "/path/to/actual-demo.mp4"
+python tools/submission_preflight.py --video-file "/path/to/actual-demo.mp4"
+```
+
+A recording with a duration **at least 180 seconds** or missing moving
+video is blocked by the local metadata check. A margin below 175
+seconds is recommended, not required. The checker does not upload,
+watch, or sanitize footage, and does not certify the eventual YouTube
+transcode. Verify the public YouTube playback and visually review
+credentials/private buyer information before submission. See
+[recording instructions](docs/VIDEO_DEMO_SCRIPT.md) and
+[final Devpost handoff](docs/DEVPOST_FINAL_SUBMISSION.md).
+
+**As of November 9, 2026, CircleSplit is published on Devpost but not
+finally submitted, and the required demonstration video is missing.**
+A published project page alone is not a completed hackathon entry.
 
 ## License
 
