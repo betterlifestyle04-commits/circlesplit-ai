@@ -189,6 +189,35 @@ orders, provider calls on invalid IDs or silent capture settlement.
 This improves failure handling, **not** the durability of the Render
 Free SQLite ledger or the guarantee of an external provider receipt.
 
+## Real Chromium browser smoke in CI
+
+In addition to the fast mocked DOM tests, GitHub Actions now runs a
+**real headless Chromium browser** against a disposable local FastAPI
+instance in hosted mode with a temporary SQLite database and synthetic
+HTTP Basic owner configuration. This checks actual browser execution,
+loaded public scripts and security policy, a $220 / 20-person fictional
+event, weighted what-if splitting (four shares above the $12 cap),
+clipboard reports, invalid-input blocking, the public judge's five
+local-math PASS results, and the anonymous workspace's HTTP 401 boundary.
+
+The smoke only allows loopback HTTP; unexpected external or organizer-API
+requests fail the test. It removes all PayPal/Gemini credential variables
+and performs **zero** provider checkout, capture, AI, webhook or
+persistent-data operations. Playwright is installed for the **CI test
+job only**, never in the Render runtime. To run on a local development
+machine after installing the normal requirements and Playwright Chromium:
+
+```bash
+python -m pip install playwright==1.57.0
+python -m playwright install chromium
+python tools/browser_smoke.py
+```
+
+This is real **local browser behavior**, not a claim that the deployed
+Render UI, judge login, Gemini or PayPal Sandbox was interactively
+tested. The separate anonymous hosted release checker still verifies
+the deployed revision and public/private HTTP boundaries.
+
 ## Compare two fictional plans side by side
 
 The public Event planner includes a **Compare two fictional plans** card.
