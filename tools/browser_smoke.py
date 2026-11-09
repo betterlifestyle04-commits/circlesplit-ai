@@ -28,7 +28,7 @@ def require(condition, message):
 def run_chromium_smoke(origin):
     # The browser exercises actual HTML, JS, CSP and DOM interactions, rather
     # than the synthetic DOM shim used by the fast Node controller tests.
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import expect, sync_playwright
 
     errors = []
     blocked_urls = []
@@ -84,9 +84,7 @@ def run_chromium_smoke(origin):
             require(page.locator("#cmp-excess-after").inner_text() == "$6.33",
                     "Weighted scenario did not show $6.33 maximum excess")
             page.locator("#compare-copy-summary").click()
-            page.wait_for_function(
-                'document.querySelector("#compare-copy-status").textContent.includes("copied")'
-            )
+            expect(page.locator("#compare-copy-status")).to_contain_text("copied")
             copied = page.evaluate("navigator.clipboard.readText()")
             require("FICTIONAL browser-only scenario summary" in copied,
                     "Browser copy did not include clearly labeled fictional evidence")
@@ -119,9 +117,7 @@ def run_chromium_smoke(origin):
             require(page.locator("#judge-copy-evidence").is_enabled(),
                     "Valid judge local arithmetic did not enable copy")
             page.locator("#judge-copy-evidence").click()
-            page.wait_for_function(
-                'document.querySelector("#judge-copy-evidence-status").textContent.includes("copied")'
-            )
+            expect(page.locator("#judge-copy-evidence-status")).to_contain_text("copied")
             copied = page.evaluate("navigator.clipboard.readText()")
             require("browser-only" in copied.lower() and "5/5" in copied,
                     "Copied judge proof is not explicitly limited to local math")
