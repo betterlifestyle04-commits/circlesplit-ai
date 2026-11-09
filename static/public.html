@@ -169,6 +169,10 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
    </div>
    <p class="small muted" style="margin-top:9px">An exceedance means strictly above the cap; an equal share passes. Empty groups have no individual share to compare. This is a scenario estimate, not proof participants can pay.</p>
   </div>
+  <div class="buttons" style="margin-top:13px">
+   <button type="button" class="btn primary" id="compare-copy-summary" disabled>Copy anonymous comparison</button>
+  </div>
+  <p id="compare-copy-status" role="status" aria-live="polite" class="small muted" style="margin-top:8px">Choose two valid plans and a USD share cap to copy a browser-only summary without names or payment details.</p>
   <p class="notice" style="margin-top:12px">This compares aggregate fictional budgets, not matched individuals or real transactions. Groups can have different members and split rules, so lower individual shares do not prove a better outcome. Approvals and contributions are simulations only. No server or PayPal calls are made.</p>
  </div>
  </section>
@@ -285,6 +289,9 @@ function allocate(e){
  p.forEach((x,i)=>{x.share_cents=shares[i];x.approved=false});
 }
 function renderComparison(){
+ // Default to an unavailable clipboard action until BOTH validated
+ // comparisons can be recomputed using the current browser-only plan.
+ $("compare-copy-summary").disabled=true;
  const all=model.events;
  const baselineSelect=$("compare-baseline"),alternativeSelect=$("compare-alternative");
  const status=$("compare-status");
@@ -323,6 +330,7 @@ function renderComparison(){
     $("cmp-"+id+"-"+part).textContent="—";
   clearCap();
   $("compare-cap-status").textContent="Select two plans and enter a valid USD share cap.";
+  $("compare-copy-status").textContent="Anonymous comparison unavailable until two different plans and a valid USD cap are selected.";
  }
  if(all.length<2){
   clear();status.textContent="Duplicate an event or create a second fictional plan to compare.";
@@ -372,7 +380,10 @@ function renderComparison(){
     " baseline vs "+affordability.after.over_cap_people+" of "+
     affordability.after.participants+" alternative participants strictly exceed it. "+
     "Fictional estimates only; no payments or approvals checked.";
+   $("compare-copy-summary").disabled=false;
+   $("compare-copy-status").textContent="Ready to copy anonymized fictional totals. No payment or AI verification.";
   }catch(_err){
+   $("compare-copy-status").textContent="An anonymous summary requires a valid share limit.";
    $("compare-cap-status").textContent="Enter a positive USD cap of up to $100,000.00 with at most two decimals.";
   }
  }catch(_err){
@@ -443,6 +454,31 @@ $("compare-alternative").addEventListener("change",e=>{
 });
 $("compare-share-cap").addEventListener("input",renderComparison);
 $("compare-share-cap").addEventListener("change",renderComparison);
+$("compare-copy-summary").addEventListener("click",async()=>{
+ const button=$("compare-copy-summary"),status=$("compare-copy-status");
+ // Disable until the real, current result is validated. Never copy
+ // HTML, event names or arbitrary provider responses into evidence.
+ if(button.disabled)return;
+ button.disabled=true;
+ let message="Could not copy. Clipboard permission may be unavailable; no report was exported.";
+ try{
+  if(typeof navigator==="undefined" || !navigator.clipboard ||
+     typeof navigator.clipboard.writeText!=="function")
+   throw Error("Browser clipboard unavailable");
+  const cap=amount($("compare-share-cap").value.trim());
+  const report=window.CircleSplitPublicScenarios.formatAnonymousComparison(
+   model,comparisonBaselineId,comparisonAlternativeId,cap,
+   window.CircleSplitPublicPortability
+  );
+  await navigator.clipboard.writeText(report);
+  message="Anonymous fictional comparison copied. This is not Gemini or PayPal payment evidence.";
+ }catch(_err){
+  // Deliberately do not print arbitrary error text or sensitive clipboard data.
+ }finally{
+  renderComparison(); // Recheck whether current inputs still allow copying.
+  status.textContent=message;
+ }
+});
 $("duplicate-event").addEventListener("click",()=>{
  const original=event();
  if(!original)return message("Create a fictional event first.");

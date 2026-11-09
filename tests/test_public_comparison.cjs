@@ -217,3 +217,65 @@ test("affordability analysis is strictly browser-local and anonymous",()=>{
  }
  assert.equal(report.read_only,true);
 });
+
+
+test("anonymous copied report uses only validated fixed-field, exact-cent totals",()=>{
+ const data=copy(),before=JSON.stringify(data);
+ const text=scenarios.formatAnonymousComparison(data,1,101,34,validator);
+ assert.match(text,/FICTIONAL browser-only scenario summary/);
+ assert.match(text,/Per-person limit: \$0\.34/);
+ assert.match(text,/Baseline: equal split; budget \$1\.01; participants 3;/);
+ assert.match(text,/Alternative: equal split; budget \$1\.01; participants 3;/);
+ assert.match(text,/above cap 0\/3; maximum excess \$0\.00/);
+ assert.match(text,/Alternative minus baseline: total budget \$0\.00/);
+ assert.match(text,/NOT VERIFIED: real affordability, attendance, Gemini API, PayPal Sandbox orders\/captures/);
+ assert.equal(JSON.stringify(data),before);
+ for(const privateValue of ["Fictional volleyball","Sam","Alex","Taylor",
+  "Court","Snacks","demo_paid","capture_id","order_id","request_id"]){
+  assert(!text.includes(privateValue),"must not copy "+privateValue);
+ }
+});
+
+test("anonymous summary accurately reports over-cap count and signed money deltas",()=>{
+ const data=copy(),draft=data.events[0];
+ draft.strategy="weighted";
+ draft.expenses[0].cents=200;
+ draft.people.forEach((p,i)=>p.share_cents=[50,101,50][i]);
+ const text=scenarios.formatAnonymousComparison(data,1,101,50,validator);
+ assert.match(text,/Baseline: equal split; budget \$1\.01/);
+ assert.match(text,/Alternative: weighted split; budget \$2\.01/);
+ assert.match(text,/above cap 1\/3; maximum excess \$0\.51/);
+ assert.match(text,/total budget \+\$1\.00; participants 0; people above cap \+1; maximum excess \+\$0\.51/);
+ const backwards=scenarios.formatAnonymousComparison(data,101,1,50,validator);
+ assert.match(backwards,/total budget -\$1\.00; participants 0; people above cap -1; maximum excess -\$0\.51/);
+});
+
+test("anonymous summary preserves not-applicable state for empty groups",()=>{
+ const data={next:3,events:[
+  {id:1,name:"UNTRUSTED_PRIVATE_NAME",date:"2026-11-09",strategy:"equal",
+   expenses:[{id:3,title:"Private expense",cents:1000}],people:[]},
+  {id:2,name:"Another PRIVATE NAME",date:"2026-11-09",strategy:"weighted",
+   expenses:[],people:[]}
+ ]};
+ const text=scenarios.formatAnonymousComparison(data,1,2,1200,validator);
+ assert.match(text,/highest share not applicable; lowest share not applicable/);
+ assert.match(text,/above cap 0\/0; maximum excess not applicable/);
+ assert.match(text,/total budget -\$10\.00/);
+ assert.match(text,/maximum excess not comparable/);
+ assert(!text.includes("PRIVATE"));
+});
+
+test("anonymous copy fails on invalid states and never calls a provider",()=>{
+ const data=copy(),before=JSON.stringify(data);
+ assert.throws(()=>scenarios.formatAnonymousComparison(data,1,101,0,validator));
+ assert.throws(()=>scenarios.formatAnonymousComparison(data,1,1,100,validator));
+ assert.throws(()=>scenarios.formatAnonymousComparison(data,1,101,100,null));
+ const broken=copy();
+ broken.events[0].paypal_order_id="PRIVATE-PAYMENT";
+ assert.throws(()=>scenarios.formatAnonymousComparison(broken,1,101,100,validator));
+ assert.equal(JSON.stringify(data),before);
+ const source=String(scenarios.formatAnonymousComparison);
+ for(const prohibited of [/\bfetch\s*\(/,/\blocalStorage\b/,/paypal\.com/,
+   /navigator/,/clipboard/,/order_id/,/capture_id/,/\.name\b/,/\.id\b/])
+  assert.doesNotMatch(source,prohibited);
+});

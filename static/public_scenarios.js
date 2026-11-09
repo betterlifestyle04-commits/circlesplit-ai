@@ -162,7 +162,52 @@
    notice:"Fictional share estimates, not actual affordability, consent, or payments."
   };
  }
- const api={duplicateAsDraft,compareEvents,compareAffordability};
+ // Safe-to-copy, fixed-field report for judging. Deliberately omits
+ // event/participant names, IDs, approvals, contribution and provider state.
+ function formatAnonymousComparison(data,baselineId,alternativeId,capCents,validator){
+  const plans=compareEvents(data,baselineId,alternativeId,validator);
+  const cap=compareAffordability(data,baselineId,alternativeId,capCents,validator);
+  if(plans.mode!=="BROWSER_LOCAL_FICTIONAL_COMPARISON"||
+     plans.read_only!==true||
+     cap.mode!=="BROWSER_LOCAL_FICTIONAL_AFFORDABILITY"||
+     cap.read_only!==true)
+   throw Error("Fictional comparison validation unavailable");
+  const cash=cents=>{
+   if(!Number.isSafeInteger(cents)||cents<0)
+    throw Error("Invalid USD cents in fictional scenario");
+   return "$"+Math.floor(cents/100)+"."+
+    String(cents%100).padStart(2,"0");
+  };
+  const maybe=cents=>cents===null?"not applicable":cash(cents);
+  const signed=(n,money)=>{
+   if(n===null)return "not comparable";
+   const prefix=n>0?"+":n<0?"-":"";
+   return prefix+(money?cash(Math.abs(n)):String(Math.abs(n)));
+  };
+  function summary(label,metrics,risk){
+   return label+": "+metrics.strategy+" split; budget "+cash(metrics.budget_cents)+
+    "; participants "+metrics.participants+
+    "; highest share "+maybe(metrics.highest_share_cents)+
+    "; lowest share "+maybe(metrics.lowest_share_cents)+
+    "; above cap "+risk.over_cap_people+"/"+risk.participants+
+    "; maximum excess "+maybe(risk.maximum_excess_cents)+".";
+  }
+  return [
+   "CircleSplit AI — FICTIONAL browser-only scenario summary",
+   "Baseline and alternative are distinct fictional event plans, not the same verified people.",
+   "Per-person limit: "+cash(cap.cap_cents)+" (strictly above this limit counts as an exceedance).",
+   summary("Baseline",plans.before,cap.before),
+   summary("Alternative",plans.after,cap.after),
+   "Alternative minus baseline: total budget "+signed(plans.delta.budget_cents,true)+
+    "; participants "+signed(plans.delta.participants,false)+
+    "; people above cap "+signed(cap.delta.over_cap_people,false)+
+    "; maximum excess "+signed(cap.delta.maximum_excess_cents,true)+".",
+   "No participant or event names, identifiers, consent records, or simulated contribution histories included.",
+   "NOT VERIFIED: real affordability, attendance, Gemini API, PayPal Sandbox orders/captures, or any real payment.",
+   "This copy uses validated, browser-local fictional data. Copying makes no network or provider requests."
+  ].join("\n");
+ }
+ const api={duplicateAsDraft,compareEvents,compareAffordability,formatAnonymousComparison};
  if(typeof module!=="undefined"&&module.exports)module.exports=api;
  else root.CircleSplitPublicScenarios=api;
 })(typeof window!=="undefined"?window:{});
