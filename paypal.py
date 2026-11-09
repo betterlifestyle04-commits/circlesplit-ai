@@ -2,13 +2,14 @@
 import os
 import re
 import uuid
-from decimal import Decimal, InvalidOperation
 from urllib.parse import urlparse, urlsplit
 import httpx
 from fastapi import HTTPException
 
 BASE = "https://api-m.sandbox.paypal.com"
 _ORDER_ID = re.compile(r"[A-Za-z0-9-]{5,50}\Z")
+MAX_SANDBOX_ORDER_CENTS = (2**53 - 1) // 10
+_USD_AMOUNT = re.compile(r"(?:0|[1-9][0-9]{0,12})(?:\.[0-9]{1,2})?\Z")
 
 
 def valid_sandbox_order_id(value):
@@ -70,12 +71,24 @@ def trusted_checkout_return_url(url):
 def configured():
     return bool(os.getenv("PAYPAL_CLIENT_ID") and os.getenv("PAYPAL_CLIENT_SECRET"))
 
+def parse_usd_cents(value):
+    """Parse provider USD values without floats or decimal coercion.
+
+    PayPal Orders v2 and webhook amount.value are strings in the JSON API.
+    Reject exponents, extra fractional digits, whitespace, Unicode digits,
+    malformed types and out-of-range values. This does not prove settlement.
+    """
+    if not isinstance(value, str) or not _USD_AMOUNT.fullmatch(value):
+        return None
+    dollars, _, fraction = value.partition(".")
+    cents = int(dollars) * 100 + int((fraction + "00")[:2])
+    return cents if cents <= MAX_SANDBOX_ORDER_CENTS else None
+
+
 def same_amount(value, amount_cents):
-    try:
-        number = Decimal(str(value))
-        return number.is_finite() and number * 100 == amount_cents
-    except (ValueError, TypeError, InvalidOperation):
-        return False
+    return (type(amount_cents) is int
+            and 0 <= amount_cents <= MAX_SANDBOX_ORDER_CENTS
+            and parse_usd_cents(value) == amount_cents)
 
 async def token():
     if not configured():
@@ -124,7 +137,7 @@ async def order(amount, event_id, person_id, return_url, request_id):
     # The checkout amount comes from server-side, exact-cent allocation.
     # Guard the adapter boundary too: never coerce floats, bools or invalid
     # magnitudes and never send an upstream Sandbox request for bad cents.
-    if type(amount) is not int or not 1 <= amount <= (2**53 - 1) // 10:
+    if type(amount) is not int or not 1 <= amount <= MAX_SANDBOX_ORDER_CENTS:
         raise HTTPException(400, "Sandbox order amount must be positive safe integer cents")
     if not trusted_checkout_return_url(return_url):
         raise HTTPException(400, "A trusted HTTPS workspace return URL is required")
