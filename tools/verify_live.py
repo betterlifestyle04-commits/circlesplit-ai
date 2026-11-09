@@ -184,6 +184,12 @@ def _verify_public_csp(path, result, html):
         ).decode("ascii") + "'"
         _expect(expected_hash in script.split(),
                 f"{path}: deployed CSP hash does not match inline JavaScript")
+    if path == "/":
+        # An anonymized proof must remain unavailable until current
+        # fictional events and the share cap have passed validation.
+        _expect('id="compare-copy-summary" disabled' in html and
+                'id="compare-copy-status"' in html,
+                "/: missing disabled-by-default anonymous comparison controls")
     if path == "/judge":
         # This walkthrough must load its real, already-public browser math
         # module before the controller. Otherwise the new one-click checks
