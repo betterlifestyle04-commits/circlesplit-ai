@@ -8,10 +8,16 @@
      !["equal","weighted"].includes(method)){
    throw Error("Invalid public split inputs");
   }
+  // Reject invalid records before sorting or reading their IDs in a comparator.
+  // Keep this guard independent of any caller-side localStorage validation.
+  if(members.some(x=>!x||typeof x!=="object"||
+      !Number.isSafeInteger(x.id)||x.id<1||
+      !Number.isInteger(x.weight)||x.weight<1||x.weight>10)){
+   throw Error("Invalid fictional attendees");
+  }
   const p=[...members].sort((a,b)=>a.id-b.id);
-  if(p.some(x=>!x||!Number.isSafeInteger(x.id)||x.id<1||
-      !Number.isInteger(x.weight)||x.weight<1||x.weight>10)||
-     new Set(p.map(x=>x.id)).size!==p.length)throw Error("Invalid fictional attendees");
+  if(new Set(p.map(x=>x.id)).size!==p.length)
+   throw Error("Invalid fictional attendees");
   const w=p.map(x=>method==="equal"?1:x.weight);
   const sum=w.reduce((n,x)=>n+x,0);
   if(total>Math.floor(Number.MAX_SAFE_INTEGER/10))throw Error("Budget exceeds safe demo limits");
