@@ -210,3 +210,82 @@ def test_cannot_make_a_public_secret_scan_pass_by_linking_external_file(tmp_path
     # Existing content checks still fail, and no external secret is read.
     report = inspect(project, VALID)
     assert "Judge testing and safety handoff" in report["blockers"]
+
+
+
+def test_local_video_metadata_is_optional_and_never_claims_submitted(tmp_path, monkeypatch):
+    from tools import submission_preflight as preflight
+    project = fixture_project(tmp_path)
+    valid_path = str(tmp_path / "SENSITIVE_OWNER_FILE_NAME.mp4")
+    called = []
+    def fake_video(path):
+        called.append(path)
+        return {
+            "mode": "LOCAL_VIDEO_METADATA_ONLY",
+            "status": "NEEDS_MANUAL_REVIEW",
+            "blockers": [],
+            "warnings": [],
+            "duration_seconds": "164.25",
+            "video_width": 1920,
+            "video_height": 1080,
+            "audio_present": True,
+            "required_manual_checks": ["Verify YouTube is public."],
+            "notice": "Local file metadata only.",
+        }
+    monkeypatch.setattr(preflight, "inspect_video", fake_video)
+    output = preflight.inspect(project, VALID)
+    assert output["local_video_metadata"] is None
+    assert not called
+    checked = preflight.inspect(project, VALID, valid_path)
+    assert called == [valid_path]
+    assert checked["status"] == "NEEDS_MANUAL_REVIEW"
+    assert checked["blockers"] == []
+    assert checked["local_video_metadata"]["duration_seconds"] == "164.25"
+    assert "Local demo recording metadata under 3 minutes" in [
+        c["name"] for c in checked["checks"] if c["status"] == "pass"
+    ]
+    assert valid_path not in str(checked)
+    assert "No submission was made" in checked["notice"]
+    assert not any(c["name"] == "Submission confirmation" and
+                   c["status"] == "pass" for c in checked["checks"])
+
+
+def test_invalid_local_video_fails_combined_preflight_even_with_youtube_url(tmp_path, monkeypatch):
+    from tools import submission_preflight as preflight
+    project = fixture_project(tmp_path)
+    monkeypatch.setattr(preflight, "inspect_video", lambda _: {
+        "mode": "LOCAL_VIDEO_METADATA_ONLY", "status": "BLOCKED",
+        "blockers": ["Recording duration must be strictly under 180 seconds."],
+        "warnings": [], "duration_seconds": "180.000",
+        "video_width": 1920, "video_height": 1080, "audio_present": True,
+        "required_manual_checks": [], "notice": "Metadata only."
+    })
+    report = preflight.inspect(project, VALID, "/private/demo.mp4")
+    assert report["status"] == "BLOCKED"
+    assert "Local demo recording metadata under 3 minutes" in report["blockers"]
+    assert "Public YouTube demo URL supplied" not in report["blockers"]
+
+
+def test_combined_cli_video_metadata_never_prints_private_recording_name(
+        tmp_path, monkeypatch, capsys):
+    from tools import submission_preflight as preflight
+    project = fixture_project(tmp_path)
+    private_path = "/private/NEVER_ECHO_BUYER_EMAIL.mp4"
+    monkeypatch.setattr(preflight, "inspect_video", lambda _: {
+        "mode": "LOCAL_VIDEO_METADATA_ONLY", "status": "BLOCKED",
+        "blockers": ["No usable moving-video track and dimensions were found."],
+        "warnings": [], "duration_seconds": "185",
+        "video_width": None, "video_height": None, "audio_present": None,
+        "required_manual_checks": [], "notice": "Metadata only."
+    })
+    assert preflight.main(["--root", str(project), "--video-url", VALID,
+                           "--video-file", private_path]) == 2
+    output = capsys.readouterr().out
+    assert private_path not in output
+    assert "NEVER_ECHO_BUYER_EMAIL" not in output
+    assert "Local demo recording metadata" in output
+    assert preflight.main(["--root", str(project), "--video-url", VALID,
+                           "--video-file", private_path, "--json"]) == 2
+    output = capsys.readouterr().out
+    assert '"status": "BLOCKED"' in output
+    assert private_path not in output
