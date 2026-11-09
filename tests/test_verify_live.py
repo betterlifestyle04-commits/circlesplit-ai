@@ -403,3 +403,20 @@ def test_guide_missing_or_prematurely_enabled_copy_control_blocks_release_gate(
             "missing disabled-by-default evidence copy controls", retryable=False)
     assert ("GET", "/judge") in calls
     assert all(p not in PRIVATE_PATHS for _, p in calls)
+
+
+@pytest.mark.parametrize(("original", "replacement"), [
+    (b'id="compare-copy-summary" disabled', b'id="missing-anonymous-copy" disabled'),
+    (b'id="compare-copy-summary" disabled', b'id="compare-copy-summary"'),
+    (b'id="compare-copy-status"', b'id="missing-anonymous-status"'),
+])
+def test_public_scenario_copy_controls_must_start_disabled_and_accessible(
+        hosted, original, replacement):
+    fetch, calls = transport(hosted, rewrite=lambda path, response:
+        replace(response, body=response.body.replace(original, replacement, 1))
+        if path == "/" else response)
+    failure(lambda: verify_once("https://demo.example", SHA, fetch=fetch),
+            "missing disabled-by-default anonymous comparison controls",
+            retryable=False)
+    assert ("GET", "/") in calls
+    assert all(method == "GET" for method, _ in calls)
