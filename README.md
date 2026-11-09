@@ -113,6 +113,22 @@ and is **not** covered by the strict script policy. This protection
 does not provide identity verification, account isolation, durable
 storage, or proof of actual browser testing.
 
+## Sandbox webhook header safety
+
+Before making any PayPal authentication or signature-verification request,
+the webhook adapter now rejects missing, oversized, malformed or control-
+character signature headers and certificate URLs outside the exact PayPal
+Sandbox notifications certificate endpoints. The checks use the size
+limits documented in PayPal's webhook verification specification and do
+**not** replace PayPal's signature verification. Only an explicit
+`verification_status: SUCCESS` response can authorize processing;
+malformed responses and failed signatures remain rejected.
+
+Automated tests prove that malformed headers trigger **zero** calls to
+PayPal, and that valid-shaped headers cannot bypass an unsuccessful
+provider signature check. The server does not download certificates from
+webhook-provided addresses and does not perform real-money operations.
+
 ## Fail-closed Sandbox provider data and callback validation
 
 The server-side PayPal Sandbox adapter now rejects invalid OAuth token
