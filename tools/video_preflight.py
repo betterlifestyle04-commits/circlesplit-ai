@@ -11,6 +11,7 @@ import argparse
 from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
@@ -60,7 +61,8 @@ def inspect_metadata(metadata):
         # Validate textual decimal explicitly. Float JSON would have lost
         # precision at the 180-second contest boundary.
         raw = fmt.get("duration")
-        if not isinstance(raw, str) or not raw.isascii():
+        if not isinstance(raw, str) or not re.fullmatch(
+                r"[0-9]{1,7}(?:\.[0-9]{1,9})?", raw, flags=re.ASCII):
             return _result(("Video duration is unavailable or ambiguous.",))
         seconds = Decimal(raw)
         if not seconds.is_finite() or seconds <= 0:
