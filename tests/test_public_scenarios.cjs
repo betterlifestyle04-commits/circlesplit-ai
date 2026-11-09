@@ -164,7 +164,7 @@ function launchPublic(){
  const handlers=new Map(),elements=new Map(),stored=new Map(),network=[];
  class Element {
   constructor(id){
-   this.id=id;this.value="";
+   this.id=id;this.value=id==="compare-share-cap"?"12.00":"";
    this.textContent="";this.innerHTML="";
    this.disabled=false;this.style={};
    this.className="";
@@ -333,4 +333,70 @@ test("untrusted fictional event names are escaped in dropdowns and rendered as t
  assert.match(ui.el("compare-status").textContent,/<img src=x/);
  assert(!ui.el("compare-baseline").innerHTML.includes("<img src"));
  assert.equal(ui.network.length,0);
+});
+
+
+test("public affordability comparison updates when a what-if weighted strategy changes",()=>{
+ const ui=launchPublic();
+ assert.equal(ui.el("cmp-over-before").textContent,"—");
+ assert.match(ui.el("compare-cap-status").textContent,/Select two plans/);
+ ui.trigger("duplicate-event","click");
+ assert.equal(ui.el("cmp-over-before").textContent,"0");
+ assert.equal(ui.el("cmp-over-after").textContent,"0");
+ assert.equal(ui.el("cmp-excess-before").textContent,"$0.00");
+ assert.equal(ui.el("cmp-excess-delta").textContent,"$0.00");
+ assert.match(ui.el("compare-cap-status").textContent,/Share limit \$12\.00/);
+ ui.trigger("weighted","click");
+ assert.equal(ui.el("cmp-over-before").textContent,"0");
+ assert.equal(ui.el("cmp-over-after").textContent,"4");
+ assert.equal(ui.el("cmp-over-delta").textContent,"+4");
+ assert.equal(ui.el("cmp-excess-after").textContent,"$6.33");
+ assert.equal(ui.el("cmp-excess-delta").textContent,"+$6.33");
+ assert.equal(ui.getModel().events[1].strategy,"equal");
+ assert.equal(ui.network.length,0);
+});
+
+test("changing the share cap is read-only, checks exact equality, and fails closed on invalid input",()=>{
+ const ui=launchPublic();
+ ui.trigger("duplicate-event","click");
+ const baseline=JSON.stringify(ui.getModel());
+ ui.el("compare-share-cap").value="11.00";
+ ui.trigger("compare-share-cap","input");
+ assert.equal(ui.el("cmp-over-before").textContent,"0","Equal-to-cap is not over");
+ assert.equal(ui.el("cmp-over-after").textContent,"0");
+ ui.el("compare-share-cap").value="10.99";
+ ui.trigger("compare-share-cap","input");
+ assert.equal(ui.el("cmp-over-before").textContent,"20");
+ assert.equal(ui.el("cmp-over-after").textContent,"20");
+ assert.equal(ui.el("cmp-excess-before").textContent,"$0.01");
+ assert.equal(ui.el("cmp-over-delta").textContent,"0");
+ ui.el("compare-share-cap").value="10.999";
+ ui.trigger("compare-share-cap","change");
+ assert.equal(ui.el("cmp-over-before").textContent,"—");
+ assert.equal(ui.el("cmp-excess-after").textContent,"—");
+ assert.match(ui.el("compare-cap-status").textContent,/positive USD cap/);
+ assert.equal(ui.el("cmp-budget-before").textContent,"$220.00",
+  "Invalid cap cannot suppress independent budget comparison");
+ assert.equal(JSON.stringify(ui.getModel()),baseline);
+ assert.equal(ui.network.length,0);
+});
+
+test("affordability calculation remains unavailable for same-event selection",()=>{
+ const ui=launchPublic();
+ ui.trigger("duplicate-event","click");
+ const selected=String(ui.getModel().events[0].id);
+ ui.trigger("compare-baseline","change",{target:{value:selected}});
+ assert.equal(ui.el("cmp-over-before").textContent,"—");
+ assert.equal(ui.el("cmp-excess-after").textContent,"—");
+ assert.match(ui.el("compare-status").textContent,/Choose two different/);
+ assert.equal(ui.network.length,0);
+});
+
+test("public cap comparison exposes accessible controls and no external provider actions",()=>{
+ assert.match(html,/id="compare-share-cap" value="12\.00"/);
+ assert.match(html,/id="compare-cap-status" role="status" aria-live="polite"/);
+ assert.match(html,/aria-label="Read-only per-person share cap comparison"/);
+ assert.match(html,/Strictly above|strictly above/);
+ assert.match(html,/compareAffordability\(/);
+ assert.match(html,/Fictional estimates only; no payments or approvals checked/);
 });
