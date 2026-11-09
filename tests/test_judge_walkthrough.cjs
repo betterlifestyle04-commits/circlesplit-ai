@@ -4,7 +4,7 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
 const {STEPS,SAMPLE_PROMPT,progress,verifiedPublicHealth,checkPublicSource,
-       runLocalMathChecks,setupJudgeUI}
+       runLocalMathChecks,formatEvidenceReport,setupJudgeUI}
  =require("../static/judge_walkthrough.js");
 const recovery=require("../static/public_recovery.js");
 
@@ -260,4 +260,98 @@ test("browser math self-check exposes no payment or invitation identifiers",()=>
  }
  assert.equal(result.notice,
   "Fictional browser math only. No server, Gemini or PayPal verification.");
+});
+
+
+test("judge can copy fixed-label, local-only verification after explicitly running checks",async()=>{
+ const h=harness();
+ assert.match(html,/id="judge-copy-evidence" disabled/);
+ assert.match(html,/id="judge-copy-evidence-status" role="status" aria-live="polite"/);
+ assert.equal(h.element("judge-copy-evidence").disabled,true);
+ await h.element("judge-copy-evidence").click();
+ assert.equal(h.copied.length,0);
+ assert.match(h.element("judge-copy-evidence-status").textContent,/Run the local math checks/);
+
+ await h.element("judge-run-local-tests").click();
+ assert.equal(h.element("judge-copy-evidence").disabled,false);
+ await h.element("judge-copy-evidence").click();
+ assert.equal(h.copied.length,1);
+ const content=h.copied[0];
+ assert.match(content,/PUBLIC browser verification summary/);
+ assert.match(content,/Math result: PASS \(5\/5 browser-only checks\)/);
+ assert.match(content,/Public \/health revision: NOT CHECKED/);
+ assert.match(content,/PASS \| Weighted largest-remainder allocation/);
+ assert.match(content,/NOT VERIFIED here: Gemini API, PayPal Sandbox orders\/captures/);
+ assert.match(h.element("judge-copy-evidence-status").textContent,/copied/);
+ assert.equal(h.element("judge-copy-evidence").disabled,false);
+ assert.equal(h.ui.progress().completed,0);
+ assert.deepEqual(h.calls,[],"Copy operation must not fetch server or provider data");
+ const lower=content.toLowerCase();
+ for(const key of ["paypal-client-secret","authorization:","capture_id",
+   "order_id","participant token","bearer "])assert(!lower.includes(key),key);
+});
+
+test("copied source revision appears only after explicit, read-only health check",async()=>{
+ const h=harness();
+ await h.element("judge-run-local-tests").click();
+ await h.element("judge-copy-evidence").click();
+ assert(!h.copied[0].includes(GIT_SHA));
+ await h.element("judge-source-check").click();
+ await h.element("judge-copy-evidence").click();
+ assert.equal(h.copied.length,2);
+ assert.match(h.copied[1],new RegExp(GIT_SHA));
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].url,"/health");
+ assert.equal(h.calls[0].opts.credentials,"omit");
+ assert.equal(h.calls[0].opts.method,"GET");
+});
+
+test("copied evidence never disguises failed checks as successes",async()=>{
+ const broken={
+  exactSplit(...args){
+   if(args[0]===1000)return [333,333,334];
+   return recovery.exactSplit(...args);
+  },preview:recovery.preview
+ };
+ const h=harness({math:broken});
+ await h.element("judge-run-local-tests").click();
+ await h.element("judge-copy-evidence").click();
+ assert.match(h.copied[0],/Math result: FAIL \(4\/5 browser-only checks\)/);
+ assert.match(h.copied[0],/FAIL \| \$10 \/ 3 exact-cent allocation \| Result not confirmed/);
+ assert.doesNotMatch(h.copied[0],/FAIL \| \$10 \/ 3.*\$3\.34 \+ \$3\.33/);
+ assert.equal(h.calls.length,0);
+});
+
+test("clipboard errors and missing arithmetic have honest accessible fallbacks",async()=>{
+ const missing=harness({math:null});
+ await missing.element("judge-run-local-tests").click();
+ assert.equal(missing.element("judge-copy-evidence").disabled,true);
+ await missing.element("judge-copy-evidence").click();
+ assert.equal(missing.copied.length,0);
+ assert.match(missing.element("judge-copy-evidence-status").textContent,/Run the local math checks/);
+
+ const noClipboard=harness({clipboardEnabled:false});
+ await noClipboard.element("judge-run-local-tests").click();
+ await noClipboard.element("judge-copy-evidence").click();
+ assert.match(noClipboard.element("judge-copy-evidence-status").textContent,/Could not copy/);
+ assert.equal(noClipboard.element("judge-copy-evidence").disabled,false);
+ assert.equal(noClipboard.calls.length,0);
+});
+
+test("evidence formatter refuses forged counters and does not echo untrusted detail strings",()=>{
+ const report=runLocalMathChecks(recovery);
+ const copy=JSON.parse(JSON.stringify(report));
+ copy.checks[0].detail="Bearer NEVER-COPY-THIS-SECRET";
+ copy.checks[0].label="Untrusted fake provider verification";
+ const rendered=formatEvidenceReport(copy,GIT_SHA);
+ assert(!rendered.includes("NEVER-COPY-THIS-SECRET"));
+ assert(!rendered.includes("Untrusted fake provider verification"));
+ assert(rendered.includes(GIT_SHA));
+
+ assert.throws(()=>formatEvidenceReport(null),/valid local verification/);
+ assert.throws(()=>formatEvidenceReport(report,"not-a-git-sha"),/valid local verification/);
+ assert.throws(()=>formatEvidenceReport({...report,passed:4}),/inconsistent/);
+ const swapped=JSON.parse(JSON.stringify(report));
+ swapped.checks[0].id="paypal-capture";
+ assert.throws(()=>formatEvidenceReport(swapped),/incomplete/);
 });
