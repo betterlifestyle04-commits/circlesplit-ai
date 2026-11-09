@@ -79,8 +79,10 @@ button:focus-visible,a:focus-visible{outline:3px solid #14a988;outline-offset:3p
  <strong>Run the real browser arithmetic</strong>
  <p class="small" style="margin:7px 0 13px">Instantly check exact-cent equal and weighted allocations and attendance resilience using the same browser-only code as the public demo. Read-only: no credentials, network calls, account changes, or provider payments. These checks do not verify Gemini or PayPal.</p>
  <button type="button" class="btn primary" id="judge-run-local-tests">Run 5 local math checks</button>
+ <button type="button" class="btn" id="judge-copy-math-report" disabled>Copy results and limitations</button>
  <p id="judge-math-status" class="small" role="status" aria-live="polite" style="margin:12px 0 0">Not run. Each result comes from this browser's public arithmetic functions.</p>
  <pre id="judge-math-results" style="white-space:pre-wrap;word-break:break-word;font:12px/1.7 ui-monospace,Consolas,monospace;margin:8px 0 0" aria-label="Per-check local arithmetic results"></pre>
+ <p id="judge-copy-math-status" class="small" role="status" aria-live="polite">Run the arithmetic checks before copying. The copied report is not payment or AI verification.</p>
 </div></section>
 <section class="card" id="judge-ai"><span class="chip">Separate judge login</span><h2>2 · Run the AI copilot</h2>
 <ol><li>Sign into the <a href="/workspace">protected workspace</a> with judge credentials supplied privately in Devpost.</li>
