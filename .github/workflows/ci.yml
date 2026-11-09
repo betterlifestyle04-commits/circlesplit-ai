@@ -70,6 +70,40 @@ jobs:
           node --check /tmp/circlesplit-participant-inline.js
       - run: python -m compileall -q app.py domain.py paypal.py calendar_export.py csp.py judge_access.py security.py provider_limits.py storage_readiness.py ledger_audit.py recovery_triage.py webhook_audit.py attendance_risk.py tools/sqlite_snapshot.py tools/encrypted_snapshot.py tools/verify_live.py tools/submission_preflight.py
 
+  # Integration smoke runs ACTUAL Chromium on a disposable local app.
+  # Separate from unit tests and from the hosted release gate. It loads only
+  # fictional public pages and anonymous auth checks; no remote providers.
+  browser_smoke:
+    name: Real Chromium public demo and judge interaction smoke
+    needs: backend
+    # ubuntu-latest can move to Ubuntu 26.04; Playwright 1.57 supports 24.04.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install runtime and test-only Playwright
+        run: python -m pip install -r requirements.txt playwright==1.57.0
+      - name: Install headless Chromium and OS libraries
+        run: python -m playwright install --with-deps chromium
+      - name: Run real Chromium against throwaway hosted-mode FastAPI
+        run: |
+          python tools/browser_smoke.py
+          {
+            echo "### CircleSplit real-browser smoke: PASS"
+            echo ""
+            echo "- Actual Chromium rendered the public planning page, CSP scripts and judge walkthrough"
+            echo "- $220/20 fictional plan, weighted share limit, comparison clipboard and invalid threshold exercised"
+            echo "- Five public local-math checks ran and copied a clearly limited summary"
+            echo "- Anonymous workspace access denied (HTTP 401)"
+            echo "- Localhost-only requests; no API, PayPal or Gemini traffic"
+            echo "- **Not verified:** production browser UX, live providers, durable storage, Devpost video or final submission"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Main-branch releases are checked *after* unit tests, with no secrets.
   # The smoke checker polls only while Render is deploying/waking.
   # Wrong auth boundaries, malformed data and missing public scripts fail fast.
