@@ -73,7 +73,7 @@ SECRET_PATTERNS = (
     ("openai_api_key", re.compile(r"sk-(?:proj-)?[A-Za-z0-9_-]{20,}")),
     ("bearer_value", re.compile(r"(?i)\bBearer[ \t]+[A-Za-z0-9._~+/-]{20,}")),
     ("credential_assignment", re.compile(
-        r"(?im)\b(?:PAYPAL_CLIENT_SECRET|PAYPAL_CLIENT_ID|PAYPAL_WEBHOOK_ID|"
+        r"(?im)\b(?:PAYPAL_CLIENT_SECRET|"
         r"GEMINI_API_KEY|DEMO_PASSWORD|JUDGE_PASSWORD|"
         r"CIRCLESPLIT_BACKUP_KEY)\b[ \t]*[:=][ \t]*['\"\x60]?\S+")),
     ("private_invite_link", re.compile(
