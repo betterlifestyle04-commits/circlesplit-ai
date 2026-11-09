@@ -213,10 +213,28 @@ python -m playwright install chromium
 python tools/browser_smoke.py
 ```
 
-This is real **local browser behavior**, not a claim that the deployed
-Render UI, judge login, Gemini or PayPal Sandbox was interactively
-tested. The separate anonymous hosted release checker still verifies
-the deployed revision and public/private HTTP boundaries.
+On each successful `main` deployment, a second **read-only
+hosted-Chromium** job runs after both the local browser smoke and the
+exact-SHA anonymous HTTP release checker. It loads the real Render public
+Event Planner and judge guide in Chromium, performs the same
+browser-local fictional scenarios and clipboard actions, and checks that
+anonymous `/workspace` access returns HTTP 401 without login. A strict
+same-origin HTTPS GET allowlist blocks external destinations, private
+assets, unexpected APIs and all POST/PUT requests. The public `/health`
+Git revision must match the running CI commit both **before and after**
+the browser journey; mismatches fail closed.
+
+Run the deployed public test independently, without credentials, with:
+
+```bash
+python tools/browser_smoke.py --hosted-read-only --expected-sha <FULL-40-HEX-DEPLOYED-COMMIT>
+```
+
+The hosted test **does not** log in, contact Gemini or PayPal, verify
+actual captures, alter the organizer SQLite ledger, prove durable
+storage, or complete Devpost submission. It verifies the deployed public
+browser journey, not authenticated/provider workflows. Both Chromium
+jobs are test-only and never add Playwright to the Render runtime.
 
 ## Compare two fictional plans side by side
 
