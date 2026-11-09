@@ -76,7 +76,8 @@ jobs:
   browser_smoke:
     name: Real Chromium public demo and judge interaction smoke
     needs: backend
-    runs-on: ubuntu-latest
+    # ubuntu-latest can move to Ubuntu 26.04; Playwright 1.57 supports 24.04.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     timeout-minutes: 12
