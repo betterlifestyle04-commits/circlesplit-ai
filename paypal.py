@@ -241,7 +241,7 @@ def _valid_sandbox_webhook_headers(fields):
         return False
     if not re.fullmatch(r"[A-Za-z0-9._-]+", transmission_id):
         return False
-    if not re.fullmatch(r"[0-9TtZz:+.\\-]+", transmission_time):
+    if not re.fullmatch(r"[0-9TtZz:+.-]+", transmission_time):
         return False
     if not re.fullmatch(r"[A-Za-z0-9+/=_-]+", transmission_sig):
         return False
