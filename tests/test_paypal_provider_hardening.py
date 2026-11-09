@@ -202,7 +202,7 @@ def test_webhook_malformed_verification_envelope_never_verifies(monkeypatch):
     monkeypatch.setattr(paypal,"api",bad_api)
     headers={
        "paypal-auth-algo":"SHA256withRSA",
-       "paypal-cert-url":"https://api-m.sandbox.paypal.com/cert",
+       "paypal-cert-url":"https://api-m.sandbox.paypal.com/v1/notifications/certs/CERT-360caa42-fca2a594-ab66f33d",
        "paypal-transmission-id":"test-id",
        "paypal-transmission-sig":"fake-test-signature",
        "paypal-transmission-time":"2026-11-06T16:00:00Z"
