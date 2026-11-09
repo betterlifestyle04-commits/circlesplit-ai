@@ -3,6 +3,7 @@
 This document distinguishes implemented code, recorded one-off sandbox checks, and work that remains. CircleSplit is a hackathon prototype, **not** a real-money product.
 
 ## Implemented and covered by automated tests
+- [x] Public browser-only event comparison now includes an editable per-person affordability cap, exact count of shares strictly above cap and maximum excess in cents, alongside read-only before/after/delta results; tested for weighted plans, invalid thresholds, empty groups and no provider/network calls (November 9, 2026)
 - [x] Offline Devpost submission preflight now blocks common exposed credentials, long bearer values, private invitation links and private-key blocks in public README, handoff/video docs and guest/judge HTML, without printing matched material; regression-tested in plain text and JSON modes. This is not a repository-wide or video scan (November 9, 2026)
 - [x] PayPal Sandbox incoming USD values are validated as bounded string decimals in exact cents, rejecting numeric coercion, exponents, extra precision and Unicode digits before capture/order-status/webhook matching; no provider call needed for regression tests (November 9, 2026)
 - [x] Public judge walkthrough can copy a fixed-label, no-secrets five-check PASS/FAIL summary; optional source revision appears only after explicit read-only `/health` check, with provider limitations printed and automated clipboard/error coverage (November 9, 2026)
