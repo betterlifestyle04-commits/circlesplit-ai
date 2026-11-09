@@ -150,6 +150,25 @@ ol{padding-left:22px;color:var(--muted)}li{margin:7px 0}
     </tbody>
    </table>
   </div>
+  <div class="card" style="box-shadow:none;padding:16px;margin-top:16px;background:#f5faf8" aria-label="Fictional scenario affordability comparison">
+   <div class="row" style="gap:13px;flex-wrap:wrap">
+    <div><h4 style="margin:0;font-size:15px">Per-person share cap</h4>
+     <p class="small muted">How many fictional shares would exceed your target?</p></div>
+    <label class="small" for="compare-share-cap" style="max-width:180px">Maximum share (USD)
+     <input id="compare-share-cap" value="12.00" inputmode="decimal" aria-describedby="compare-cap-status" style="margin-top:5px"></label>
+   </div>
+   <p id="compare-cap-status" role="status" aria-live="polite" class="small muted" style="margin:9px 0">Choose two events to compare a share limit.</p>
+   <div class="tablewrap">
+    <table class="mini" aria-label="Read-only per-person share cap comparison">
+     <thead><tr><th scope="col">Measure</th><th scope="col">Baseline</th><th scope="col">Alternative</th><th scope="col">Change</th></tr></thead>
+     <tbody>
+      <tr><th scope="row">People exceeding cap</th><td id="cmp-over-before">—</td><td id="cmp-over-after">—</td><td id="cmp-over-delta">—</td></tr>
+      <tr><th scope="row">Maximum excess per share</th><td id="cmp-excess-before">—</td><td id="cmp-excess-after">—</td><td id="cmp-excess-delta">—</td></tr>
+     </tbody>
+    </table>
+   </div>
+   <p class="small muted" style="margin-top:9px">An exceedance means strictly above the cap; an equal share passes. Empty groups have no individual share to compare. This is a scenario estimate, not proof participants can pay.</p>
+  </div>
   <p class="notice" style="margin-top:12px">This compares aggregate fictional budgets, not matched individuals or real transactions. Groups can have different members and split rules, so lower individual shares do not prove a better outcome. Approvals and contributions are simulations only. No server or PayPal calls are made.</p>
  </div>
  </section>
@@ -289,10 +308,21 @@ function renderComparison(){
   ["approvals","approved_count",false],
   ["simulated","simulated_count",false]
  ];
+ const capRows=[
+  ["over","over_cap_people",false],
+  ["excess","maximum_excess_cents",true]
+ ];
+ function clearCap(){
+  for(const [id] of capRows)
+   for(const part of ["before","after","delta"])
+    $("cmp-"+id+"-"+part).textContent="—";
+ }
  function clear(){
   for(const [id] of rows)
    for(const part of ["before","after","delta"])
     $("cmp-"+id+"-"+part).textContent="—";
+  clearCap();
+  $("compare-cap-status").textContent="Select two plans and enter a valid USD share cap.";
  }
  if(all.length<2){
   clear();status.textContent="Duplicate an event or create a second fictional plan to compare.";
@@ -320,6 +350,31 @@ function renderComparison(){
    ") with "+result.after.name+" ("+result.after.strategy+
    "). All amounts are fictional USD. The alternative changes the total budget by "+
    delta(result.delta.budget_cents,true)+".";
+  // An invalid threshold cannot invalidate the independent budget comparison.
+  // No names, approval history or external provider data leave the browser.
+  clearCap();
+  try{
+   const cap=amount($("compare-share-cap").value.trim());
+   const affordability=window.CircleSplitPublicScenarios.compareAffordability(
+    model,comparisonBaselineId,comparisonAlternativeId,cap,
+    window.CircleSplitPublicPortability
+   );
+   if(affordability.mode!=="BROWSER_LOCAL_FICTIONAL_AFFORDABILITY"||
+      affordability.read_only!==true)
+    throw Error("Unexpected local affordability response");
+   for(const [id,key,money] of capRows){
+    $("cmp-"+id+"-before").textContent=value(affordability.before[key],money);
+    $("cmp-"+id+"-after").textContent=value(affordability.after[key],money);
+    $("cmp-"+id+"-delta").textContent=delta(affordability.delta[key],money);
+   }
+   $("compare-cap-status").textContent="Share limit "+usd(cap)+": "+
+    affordability.before.over_cap_people+" of "+affordability.before.participants+
+    " baseline vs "+affordability.after.over_cap_people+" of "+
+    affordability.after.participants+" alternative participants strictly exceed it. "+
+    "Fictional estimates only; no payments or approvals checked.";
+  }catch(_err){
+   $("compare-cap-status").textContent="Enter a positive USD cap of up to $100,000.00 with at most two decimals.";
+  }
  }catch(_err){
   clear();status.textContent="Comparison unavailable. Check fictional event data.";
  }
@@ -386,6 +441,8 @@ $("compare-alternative").addEventListener("change",e=>{
  comparisonAlternativeId=e.target.value===""?null:Number(e.target.value);
  renderComparison();
 });
+$("compare-share-cap").addEventListener("input",renderComparison);
+$("compare-share-cap").addEventListener("change",renderComparison);
 $("duplicate-event").addEventListener("click",()=>{
  const original=event();
  if(!original)return message("Create a fictional event first.");

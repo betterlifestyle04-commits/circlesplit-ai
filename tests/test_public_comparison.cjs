@@ -137,3 +137,83 @@ test("comparison does not read provider records or claim real payment confirmati
  assert(!("order_id" in status.after));
  assert(!("verified_payments" in status.delta));
 });
+
+
+test("share-cap analysis matches strict integer-cent boundaries without changing the model",()=>{
+ const data=copy();
+ const untouched=JSON.stringify(data);
+ const equal=scenarios.compareAffordability(data,1,101,34,validator);
+ assert.deepEqual(equal,{
+  mode:"BROWSER_LOCAL_FICTIONAL_AFFORDABILITY",read_only:true,cap_cents:34,
+  before:{participants:3,over_cap_people:0,maximum_excess_cents:0},
+  after:{participants:3,over_cap_people:0,maximum_excess_cents:0},
+  delta:{over_cap_people:0,maximum_excess_cents:0},
+  notice:"Fictional share estimates, not actual affordability, consent, or payments."
+ });
+ const justBelow=scenarios.compareAffordability(data,1,101,33,validator);
+ assert.equal(justBelow.before.over_cap_people,2);
+ assert.equal(justBelow.after.over_cap_people,2);
+ assert.equal(justBelow.before.maximum_excess_cents,1);
+ assert.equal(JSON.stringify(data),untouched);
+});
+
+test("weighted what-if compares the number above cap, not participant identities",()=>{
+ const data=copy(),draft=data.events[0];
+ draft.strategy="weighted";
+ draft.expenses[0].cents=200;
+ draft.people.forEach((p,i)=>p.share_cents=[50,101,50][i]);
+ const report=scenarios.compareAffordability(data,1,101,50,validator);
+ assert.equal(report.before.over_cap_people,0);
+ assert.equal(report.after.over_cap_people,1);
+ assert.equal(report.delta.over_cap_people,1);
+ assert.equal(report.before.maximum_excess_cents,0);
+ assert.equal(report.after.maximum_excess_cents,51);
+ assert.equal(report.delta.maximum_excess_cents,51);
+ assert(!("names" in report));
+ assert(!("payments" in report));
+});
+
+test("empty groups do not invent share values or claim affordable participants",()=>{
+ const data={next:3,events:[
+  {id:1,name:"Zero participants",date:"2026-11-09",strategy:"equal",
+   expenses:[{id:3,title:"Fictional hall",cents:1000}],people:[]},
+  {id:2,name:"Other empty group",date:"2026-11-09",strategy:"weighted",
+   expenses:[],people:[]}
+ ]};
+ const report=scenarios.compareAffordability(data,1,2,1200,validator);
+ assert.equal(report.before.participants,0);
+ assert.equal(report.after.over_cap_people,0);
+ assert.equal(report.before.maximum_excess_cents,null);
+ assert.equal(report.after.maximum_excess_cents,null);
+ assert.equal(report.delta.maximum_excess_cents,null);
+});
+
+test("invalid cap, self-comparison, missing events and tampered data fail closed",()=>{
+ const data=copy(),before=JSON.stringify(data);
+ for(const cap of [0,-1,1.5,NaN,Infinity,"1200",null,true,10000001]){
+  assert.throws(()=>scenarios.compareAffordability(data,1,101,cap,validator));
+ }
+ for(const ids of [[1,1],[1,999],[999,101],["1",101],[null,101]]){
+  assert.throws(()=>scenarios.compareAffordability(data,...ids,1200,validator));
+ }
+ assert.throws(()=>scenarios.compareAffordability(data,1,101,1200,null),
+   /validator unavailable/);
+ const invalid=copy();
+ invalid.events[0].people[0].share_cents=999;
+ assert.throws(()=>scenarios.compareAffordability(invalid,1,101,1200,validator));
+ assert.equal(JSON.stringify(data),before);
+});
+
+test("affordability analysis is strictly browser-local and anonymous",()=>{
+ const src=String(scenarios.compareAffordability);
+ for(const forbidden of [/\bfetch\s*\(/,/\blocalStorage\b/,/paypal\.com/,
+   /order_id/,/capture_id/,/buyer_email/,/approve\(/]){
+  assert.doesNotMatch(src,forbidden);
+ }
+ const data=copy();
+ const report=scenarios.compareAffordability(data,1,101,50,validator);
+ for(const forbidden of ["Sam","Alex","Taylor","idempotency","capture_id","order_id"]){
+  assert(!JSON.stringify(report).includes(forbidden),forbidden);
+ }
+ assert.equal(report.read_only,true);
+});

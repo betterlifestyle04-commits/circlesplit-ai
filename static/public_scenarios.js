@@ -122,7 +122,47 @@
    }
   };
  }
- const api={duplicateAsDraft,compareEvents};
+ // Compare *counts* above an optional share cap, not identities,
+ // willingness to pay, or whether any payment has actually settled.
+ function compareAffordability(data,baselineId,alternativeId,capCents,validator){
+  if(!validator||typeof validator.validateModel!=="function")
+   throw Error("Fictional planning validator unavailable");
+  if(!Number.isSafeInteger(capCents)||capCents<1||capCents>10000000)
+   throw Error("Enter a valid USD share cap between $0.01 and $100,000.00");
+  const clean=validator.validateModel(data);
+  if(!Number.isSafeInteger(baselineId)||!Number.isSafeInteger(alternativeId)||
+     baselineId===alternativeId)
+   throw Error("Choose two different fictional events");
+  const baseline=clean.events.find(e=>e.id===baselineId);
+  const alternative=clean.events.find(e=>e.id===alternativeId);
+  if(!baseline||!alternative)
+   throw Error("Both fictional events must exist");
+  function metrics(e){
+   const shares=e.people.map(p=>p.share_cents);
+   const over=shares.filter(cents=>cents>capCents).length;
+   return {
+    participants:shares.length,
+    over_cap_people:over,
+    maximum_excess_cents:shares.length?
+     Math.max(0,...shares.map(cents=>cents-capCents)):null
+   };
+  }
+  const before=metrics(baseline),after=metrics(alternative);
+  return {
+   mode:"BROWSER_LOCAL_FICTIONAL_AFFORDABILITY",
+   read_only:true,
+   cap_cents:capCents,
+   before,after,
+   delta:{
+    over_cap_people:after.over_cap_people-before.over_cap_people,
+    maximum_excess_cents:after.maximum_excess_cents===null||
+     before.maximum_excess_cents===null?null:
+     after.maximum_excess_cents-before.maximum_excess_cents
+   },
+   notice:"Fictional share estimates, not actual affordability, consent, or payments."
+  };
+ }
+ const api={duplicateAsDraft,compareEvents,compareAffordability};
  if(typeof module!=="undefined"&&module.exports)module.exports=api;
  else root.CircleSplitPublicScenarios=api;
 })(typeof window!=="undefined"?window:{});
