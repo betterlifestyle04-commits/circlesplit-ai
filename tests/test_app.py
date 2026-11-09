@@ -2872,3 +2872,43 @@ def test_calendar_updates_sequence_and_does_not_change_payment_or_rsvp(client):
     assert after["simulated_cents"]==before["simulated_cents"]
     assert after["sandbox_cents"]==before["sandbox_cents"]
     assert after["total_cents"]==before["total_cents"]
+
+
+def test_single_participant_add_matches_bulk_name_and_duplicate_rules(client):
+    e = initial(client)
+    eid = e["id"]
+    endpoint = f"/api/events/{eid}/people"
+    baseline = client.get("/api/state").json()
+    assert client.post(endpoint, json={"name": "  aLeX  "}).status_code == 409
+    assert client.post(endpoint, json={"name": "   "}).status_code == 422
+    assert client.get("/api/state").json() == baseline
+    response = client.post(endpoint, json={"name": "  Distinct Guest  ", "weight": 2})
+    assert response.status_code == 200, response.text
+    updated = next(x for x in client.get("/api/state").json()["events"] if x["id"] == eid)
+    assert any(p["name"] == "Distinct Guest" and p["weight"] == 2
+               for p in updated["people"])
+    assert sum(p["share_cents"] for p in updated["people"]) == updated["total_cents"]
+
+
+def test_single_participant_add_respects_200_person_boundary_without_partial_insert(client):
+    created = client.post(
+        "/api/events", json={"name": "Capacity audit", "date": "2026-11-15"}
+    )
+    assert created.status_code == 200, created.text
+    eid = created.json()["id"]
+    bulk = f"/api/events/{eid}/people/bulk"
+    for first in (0, 100):
+        payload = {"people": [
+            {"name": f"Test Participant {i:03d}", "weight": 1}
+            for i in range(first, first + 100)
+        ]}
+        response = client.post(bulk, json=payload)
+        assert response.status_code == 200, response.text
+    before = client.get("/api/state").json()
+    response = client.post(
+        f"/api/events/{eid}/people",
+        json={"name": "Unpermitted person", "weight": 1}
+    )
+    assert response.status_code == 422, response.text
+    assert "Maximum 200" in response.text
+    assert client.get("/api/state").json() == before
