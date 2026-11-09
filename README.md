@@ -123,6 +123,22 @@ and is **not** covered by the strict script policy. This protection
 does not provide identity verification, account isolation, durable
 storage, or proof of actual browser testing.
 
+## PayPal Sandbox provider amount contract
+
+The adapter now interprets provider-returned USD `amount.value` as a
+**bounded decimal string in exact cents**, not a float or a coercible
+JSON number. It accepts ordinary one- or two-place USD strings such as
+`"11"`, `"11.0"` and `"11.00"`, but rejects exponents,
+whitespace, extra decimal precision, negative values, Unicode digits,
+non-string types and values beyond the application's safe-cent limit.
+This same amount comparison protects existing-order reconciliation,
+capture verification and signed webhook handling.
+
+**A correctly formatted amount is necessary but not sufficient for
+payment settlement:** the sandbox provider must also confirm the
+right order, completion, currency and capture reference. No production
+payments or automated retry of uncertain captures are added.
+
 ## Sandbox webhook header safety
 
 Before making any PayPal authentication or signature-verification request,
