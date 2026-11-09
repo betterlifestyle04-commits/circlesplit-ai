@@ -157,11 +157,11 @@ test("public page explicitly exposes an editable what-if action and safe browser
  assert.match(html,/No PayPal request was made/);
 });
 
-function launchPublic(){
+function launchPublic({clipboard="ok"}={}){
  const script=html.match(/<script>([\s\S]*?)<\/script>/g);
  assert.equal(script.length,1);
  const inner=script[0].slice("<script>".length,-"</script>".length);
- const handlers=new Map(),elements=new Map(),stored=new Map(),network=[];
+ const handlers=new Map(),elements=new Map(),stored=new Map(),network=[],copied=[];
  class Element {
   constructor(id){
    this.id=id;this.value=id==="compare-share-cap"?"12.00":"";
@@ -198,6 +198,12 @@ function launchPublic(){
    setItem:(k,v)=>stored.set(k,v)
   },
   confirm:()=>true,
+  navigator:{clipboard:clipboard==="missing"?null:{
+   async writeText(value){
+    if(clipboard==="denied")throw Error("Cannot write clipboard");
+    copied.push(value);
+   }
+  }},
   URL,Blob,Error,Date,JSON,Number,
   fetch:(...args)=>{network.push(args);throw Error("No network from public demo")}
  });
@@ -207,7 +213,7 @@ function launchPublic(){
   assert.equal(typeof fn,"function",id+":"+kind);
   return fn(evt);
  }
- return {context,el,trigger,stored,network,handlers,
+ return {context,el,trigger,stored,network,handlers,copied,
   getModel:()=>vm.runInContext("model",context),
   getChosen:()=>vm.runInContext("chosen",context)};
 }
@@ -399,4 +405,87 @@ test("public cap comparison exposes accessible controls and no external provider
  assert.match(html,/Strictly above|strictly above/);
  assert.match(html,/compareAffordability\(/);
  assert.match(html,/Fictional estimates only; no payments or approvals checked/);
+});
+
+
+test("copyable scenario proof enables only after two valid fictional plans exist",async()=>{
+ const ui=launchPublic();
+ assert.equal(ui.el("compare-copy-summary").disabled,true);
+ assert.match(ui.el("compare-copy-status").textContent,/unavailable/);
+ await ui.trigger("compare-copy-summary","click");
+ assert.equal(ui.copied.length,0);
+ ui.trigger("duplicate-event","click");
+ assert.equal(ui.el("compare-copy-summary").disabled,false);
+ await ui.trigger("compare-copy-summary","click");
+ assert.equal(ui.copied.length,1);
+ assert.match(ui.copied[0],/FICTIONAL browser-only scenario summary/);
+ assert.match(ui.copied[0],/Per-person limit: \$12\.00/);
+ assert.match(ui.copied[0],/Baseline: equal split; budget \$220\.00; participants 20/);
+ assert.match(ui.copied[0],/Alternative: equal split; budget \$220\.00; participants 20/);
+ assert.match(ui.copied[0],/NOT VERIFIED: real affordability, attendance, Gemini API, PayPal Sandbox orders\/captures/);
+ assert.match(ui.el("compare-copy-status").textContent,/copied/);
+ assert.equal(ui.el("compare-copy-summary").disabled,false);
+ assert.equal(ui.network.length,0);
+});
+
+test("copied public comparison reflects weighted shares without exposing participant data",async()=>{
+ const ui=launchPublic(),original=JSON.stringify(ui.getModel());
+ ui.trigger("duplicate-event","click");
+ ui.trigger("weighted","click");
+ const before=JSON.stringify(ui.getModel());
+ await ui.trigger("compare-copy-summary","click");
+ assert.equal(ui.copied.length,1);
+ const output=ui.copied[0];
+ assert.match(output,/Alternative: weighted split; budget \$220\.00; participants 20/);
+ assert.match(output,/above cap 4\/20; maximum excess \$6\.33/);
+ assert.match(output,/people above cap \+4; maximum excess \+\$6\.33/);
+ for(const untrusted of ["Alex","Taylor","Sam","Friday Community Volleyball",
+   "Court rental","Refreshments","capture_id","order_id","demo_paid"]){
+  assert(!output.includes(untrusted),untrusted);
+ }
+ assert.equal(JSON.stringify(ui.getModel()),before);
+ assert.notEqual(before,original,"The independent what-if setup was actually exercised");
+ assert.equal(ui.network.length,0);
+});
+
+test("invalid share cap and same-event comparison disable copying and preserve other metrics",async()=>{
+ const ui=launchPublic();
+ ui.trigger("duplicate-event","click");
+ ui.el("compare-share-cap").value="12.999";
+ ui.trigger("compare-share-cap","change");
+ assert.equal(ui.el("compare-copy-summary").disabled,true);
+ assert.match(ui.el("compare-copy-status").textContent,/valid share limit/);
+ assert.equal(ui.el("cmp-budget-before").textContent,"$220.00");
+ await ui.trigger("compare-copy-summary","click");
+ assert.equal(ui.copied.length,0);
+ ui.el("compare-share-cap").value="12.00";
+ ui.trigger("compare-share-cap","change");
+ assert.equal(ui.el("compare-copy-summary").disabled,false);
+ const draftId=String(ui.getModel().events[0].id);
+ ui.trigger("compare-baseline","change",{target:{value:draftId}});
+ assert.equal(ui.el("compare-copy-summary").disabled,true);
+ assert.match(ui.el("compare-copy-status").textContent,/unavailable/);
+ assert.equal(ui.network.length,0);
+});
+
+test("clipboard denied/unavailable reports failure without claiming copied",async()=>{
+ for(const clipboard of ["denied","missing"]){
+  const ui=launchPublic({clipboard});
+  ui.trigger("duplicate-event","click");
+  assert.equal(ui.el("compare-copy-summary").disabled,false);
+  await ui.trigger("compare-copy-summary","click");
+  assert.equal(ui.copied.length,0);
+  assert.match(ui.el("compare-copy-status").textContent,/Could not copy/);
+  assert.doesNotMatch(ui.el("compare-copy-status").textContent,/copied/i);
+  assert.equal(ui.el("compare-copy-summary").disabled,false);
+  assert.equal(ui.network.length,0);
+ }
+});
+
+test("anonymous comparison UI exposes accessible clipboard controls only after validation",()=>{
+ assert.match(html,/id="compare-copy-summary" disabled/);
+ assert.match(html,/id="compare-copy-status" role="status" aria-live="polite"/);
+ assert.match(html,/formatAnonymousComparison\(/);
+ assert.match(html,/No payment or AI verification/);
+ assert.match(html,/Clipboard permission may be unavailable/);
 });
