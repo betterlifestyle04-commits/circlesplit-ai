@@ -104,6 +104,42 @@ jobs:
             echo "- **Not verified:** production browser UX, live providers, durable storage, Devpost video or final submission"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # Only after the exact deployed revision passes anonymous HTTP checks,
+  # exercise that same live public UI in real Chromium. GET-only and
+  # hard restricted to the known production origin/public assets.
+  hosted_browser_smoke:
+    name: Deployed Render real-Chromium public judge smoke
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [live_smoke, browser_smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test-only browser runner
+        run: python -m pip install playwright==1.57.0
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Verify exact deployed revision and read-only real browser flows
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          python tools/browser_smoke.py --hosted-read-only --expected-sha "$EXPECTED_COMMIT"
+          {
+            echo "### CircleSplit LIVE Chromium public journey: PASS"
+            echo ""
+            echo "- Exact deployed Git revision checked before and after browser interactions"
+            echo "- Real Chromium visited deployed public Event Planner and judge walkthrough"
+            echo "- Browser-only split math, copy controls and redacted evidence verified"
+            echo "- Anonymous HTTP 401 for private workspace; no credentials or API requests"
+            echo "- Strict public GET allowlist and same-origin HTTPS only"
+            echo "- **Not verified:** live PayPal, Gemini, private judge login, storage durability or Devpost submission"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Main-branch releases are checked *after* unit tests, with no secrets.
   # The smoke checker polls only while Render is deploying/waking.
   # Wrong auth boundaries, malformed data and missing public scripts fail fast.
