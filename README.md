@@ -216,6 +216,22 @@ same-event selections, and a browser-inline UI simulation with **zero
 network requests**. This is a fictional planning comparison—not AI
 analysis, payment settlement, or a live-browser device certification.
 
+### Compare a per-person share limit
+
+The same fictional scenario comparison now includes a **Per-person
+share cap** field (initially $12.00). It computes, for each event, how
+many proposed individual shares are **strictly above** that user-defined
+USD limit, and the largest excess in integer cents. The four numbers
+and signed differences respond immediately to changing the cap, chosen
+events, expense amounts or equal/weighted strategy.
+
+A share exactly on the cap passes; an event with no participants has
+no meaningful largest individual excess, rather than an invented zero.
+Invalid thresholds clear only the affordability results—the
+independent budget comparison stays readable. This is a read-only,
+browser-local *scenario estimate*, not evidence of actual financial
+ability, attendance, consent, PayPal captures or Gemini calls.
+
 ## Duplicate an event as a fictional what-if draft
 
 In the public **Event planner**, **Duplicate as what-if draft** creates a
