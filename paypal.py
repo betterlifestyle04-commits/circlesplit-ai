@@ -9,7 +9,7 @@ from fastapi import HTTPException
 BASE = "https://api-m.sandbox.paypal.com"
 _ORDER_ID = re.compile(r"[A-Za-z0-9-]{5,50}\Z")
 MAX_SANDBOX_ORDER_CENTS = (2**53 - 1) // 10
-_USD_AMOUNT = re.compile(r"(?:0|[1-9][0-9]{0,12})(?:\\.[0-9]{1,2})?\\Z")
+_USD_AMOUNT = re.compile(r"(?:0|[1-9][0-9]{0,12})(?:\.[0-9]{1,2})?\Z")
 
 
 def valid_sandbox_order_id(value):
