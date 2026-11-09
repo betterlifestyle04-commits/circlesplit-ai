@@ -211,6 +211,57 @@ def completed_capture(response, amount):
         return None
     return capture
 
+def _valid_sandbox_webhook_headers(fields):
+    """Validate public webhook headers before any OAuth/provider request.
+
+    Header lengths follow PayPal's verification API schema. The certificate
+    URL must point to a PayPal Sandbox webhook certificate, not an arbitrary
+    URL supplied by a public caller. PayPal still authenticates the actual
+    signature via verify-webhook-signature; shape checks are not verification.
+    """
+    if not isinstance(fields, dict):
+        return False
+    auth_algo = fields.get("auth_algo")
+    transmission_id = fields.get("transmission_id")
+    transmission_time = fields.get("transmission_time")
+    transmission_sig = fields.get("transmission_sig")
+    cert_url = fields.get("cert_url")
+    limits = {
+        "auth_algo": 100, "transmission_id": 50,
+        "transmission_time": 100, "transmission_sig": 500,
+        "cert_url": 500,
+    }
+    for name, maximum in limits.items():
+        value = fields.get(name)
+        if (not isinstance(value, str) or not 1 <= len(value) <= maximum
+                or not value.isascii() or
+                any(ord(ch) <= 32 or ord(ch) == 127 for ch in value)):
+            return False
+    if not re.fullmatch(r"[A-Za-z0-9]+", auth_algo):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", transmission_id):
+        return False
+    if not re.fullmatch(r"[0-9TtZz:+.\\-]+", transmission_time):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9+/=_-]+", transmission_sig):
+        return False
+    if not _clean_https_url(cert_url):
+        return False
+    try:
+        parsed = urlsplit(cert_url)
+        return (parsed.scheme == "https"
+                and parsed.hostname in (
+                    "api-m.sandbox.paypal.com", "api.sandbox.paypal.com")
+                and parsed.username is None and parsed.password is None
+                and parsed.port in (None, 443)
+                and not parsed.query and not parsed.fragment
+                and re.fullmatch(
+                    r"/v1/notifications/certs/CERT-[A-Za-z0-9-]{8,128}",
+                    parsed.path) is not None)
+    except ValueError:
+        return False
+
+
 async def verify_webhook(headers, event):
     webhook_id = os.getenv("PAYPAL_WEBHOOK_ID")
     if not webhook_id:
@@ -220,8 +271,8 @@ async def verify_webhook(headers, event):
                "transmission_sig": "paypal-transmission-sig",
                "transmission_time": "paypal-transmission-time"}
     fields = {name: headers.get(header, "") for name, header in mapping.items()}
-    if any(not v for v in fields.values()):
-        raise HTTPException(400, "Missing signature verification headers")
+    if not _valid_sandbox_webhook_headers(fields):
+        raise HTTPException(400, "Invalid PayPal Sandbox webhook signature headers")
     response = await api("POST", "/v1/notifications/verify-webhook-signature",
                          {"webhook_id": webhook_id, "webhook_event": event, **fields},
                          str(uuid.uuid4()))
