@@ -165,6 +165,53 @@
     };
   }
 
+  function formatEvidenceReport(report, commit = null) {
+    // Deliberately build the clipboard text only from fixed public labels and
+    // Boolean local outcomes. Never copy participant state or provider data.
+    const expected = [
+      ["equal-cent-rounding", "$10 / 3 exact-cent allocation", "$3.34 + $3.33 + $3.33"],
+      ["volleyball-equal", "$220 / 20 volleyball budget", "20 × $11.00 = $220.00"],
+      ["weighted-remainders", "Weighted largest-remainder allocation",
+        "$50.00 + $33.34 + $16.67 = $100.01"],
+      ["two-no-shows", "2 absences with a $12 share cap",
+        "$12.23 largest share; 1 fictional replacement"],
+      ["five-no-shows", "5 absences with a $12 share cap",
+        "$14.67 largest share; 4 fictional replacements"]
+    ];
+    if (!report || report.mode !== "BROWSER_LOCAL_MATH_CHECKS" ||
+        !Array.isArray(report.checks) || report.total !== expected.length ||
+        report.checks.length !== expected.length ||
+        !(commit === null || (typeof commit === "string" &&
+          /^[0-9a-f]{40}$/.test(commit)))) {
+      throw Error("No valid local verification report is available.");
+    }
+    const rows = expected.map(([id, label, detail], index) => {
+      const check = report.checks[index];
+      if (!check || check.id !== id || typeof check.passed !== "boolean") {
+        throw Error("Local verification report is incomplete.");
+      }
+      return (check.passed ? "PASS" : "FAIL") + " | " + label +
+        (check.passed ? " | " + detail : " | Result not confirmed");
+    });
+    const passed = report.checks.filter(check => check.passed).length;
+    if (passed !== report.passed || report.success !== (passed === expected.length)) {
+      throw Error("Local verification report totals are inconsistent.");
+    }
+    return [
+      "CircleSplit AI — PUBLIC browser verification summary",
+      "Page: https://circlesplit-ai-demo.onrender.com/judge",
+      "Public /health revision: " +
+        (commit || "NOT CHECKED / not supplied"),
+      "Math result: " + (report.success ? "PASS" : "FAIL") + " (" +
+        passed + "/" + expected.length + " browser-only checks)",
+      ...rows,
+      "Scope: fictional in-memory arithmetic only; running these checks does not contact a server or payment provider.",
+      "A /health revision, if shown, is a source identifier, not a proof of provider integration or latest GitHub commit.",
+      "NOT VERIFIED here: Gemini API, PayPal Sandbox orders/captures, judge credentials, persistent storage, or Devpost submission.",
+      "No real funds. No participant names, tokens, order IDs, or credentials included."
+    ].join("\n");
+  }
+
   function setupJudgeUI(doc, fetchFn, clipboard, math) {
     const $ = id => doc.getElementById(id);
     const navigation = [...doc.querySelectorAll("[data-judge-step]")];
@@ -178,7 +225,9 @@
       copy: $("judge-copy-prompt"),
       mathButton: $("judge-run-local-tests"),
       mathStatus: $("judge-math-status"),
-      mathResults: $("judge-math-results")
+      mathResults: $("judge-math-results"),
+      copyEvidence: $("judge-copy-evidence"),
+      evidenceStatus: $("judge-copy-evidence-status")
     };
     if (navigation.length !== STEPS.length ||
         Object.values(view).some(value => !value)) {
@@ -187,6 +236,9 @@
 
     let current = 0;
     let lastHealthCommit = null;
+    let observedSourceCommit = null;
+    let latestMathReport = null;
+    view.copyEvidence.disabled = true;
     const reviewed = new Set();
     const render = () => {
       const step = STEPS[current];
@@ -230,6 +282,9 @@
       view.mathButton.disabled=true;
       try {
         const report=runLocalMathChecks(math);
+        latestMathReport=report;
+        view.copyEvidence.disabled=false;
+        view.evidenceStatus.textContent="Local results available to copy. No provider activity has been verified.";
         view.mathStatus.textContent=report.success ?
           "PASS: "+report.passed+"/"+report.total+
           " browser-only math checks passed. No network, Gemini or PayPal calls." :
@@ -239,11 +294,35 @@
           (check.passed?"PASS":"FAIL")+" — "+check.label+": "+check.detail
         ).join("\n");
       } catch (_err) {
+        latestMathReport=null;
+        view.copyEvidence.disabled=true;
+        view.evidenceStatus.textContent="Local report unavailable. Run the math checks after the module loads.";
         view.mathStatus.textContent=
           "UNAVAILABLE: Public arithmetic code could not be loaded. No payment or server tests were run.";
         view.mathResults.textContent="";
       } finally {
         view.mathButton.disabled=false;
+      }
+    });
+    view.copyEvidence.addEventListener("click", async () => {
+      if (!latestMathReport) {
+        view.evidenceStatus.textContent="Run the local math checks before copying evidence.";
+        return;
+      }
+      view.copyEvidence.disabled=true;
+      try {
+        if (!clipboard || typeof clipboard.writeText !== "function") {
+          throw Error("Clipboard is unavailable.");
+        }
+        const summary=formatEvidenceReport(latestMathReport,observedSourceCommit);
+        await clipboard.writeText(summary);
+        view.evidenceStatus.textContent=
+          "Public verification summary copied. This is not Gemini, PayPal, or submission proof.";
+      } catch (_err) {
+        view.evidenceStatus.textContent=
+          "Could not copy the summary. Review the displayed results instead.";
+      } finally {
+        view.copyEvidence.disabled=latestMathReport===null;
       }
     });
     view.copy.addEventListener("click", async () => {
@@ -269,9 +348,11 @@
           msg += "Revision changed since this tab's previous check; demo data may have reset. ";
         }
         if (commit) lastHealthCommit = commit;
+        observedSourceCommit=commit;
         view.health.textContent = msg +
           "This does NOT test Gemini, PayPal, judge login, or payment storage.";
       } catch (_) {
+        observedSourceCommit=null;
         view.health.textContent = "Public source check unavailable. This does not imply a payment failed; inspect existing sandbox orders manually.";
       } finally {
         view.check.disabled = false;
@@ -282,7 +363,7 @@
   }
 
   const api = { STEPS, SAMPLE_PROMPT, progress, verifiedPublicHealth,
-                checkPublicSource, runLocalMathChecks, setupJudgeUI };
+                checkPublicSource, runLocalMathChecks, formatEvidenceReport, setupJudgeUI };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else {
     root.CircleSplitJudge = api;
