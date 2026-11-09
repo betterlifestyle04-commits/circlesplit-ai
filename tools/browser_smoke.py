@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Real Chromium smoke for *local*, anonymous CircleSplit public and judge pages.
+"""Real Chromium smoke for local and strictly read-only hosted judge pages.
 
-This is an opt-in CI test; Playwright is NOT installed in the Render runtime.
-All HTTP requests are restricted to a temporary local FastAPI instance.
-No PayPal, Gemini, credentials, checkout, capture, database mutation through
-the UI, or external website calls are made. Only fictional browser data.
+A disposable localhost test also checks the private HTTP 401 boundary.
+The hosted mode is tied to a single trusted HTTPS origin and exact commit SHA.
+No account, PayPal, Gemini, payment, write request, or real data is involved.
+Playwright is test-only and is never installed in the Render runtime.
 """
+import argparse
+import json
 import os
 from pathlib import Path
 import socket
@@ -17,7 +19,47 @@ from urllib.error import URLError
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 
+from verify_live import DEFAULT_ORIGIN, request_once, valid_sha
+
 ROOT = Path(__file__).resolve().parent.parent
+PUBLIC_BROWSER_PATHS = frozenset((
+    "/", "/judge", "/favicon.ico",
+    "/static/public_recovery.js", "/static/public_portability.js",
+    "/static/public_scenarios.js", "/static/judge_walkthrough.js",
+))
+
+
+def permitted_browser_request(origin, url, method, *, hosted=False):
+    """Pure fail-closed network policy used by both Chromium smoke modes."""
+    base, target = urlsplit(origin), urlsplit(url)
+    if (method != "GET" or target.scheme != base.scheme or
+            target.hostname != base.hostname or target.port != base.port or
+            target.username is not None or target.password is not None or
+            target.fragment or target.query):
+        return False
+    if target.path.startswith("/api/"):
+        return False
+    if hosted and target.path not in PUBLIC_BROWSER_PATHS:
+        return False
+    return True
+
+
+def verify_hosted_revision(expected_sha, fetch=request_once):
+    """Read only, exact-origin, no-redirect health verification pre/post UI."""
+    if not valid_sha(expected_sha):
+        raise ValueError("Hosted browser smoke needs the full expected 40-hex commit")
+    response = fetch(DEFAULT_ORIGIN + "/health", method="GET", timeout=12.0)
+    require(response.status == 200, "Hosted /health did not return HTTP 200")
+    try:
+        health = json.loads(response.body)
+    except (ValueError, UnicodeError) as exc:
+        raise AssertionError("Hosted /health response is not JSON") from exc
+    require(isinstance(health, dict) and health.get("status") == "ok" and
+            health.get("mode") == "sandbox-only",
+            "Hosted /health did not report healthy sandbox-only mode")
+    require(health.get("git_commit") == expected_sha,
+            "Hosted revision does not match the exact CI commit")
+
 
 
 def require(condition, message):
@@ -25,7 +67,7 @@ def require(condition, message):
         raise AssertionError(message)
 
 
-def run_chromium_smoke(origin):
+def run_chromium_smoke(origin, *, hosted=False):
     # The browser exercises actual HTML, JS, CSP and DOM interactions, rather
     # than the synthetic DOM shim used by the fast Node controller tests.
     from playwright.sync_api import expect, sync_playwright
@@ -39,18 +81,18 @@ def run_chromium_smoke(origin):
             context = browser.new_context(
                 viewport={"width": 1365, "height": 900},
                 permissions=["clipboard-read", "clipboard-write"],
+                service_workers="block", accept_downloads=False,
             )
-            base = urlsplit(origin)
             def route_request(route):
-                target = urlsplit(route.request.url)
-                if (target.scheme not in ("http", "https")
-                        or target.hostname != "127.0.0.1"
-                        or target.port != base.port):
-                    blocked_urls.append(target.scheme + "://" + str(target.hostname))
-                    route.abort()
-                    return
-                if target.path.startswith("/api/"):
-                    suspicious_requests.append(target.path)
+                request = route.request
+                if not permitted_browser_request(
+                        origin, request.url, request.method, hosted=hosted):
+                    # Record only a fixed diagnostic category, never an
+                    # accidentally constructed credential-bearing URL.
+                    if urlsplit(request.url).path.startswith("/api/"):
+                        suspicious_requests.append("organizer API request")
+                    else:
+                        blocked_urls.append("unapproved browser request")
                     route.abort()
                     return
                 route.continue_()
@@ -137,12 +179,30 @@ def run_chromium_smoke(origin):
                     "Actual browser reported a JavaScript error: " + "; ".join(errors[:2]))
             print("PASS: real Chromium public planner and judge math, clipboard, "
                   "validation, CSP scripts and anonymous workspace boundary")
-            print("Scope: localhost only, fictional data, no provider traffic or credentials")
+            print("Scope: "+("verified hosted HTTPS origin" if hosted else "localhost")+
+                  ", fictional data, GET-only browser requests, no providers or credentials")
         finally:
             browser.close()
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--hosted-read-only", action="store_true",
+                        help="Check deployed public pages against exact known Render SHA")
+    parser.add_argument("--expected-sha", default=None,
+                        help="40-hex revision required in hosted mode")
+    args = parser.parse_args(argv)
+    if args.hosted_read_only:
+        if not valid_sha(args.expected_sha):
+            parser.error("--hosted-read-only requires --expected-sha with 40 hex characters")
+        verify_hosted_revision(args.expected_sha)
+        run_chromium_smoke(DEFAULT_ORIGIN, hosted=True)
+        verify_hosted_revision(args.expected_sha)
+        print("PASS: hosted real-Chromium public demo and judge, exact deployed revision, "
+              "no remote writes, provider credentials or private data")
+        return 0
+    if args.expected_sha:
+        parser.error("--expected-sha is valid only with --hosted-read-only")
     # Start a local production app with hosted auth boundaries and throwaway DB.
     with tempfile.TemporaryDirectory(prefix="circlesplit-chromium-") as temp:
         env = os.environ.copy()
