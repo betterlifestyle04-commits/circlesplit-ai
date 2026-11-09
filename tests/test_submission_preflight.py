@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 from tools.submission_preflight import (
-    ROOT, DEADLINE_UTC, inspect, main, youtube_video_id,
+    ROOT, DEADLINE_UTC, inspect, main, youtube_video_id, public_credential_indicators,
 )
 
 VALID = "https://youtu.be/AbC012_-xYz"
@@ -109,6 +109,7 @@ def test_preflight_never_includes_real_secrets_or_submission_confirmation(tmp_pa
     (project / "README.md").write_text(text + "\nDEMO_PASSWORD=SECRET_PRIVATE_PASSWORD\n")
     report = inspect(project)
     assert "SECRET_PRIVATE_PASSWORD" not in str(report)
+    assert "Public materials do not contain detectable credentials" in report["blockers"]
     assert not any("submitted" in x["name"].lower() and x["status"] == "pass"
                    for x in report["checks"])
     assert report["status"] == "BLOCKED"
@@ -132,3 +133,80 @@ def test_missing_or_symlinked_repository_file_does_not_pass(tmp_path):
     (project / "static/judge.html").symlink_to(project / "static/public.html")
     result = inspect(project, VALID)
     assert "Working entrypoint and public judge walkthrough" in result["blockers"]
+
+
+
+@pytest.mark.parametrize(("content", "risk"), [
+    ("DEMO_PASSWORD=HIDDEN_SUPER_SECRET_123456", "credential_assignment"),
+    ("GEMINI_API_KEY: 'private-value-xyz'", "credential_assignment"),
+    ("PAYPAL_CLIENT_SECRET=\"SANDBOX_ONLY_SECRET\"", "credential_assignment"),
+    ("JUDGE_PASSWORD=NEVER_PUT_PASSWORD_IN_DOCS", "credential_assignment"),
+    ("CIRCLESPLIT_BACKUP_KEY=SECRET_PRIVATE_KEY", "credential_assignment"),
+    ("-----BEGIN RSA PRIVATE KEY-----\nXXXX\n-----END RSA PRIVATE KEY-----", "private_key"),
+    ("-----BEGIN OPENSSH PRIVATE KEY-----", "private_key"),
+    ("Authorization: Bearer FAKE_LONG_TEST_TOKEN_FOR_REVIEW_ONLY_1234", "bearer_value"),
+    ("AIza" + "a" * 35, "google_api_key"),
+    ("ghp_" + "z" * 30, "github_access_token"),
+    ("github_pat_" + "Y" * 40, "github_access_token"),
+    ("sk-proj-" + "T" * 35, "openai_api_key"),
+    ("https://demo.example/participant?token=" + "R" * 35, "private_invite_link"),
+])
+def test_private_credential_patterns_are_detected_without_returning_values(content, risk):
+    found = public_credential_indicators(content)
+    assert risk in found
+    assert content not in str(found)
+    assert found == public_credential_indicators(content)
+
+
+@pytest.mark.parametrize("public_file", [
+    "README.md", "docs/JUDGE_HANDOFF.md", "docs/DEVPOST_FINAL_SUBMISSION.md",
+    "docs/VIDEO_DEMO_SCRIPT.md", "static/judge.html", "static/public.html",
+])
+def test_public_materials_secret_scan_blocks_and_redacts_all_report_formats(
+    tmp_path, capsys, public_file
+):
+    project = fixture_project(tmp_path)
+    target = project / public_file
+    target.parent.mkdir(parents=True, exist_ok=True)
+    existing = target.read_text() if target.exists() else ""
+    fake_secret = "JUDGE_PASSWORD=DO_NOT_COPY_MY_PASSWORD_76802"
+    target.write_text(existing + "\n" + fake_secret)
+    report = inspect(project, VALID)
+    assert report["status"] == "BLOCKED"
+    assert "Public materials do not contain detectable credentials" in report["blockers"]
+    assert fake_secret not in str(report)
+    assert "DO_NOT_COPY_MY_PASSWORD_76802" not in str(report)
+
+    assert main(["--root", str(project), "--video-url", VALID]) == 2
+    output = capsys.readouterr().out
+    assert "Public materials do not contain detectable credentials" in output
+    assert fake_secret not in output
+
+    assert main(["--root", str(project), "--video-url", VALID, "--json"]) == 2
+    output = capsys.readouterr().out
+    assert '"status": "BLOCKED"' in output
+    assert fake_secret not in output
+
+
+def test_documentation_discussion_and_public_paypal_ids_are_not_secrets(tmp_path):
+    project = fixture_project(tmp_path)
+    target = project / "README.md"
+    target.write_text(target.read_text() + "\n" +
+        "PAYPAL_CLIENT_ID=NON_SECRET_PUBLIC_ID\n" +
+        "PAYPAL_WEBHOOK_ID=NON_SECRET_WEBHOOK_ID\n" +
+        "JUDGE_PASSWORD (18+ characters) must be provided privately.\n" +
+        "No bearer tokens or private-key blocks should be included.\n")
+    report = inspect(project, VALID)
+    assert report["status"] == "NEEDS_MANUAL_REVIEW"
+    assert "Public materials do not contain detectable credentials" not in report["blockers"]
+    assert public_credential_indicators("Do not show a private key or bearer link.") == ()
+
+
+def test_cannot_make_a_public_secret_scan_pass_by_linking_external_file(tmp_path):
+    project = fixture_project(tmp_path)
+    target = project / "docs/JUDGE_HANDOFF.md"
+    target.unlink()
+    target.symlink_to(project / "README.md")
+    # Existing content checks still fail, and no external secret is read.
+    report = inspect(project, VALID)
+    assert "Judge testing and safety handoff" in report["blockers"]
