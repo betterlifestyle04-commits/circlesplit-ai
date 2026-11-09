@@ -144,3 +144,36 @@ test("local preview rejects empty events and clears obsolete calculations when i
  assert.match(h.el("recovery-results").textContent,/No-shows must be an integer/);
  assert.equal(h.fetches,0);
 });
+
+test("malformed attendee records are rejected before sorting and never mutate inputs",()=>{
+ const valid=[{id:2,weight:2},{id:1,weight:1}];
+ const before=JSON.stringify(valid);
+ assert.deepEqual(exactSplit(101,valid,"weighted"),[34,67]);
+ assert.equal(JSON.stringify(valid),before);
+ for(const bad of [null,undefined,false,42,"person",[],{id:1,weight:1.5},
+  {id:0,weight:1},{id:Number.MAX_SAFE_INTEGER+1,weight:1}]){
+  assert.throws(()=>exactSplit(101,[{id:2,weight:1},bad],"weighted"),
+   /Invalid fictional attendees/);
+ }
+});
+
+test("deterministic varied cent allocations conserve every cent and are order-independent",()=>{
+ let seed=0x5eed1234;
+ const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed;};
+ for(let iteration=0;iteration<500;iteration++){
+  const count=1+random()%40;
+  const members=Array.from({length:count},(_,id)=>({
+   id:id+1,weight:1+random()%10
+  }));
+  const total=random()%10000001;
+  const strategy=random()%2?"equal":"weighted";
+  const original=JSON.stringify(members);
+  const shares=exactSplit(total,members,strategy);
+  const backwards=exactSplit(total,[...members].reverse(),strategy);
+  assert.deepEqual(shares,backwards,"input order must not change ID-sorted allocations");
+  assert.equal(shares.length,count);
+  assert(shares.every(cents=>Number.isSafeInteger(cents)&&cents>=0));
+  assert.equal(shares.reduce((sum,cents)=>sum+cents,0),total);
+  assert.equal(JSON.stringify(members),original,"the computation must be read-only");
+ }
+});
