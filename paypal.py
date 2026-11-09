@@ -121,6 +121,11 @@ async def api(method, path, data=None, request_id=None):
         raise HTTPException(502, "PayPal sandbox request failed")
 
 async def order(amount, event_id, person_id, return_url, request_id):
+    # The checkout amount comes from server-side, exact-cent allocation.
+    # Guard the adapter boundary too: never coerce floats, bools or invalid
+    # magnitudes and never send an upstream Sandbox request for bad cents.
+    if type(amount) is not int or not 1 <= amount <= (2**53 - 1) // 10:
+        raise HTTPException(400, "Sandbox order amount must be positive safe integer cents")
     if not trusted_checkout_return_url(return_url):
         raise HTTPException(400, "A trusted HTTPS workspace return URL is required")
     body = {
@@ -128,7 +133,7 @@ async def order(amount, event_id, person_id, return_url, request_id):
         "purchase_units": [{"reference_id": str(event_id) + "-" + str(person_id),
             "custom_id": str(event_id) + ":" + str(person_id),
             "description": "CircleSplit test contribution",
-            "amount": {"currency_code": "USD", "value": f"{amount / 100:.2f}"}}],
+            "amount": {"currency_code": "USD", "value": f"{amount // 100}.{amount % 100:02d}"}}],
         "payment_source": {"paypal": {"experience_context": {
             "user_action": "PAY_NOW", "shipping_preference": "NO_SHIPPING",
             "return_url": return_url,
