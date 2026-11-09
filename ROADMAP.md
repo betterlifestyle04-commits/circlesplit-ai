@@ -3,6 +3,7 @@
 This document distinguishes implemented code, recorded one-off sandbox checks, and work that remains. CircleSplit is a hackathon prototype, **not** a real-money product.
 
 ## Implemented and covered by automated tests
+- [x] Public judge walkthrough can copy a fixed-label, no-secrets five-check PASS/FAIL summary; optional source revision appears only after explicit read-only `/health` check, with provider limitations printed and automated clipboard/error coverage (November 9, 2026)
 - [x] Public judge guide includes one-click, read-only 5-scenario regression of the deployed browser-local exact-cent and resilience algorithms (3-way $10 split, 20-way $220 split, weighted remainder, 2 and 5 no-shows) with per-check evidence, no provider requests or persisted state; live gate checks asset loading and control presence (November 8, 2026)
 - [x] Private participant invitation page upgrades from unrestricted `script-src 'unsafe-inline'` to exact SHA-256 inline program, scoped same-origin API calls and private no-store/no-referrer response, with automated deployed hash/headers checks (November 8, 2026)
 - [x] Owner-only judge access readiness checks separate credentials and expiration through official 15 December 2026 16:00 UTC judging end without returning secrets; public guide accurately distinguishes judge read-only Sandbox evidence from organizer-only payment operations (November 7, 2026)

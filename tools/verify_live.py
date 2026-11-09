@@ -196,6 +196,9 @@ def _verify_public_csp(path, result, html):
         _expect('id="judge-run-local-tests"' in html and
                 'id="judge-math-status"' in html,
                 "/judge: missing accessible local verification controls")
+        _expect('id="judge-copy-evidence" disabled' in html and
+                'id="judge-copy-evidence-status"' in html,
+                "/judge: missing disabled-by-default evidence copy controls")
 
 
 def verify_once(base, expected_sha, fetch=request_once, timeout=10.0):

@@ -57,9 +57,19 @@ payment verification. It does not attest that Gemini is available,
 that a PayPal Sandbox capture completed, or that real users tested
 the product. Reviewers can still independently interact with the
 public planner and review genuine provider evidence in the video.
+Reviewers can now select **Copy verification summary** after running
+these checks. It copies fixed public test labels and actual PASS/FAIL
+flags without reading participant names, credentials or payment records.
+The text includes the full deployment SHA **only if** the reviewer
+separately presses **Check deployed source revision**; without that
+read-only `/health` request, the report says the revision was not
+checked. It explicitly disclaims any Gemini/PayPal, storage,
+authentication or Devpost-submission verification. Clipboard access
+requires browser permission and failures do not claim success.
+
 The main-branch live-release gate now verifies that the arithmetic
 module is loaded **before** the judge controller, and that the
-accessible check controls remain on the page.
+accessible math and copy controls remain on the page.
 
 ## Judge access is separate from organizer payment authority
 
