@@ -4,7 +4,7 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
 const {STEPS,SAMPLE_PROMPT,progress,verifiedPublicHealth,checkPublicSource,
-       runLocalMathChecks,setupJudgeUI}
+       runLocalMathChecks,formatLocalMathReport,setupJudgeUI}
  =require("../static/judge_walkthrough.js");
 const recovery=require("../static/public_recovery.js");
 
@@ -260,4 +260,70 @@ test("browser math self-check exposes no payment or invitation identifiers",()=>
  }
  assert.equal(result.notice,
   "Fictional browser math only. No server, Gemini or PayPal verification.");
+});
+
+test("copyable local evidence stays disabled until checks run and exposes its strict scope",async()=>{
+ const h=harness();
+ assert.match(html,/id="judge-copy-math-report" disabled/);
+ assert.match(html,/id="judge-copy-math-status"[^>]*role="status" aria-live="polite"/);
+ assert.equal(h.element("judge-copy-math-report").disabled,true);
+ assert.equal(h.copied.length,0);
+ await h.element("judge-copy-math-report").click();
+ assert.match(h.element("judge-copy-math-status").textContent,/before copying/);
+ await h.element("judge-run-local-tests").click();
+ assert.equal(h.element("judge-copy-math-report").disabled,false);
+ await h.element("judge-copy-math-report").click();
+ assert.equal(h.copied.length,1);
+ const text=h.copied[0];
+ assert.match(text,/Result: PASS \(5\/5\)/);
+ assert.equal((text.match(/PASS —/g)||[]).length,5);
+ assert.match(text,/\$3\.34 \+ \$3\.33 \+ \$3\.33 = \$10\.00/);
+ assert.match(text,/No server checks, Gemini calls, PayPal operations/);
+ assert.match(text,/does not prove deployment health/);
+ assert.equal(h.ui.progress().completed,0);
+ assert.deepEqual(h.calls,[]);
+ assert.match(h.element("judge-copy-math-status").textContent,/Copied actual browser-only/);
+});
+
+test("copy of failing math shows FAIL honestly and never claims provider verification",async()=>{
+ const faulty={
+  exactSplit(...args){
+   if(args[0]===1000) return [333,333,334];
+   return recovery.exactSplit(...args);
+  },
+  preview:recovery.preview
+ };
+ const h=harness({math:faulty});
+ await h.element("judge-run-local-tests").click();
+ await h.element("judge-copy-math-report").click();
+ assert.equal(h.copied.length,1);
+ assert.match(h.copied[0],/Result: FAIL \(4\/5\)/);
+ assert.match(h.copied[0],/FAIL — \$10 \/ 3 exact-cent allocation/);
+ assert.equal((h.copied[0].match(/PASS —/g)||[]).length,4);
+ assert.match(h.copied[0],/no-show calculations/);
+ assert.deepEqual(h.calls,[]);
+});
+
+test("invalid arithmetic and unavailable clipboard cannot falsely claim a copied proof",async()=>{
+ const noMath=harness({math:null});
+ await noMath.element("judge-run-local-tests").click();
+ assert.equal(noMath.element("judge-copy-math-report").disabled,true);
+ assert.match(noMath.element("judge-copy-math-status").textContent,/No valid report/);
+ assert.equal(noMath.copied.length,0);
+ const noClipboard=harness({clipboardEnabled:false});
+ await noClipboard.element("judge-run-local-tests").click();
+ await noClipboard.element("judge-copy-math-report").click();
+ assert.match(noClipboard.element("judge-copy-math-status").textContent,/Copy unavailable/);
+ assert.match(noClipboard.element("judge-math-status").textContent,/PASS: 5\/5/);
+ assert.deepEqual(noClipboard.calls,[]);
+});
+
+test("formatting rejects inconsistent local self-check evidence",()=>{
+ const report=runLocalMathChecks(recovery);
+ assert.match(formatLocalMathReport(report),/Result: PASS \(5\/5\)/);
+ assert.throws(()=>formatLocalMathReport(null),/No valid local/);
+ assert.throws(()=>formatLocalMathReport({...report,passed:4}),/Inconsistent/);
+ assert.throws(()=>formatLocalMathReport({...report,success:false}),/Inconsistent/);
+ assert.throws(()=>formatLocalMathReport({...report,checks:[...report.checks.slice(1)]}),/No valid local/);
+ assert.throws(()=>formatLocalMathReport({...report,checks:[null,...report.checks.slice(1)]}),/Invalid local/);
 });
