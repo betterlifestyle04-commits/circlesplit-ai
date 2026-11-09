@@ -117,8 +117,10 @@ def run_chromium_smoke(origin):
             require("PayPal" in copied and "Gemini" in copied,
                     "Copied judge proof omitted provider verification limits")
 
-            response = page.goto(origin + "/workspace", wait_until="load")
-            require(response is not None and response.status == 401,
+            # APIRequestContext checks the HTTP Basic boundary without
+            # triggering a browser-native username/password prompt.
+            response = context.request.get(origin + "/workspace")
+            require(response.status == 401,
                     "Protected workspace was available to anonymous Chromium")
             require(not suspicious_requests,
                     "Public browser made an organizer/API request unexpectedly")
