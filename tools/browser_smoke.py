@@ -168,7 +168,7 @@ def run_chromium_smoke(origin, *, hosted=False):
 
             # APIRequestContext checks the HTTP Basic boundary without
             # triggering a browser-native username/password prompt.
-            response = context.request.get(origin + "/workspace")
+            response = context.request.get(origin + "/workspace", max_redirects=0)
             require(response.status == 401,
                     "Protected workspace was available to anonymous Chromium")
             require(not suspicious_requests,
