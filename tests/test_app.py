@@ -2912,3 +2912,62 @@ def test_single_participant_add_respects_200_person_boundary_without_partial_ins
     assert response.status_code == 422, response.text
     assert "Maximum 200" in response.text
     assert client.get("/api/state").json() == before
+
+
+def test_unicode_participant_duplicates_rejected_consistently_in_all_write_paths(client):
+    """SQLite lower() is ASCII-only; Python Unicode casefold must govern names."""
+    created = client.post(
+        "/api/events", json={"name": "Unicode group", "date": "2026-11-20"}
+    )
+    assert created.status_code == 200, created.text
+    eid = created.json()["id"]
+    single = f"/api/events/{eid}/people"
+    bulk = f"/api/events/{eid}/people/bulk"
+    first = client.post(single, json={"name": "Straße Crew", "weight": 1})
+    assert first.status_code == 200, first.text
+    other = client.post(single, json={"name": "Another Guest", "weight": 1})
+    assert other.status_code == 200, other.text
+    state = client.get("/api/state").json()
+    event = next(e for e in state["events"] if e["id"] == eid)
+    other_id = next(p["id"] for p in event["people"]
+                    if p["name"] == "Another Guest")
+
+    assert client.post(single, json={"name": "  STRASSE CREW  "}).status_code == 409
+    assert client.post(
+        bulk, json={"people": [{"name": "STRASSE CREW"}]}
+    ).status_code == 409
+    assert client.post(
+        bulk, json={"people": [{"name": "Straße New"}, {"name": "STRASSE NEW"}]}
+    ).status_code == 422
+    assert client.put(
+        f"{single}/{other_id}", json={"name": "STRASSE CREW", "weight": 2}
+    ).status_code == 409
+    assert client.get("/api/state").json() == state, (
+        "Rejected Unicode duplicates must leave shares, consent and records unchanged"
+    )
+
+    renamed = client.put(
+        f"{single}/{other_id}", json={"name": "Unrelated Élodie", "weight": 1}
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["changed"] is True
+    updated = client.get("/api/state").json()
+    event = next(e for e in updated["events"] if e["id"] == eid)
+    assert len(event["people"]) == 2
+    assert len({p["name"].casefold() for p in event["people"]}) == 2
+    assert client.post(single, json={"name": "unrelated élodie"}).status_code == 409
+
+
+def test_unicode_name_normalization_is_not_identity_proof(client):
+    """Display-name collisions are rejected; no external identity claim is made."""
+    created = client.post(
+        "/api/events", json={"name": "Multilingual group", "date": "2026-11-21"}
+    )
+    eid = created.json()["id"]
+    bulk = client.post(f"/api/events/{eid}/people/bulk", json={
+        "people": [{"name": "MÜLLER"}, {"name": "Fatima"}]
+    })
+    assert bulk.status_code == 200, bulk.text
+    assert client.post(
+        f"/api/events/{eid}/people", json={"name": "müller"}
+    ).status_code == 409
