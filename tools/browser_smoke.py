@@ -68,6 +68,11 @@ def run_chromium_smoke(origin):
                     "Public demo seeded budget was not computed")
             require(page.locator("#compare-copy-summary").is_disabled(),
                     "Anonymous summary must start disabled")
+            # Real browsers enforce visibility: the planner lives in a
+            # different tab rather than the initially visible Overview.
+            page.locator('button[data-view="events"]').click()
+            require(page.locator("#events").is_visible(),
+                    "Event Planner navigation did not reveal the tab")
             page.locator("#duplicate-event").click()
             require(page.locator("#compare-copy-summary").is_enabled(),
                     "Duplicate scenario did not enable validated copy control")
