@@ -1870,6 +1870,16 @@ def delete_expense(eid: int, expense_id: int):
         record_history(c,eid,"expense_removed",details={"expense_id":expense_id})
     return {"ok":True}
 
+def participant_name_key(value: str) -> str:
+    """Consistent case-insensitive key, including non-ASCII participant names.
+
+    SQLite's built-in LOWER handles ASCII only. Every participant write path
+    uses Python's Unicode casefold so bulk, single-add and rename agree.
+    Names remain display text; equality is NOT verified participant identity.
+    """
+    return value.strip().casefold()
+
+
 class PersonInput(BaseModel):
     name: str = Field(min_length=2, max_length=60)
     weight: int = Field(default=1, ge=1, le=10)
@@ -1886,7 +1896,7 @@ def import_people(eid: int, data: BulkPeopleInput):
         name = item.name.strip()
         if len(name) < 2:
             raise HTTPException(422, "Each participant needs a name of at least 2 characters")
-        key = name.casefold()
+        key = participant_name_key(name)
         if key in seen:
             raise HTTPException(422, "Duplicate participant in batch: " + name)
         seen.add(key)
@@ -1895,7 +1905,7 @@ def import_people(eid: int, data: BulkPeopleInput):
         event = require_event(c,eid)
         require_editable(c,eid)
         existing = {
-            r["name"].casefold() for r in c.execute(
+            participant_name_key(r["name"]) for r in c.execute(
                 "SELECT name FROM people WHERE event_id=?", (eid,)
             ).fetchall()
         }
@@ -1930,11 +1940,11 @@ def add_person(eid: int, data: PersonInput):
         ).fetchone()[0]
         if count >= 200:
             raise HTTPException(422, "Maximum 200 fictional participants per event")
-        duplicate = c.execute(
-            "SELECT 1 FROM people WHERE event_id=? AND lower(trim(name))=lower(?)",
-            (eid, name)
-        ).fetchone()
-        if duplicate:
+        existing_names = c.execute(
+            "SELECT name FROM people WHERE event_id=?", (eid,)
+        ).fetchall()
+        if any(participant_name_key(row["name"]) == participant_name_key(name)
+               for row in existing_names):
             raise HTTPException(409, "Participant already exists in this event")
         row = c.execute("INSERT INTO people(event_id,name,weight) VALUES(?,?,?)",
                         (eid,name,data.weight))
@@ -1964,11 +1974,11 @@ def update_participant(eid: int,pid: int,data: ParticipantUpdateInput):
         if original["name"]==name and original["weight"]==data.weight:
             return {"ok":True,"changed":False,"approvals_reset":False}
         require_editable(c,eid)
-        duplicate=c.execute(
-            "SELECT 1 FROM people WHERE event_id=? AND id!=? AND lower(trim(name))=lower(?)",
-            (eid,pid,name)
-        ).fetchone()
-        if duplicate:
+        other_names=c.execute(
+            "SELECT name FROM people WHERE event_id=? AND id!=?", (eid,pid)
+        ).fetchall()
+        if any(participant_name_key(row["name"]) == participant_name_key(name)
+               for row in other_names):
             raise HTTPException(409,"A participant with this name already exists in this event")
         c.execute("UPDATE people SET name=?,weight=? WHERE id=? AND event_id=?",
                   (name,data.weight,pid,eid))
