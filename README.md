@@ -232,6 +232,19 @@ independent budget comparison stays readable. This is a read-only,
 browser-local *scenario estimate*, not evidence of actual financial
 ability, attendance, consent, PayPal captures or Gemini calls.
 
+**Copy anonymous comparison** becomes available once two different
+valid fictional plans and an exact-cent share cap are selected. It
+copies only fixed-label aggregate budget/share/cap figures and signed
+differences from the current in-browser calculation—**never** event
+names, participant names/IDs, approvals, simulated payments or provider
+identifiers. It does not contact the server. Clipboard permission
+failure is reported without claiming that copying succeeded.
+
+The copied text explicitly disclaims real affordability, participation,
+Gemini, PayPal captures, and payments. It is useful as a reproducible
+fictional scenario summary for reviewers, not as evidence that an
+integration has been live-tested.
+
 ## Duplicate an event as a fictional what-if draft
 
 In the public **Event planner**, **Duplicate as what-if draft** creates a
